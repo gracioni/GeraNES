@@ -34,6 +34,7 @@ inline void GeraNESApp::drawMemoryViewerWindow()
         ImGui::End();
         return;
     }
+    m_imGuiWindowFocusBlocksEmulator |= ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows);
 
     if(!m_emu.valid()) {
         ImGui::TextDisabled("Load a ROM to inspect memory.");

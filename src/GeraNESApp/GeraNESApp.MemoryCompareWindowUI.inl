@@ -50,6 +50,20 @@ inline void GeraNESApp::drawMemoryCompareWindow()
         });
         return memory;
     };
+    auto parseByteText = [](const char* text) {
+        uint8_t value = 0;
+        for(const char* c = text; *c != '\0'; ++c) {
+            value <<= 4;
+            if(*c >= '0' && *c <= '9') {
+                value |= static_cast<uint8_t>(*c - '0');
+            } else if(*c >= 'a' && *c <= 'f') {
+                value |= static_cast<uint8_t>(*c - 'a' + 10);
+            } else if(*c >= 'A' && *c <= 'F') {
+                value |= static_cast<uint8_t>(*c - 'A' + 10);
+            }
+        }
+        return value;
+    };
 
     SetNextWindowSizeClamped(ImVec2(620.0f, 620.0f), ImGuiCond_Appearing);
     ImGui::SetNextWindowPos(ImGui::GetMainViewport()->GetCenter(), ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
@@ -58,6 +72,7 @@ inline void GeraNESApp::drawMemoryCompareWindow()
         ImGui::End();
         return;
     }
+    m_imGuiWindowFocusBlocksEmulator |= ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows);
 
     if(!m_emu.valid()) {
         ImGui::TextDisabled("Load a ROM to compare memory.");
@@ -80,6 +95,9 @@ inline void GeraNESApp::drawMemoryCompareWindow()
                 m_memoryCompareType = i;
                 m_memoryCompareBaseline.clear();
                 m_memoryCompareCurrent.clear();
+                m_memoryCompareMask.clear();
+                m_memoryCompareMaskStack.clear();
+                m_memoryCompareMaskActive = false;
                 m_memoryCompareStatus.clear();
             }
             if(selected) {
@@ -96,6 +114,18 @@ inline void GeraNESApp::drawMemoryCompareWindow()
     if(ImGui::Button("Capture Baseline")) {
         m_memoryCompareBaseline = readRegion(region);
         m_memoryCompareCurrent = m_memoryCompareBaseline;
+        if(m_memoryCompareMaskActive) {
+            const auto invalidMask = std::find_if(
+                m_memoryCompareMask.begin(),
+                m_memoryCompareMask.end(),
+                [&](size_t index) { return index >= region.size; }
+            );
+            if(invalidMask != m_memoryCompareMask.end()) {
+                m_memoryCompareMask.clear();
+                m_memoryCompareMaskStack.clear();
+                m_memoryCompareMaskActive = false;
+            }
+        }
         m_memoryCompareStatus = "Baseline captured.";
     }
 
@@ -109,9 +139,31 @@ inline void GeraNESApp::drawMemoryCompareWindow()
 
     ImGui::Checkbox("Auto refresh", &m_memoryCompareAutoRefresh);
     ImGui::SameLine();
-    ImGui::SetNextItemWidth(140.0f);
-    const char* filterItems[] = {"All", "Changed", "Unchanged"};
+    ImGui::SetNextItemWidth(170.0f);
+    const char* filterItems[] = {"All", "Changed", "Unchanged", "Changed from -> to"};
     ImGui::Combo("Filter", &m_memoryCompareFilter, filterItems, static_cast<int>(std::size(filterItems)));
+    if(m_memoryCompareFilter == 3) {
+        ImGui::SameLine();
+        ImGui::TextUnformatted("From");
+        ImGui::SameLine();
+        ImGui::SetNextItemWidth(42.0f);
+        ImGui::InputText(
+            "##MemoryCompareFrom",
+            m_memoryCompareFromText,
+            sizeof(m_memoryCompareFromText),
+            ImGuiInputTextFlags_CharsHexadecimal | ImGuiInputTextFlags_AutoSelectAll
+        );
+        ImGui::SameLine();
+        ImGui::TextUnformatted("To");
+        ImGui::SameLine();
+        ImGui::SetNextItemWidth(42.0f);
+        ImGui::InputText(
+            "##MemoryCompareTo",
+            m_memoryCompareToText,
+            sizeof(m_memoryCompareToText),
+            ImGuiInputTextFlags_CharsHexadecimal | ImGuiInputTextFlags_AutoSelectAll
+        );
+    }
 
     if(hasBaseline && (m_memoryCompareAutoRefresh || m_memoryCompareCurrent.size() != region.size)) {
         m_memoryCompareCurrent = readRegion(region);
@@ -128,15 +180,94 @@ inline void GeraNESApp::drawMemoryCompareWindow()
         return;
     }
 
+    const uint8_t compareFrom = parseByteText(m_memoryCompareFromText);
+    const uint8_t compareTo = parseByteText(m_memoryCompareToText);
     size_t changedCount = 0;
-    for(size_t i = 0; i < m_memoryCompareBaseline.size() && i < m_memoryCompareCurrent.size(); ++i) {
-        if(m_memoryCompareBaseline[i] != m_memoryCompareCurrent[i]) {
+    size_t candidateCount = 0;
+    std::vector<size_t> visibleIndices;
+    visibleIndices.reserve(m_memoryCompareMaskActive ? m_memoryCompareMask.size() : m_memoryCompareBaseline.size());
+    const size_t memorySize = std::min(m_memoryCompareBaseline.size(), m_memoryCompareCurrent.size());
+    auto testIndex = [&](size_t i) {
+        if(i >= memorySize) {
+            return;
+        }
+        ++candidateCount;
+        const uint8_t baseline = m_memoryCompareBaseline[i];
+        const uint8_t current = m_memoryCompareCurrent[i];
+        const bool changed = baseline != current;
+        if(changed) {
             ++changedCount;
+        }
+        if(
+            m_memoryCompareFilter == 0 ||
+            (m_memoryCompareFilter == 1 && changed) ||
+            (m_memoryCompareFilter == 2 && !changed) ||
+            (m_memoryCompareFilter == 3 && baseline == compareFrom && current == compareTo)
+        ) {
+            visibleIndices.push_back(i);
+        }
+    };
+    if(m_memoryCompareMaskActive) {
+        for(size_t index : m_memoryCompareMask) {
+            testIndex(index);
+        }
+    } else {
+        for(size_t i = 0; i < memorySize; ++i) {
+            testIndex(i);
         }
     }
 
     ImGui::Separator();
-    ImGui::Text("Changed: %zu / %zu", changedCount, m_memoryCompareBaseline.size());
+    if(m_memoryCompareFilter == 3) {
+        ImGui::Text(
+            "Changed: %zu / %zu   Matches $%02X -> $%02X: %zu",
+            changedCount,
+            candidateCount,
+            static_cast<unsigned int>(compareFrom),
+            static_cast<unsigned int>(compareTo),
+            visibleIndices.size()
+        );
+    } else {
+        ImGui::Text("Changed: %zu / %zu   Visible: %zu", changedCount, candidateCount, visibleIndices.size());
+    }
+    if(m_memoryCompareMaskActive) {
+        ImGui::SameLine();
+        ImGui::TextDisabled("Mask %zu: %zu", m_memoryCompareMaskStack.size(), m_memoryCompareMask.size());
+    }
+    ImGui::BeginDisabled(visibleIndices.empty());
+    if(ImGui::Button("Push Results As Mask")) {
+        m_memoryCompareMask = visibleIndices;
+        m_memoryCompareMaskStack.push_back(m_memoryCompareMask);
+        m_memoryCompareMaskActive = true;
+        m_memoryCompareStatus = "Mask layer pushed from current results.";
+    }
+    ImGui::EndDisabled();
+    ImGui::SameLine();
+    ImGui::BeginDisabled(!m_memoryCompareMaskActive);
+    if(ImGui::Button("Pop Mask")) {
+        if(!m_memoryCompareMaskStack.empty()) {
+            m_memoryCompareMaskStack.pop_back();
+        }
+        if(m_memoryCompareMaskStack.empty()) {
+            m_memoryCompareMask.clear();
+            m_memoryCompareMaskActive = false;
+            m_memoryCompareStatus = "Mask stack cleared.";
+        } else {
+            m_memoryCompareMask = m_memoryCompareMaskStack.back();
+            m_memoryCompareMaskActive = true;
+            m_memoryCompareStatus = "Returned to previous mask layer.";
+        }
+    }
+    ImGui::EndDisabled();
+    ImGui::SameLine();
+    ImGui::BeginDisabled(!m_memoryCompareMaskActive);
+    if(ImGui::Button("Clear Masks")) {
+        m_memoryCompareMask.clear();
+        m_memoryCompareMaskStack.clear();
+        m_memoryCompareMaskActive = false;
+        m_memoryCompareStatus = "Mask stack cleared.";
+    }
+    ImGui::EndDisabled();
 
     const float rowHeight = ImGui::GetTextLineHeightWithSpacing();
     if(ImGui::BeginChild("MemoryCompareData", ImVec2(0.0f, 0.0f), true, ImGuiWindowFlags_HorizontalScrollbar)) {
@@ -156,10 +287,10 @@ inline void GeraNESApp::drawMemoryCompareWindow()
         ImGui::Separator();
 
         ImGuiListClipper clipper;
-        clipper.Begin(static_cast<int>(region.size), rowHeight);
+        clipper.Begin(static_cast<int>(visibleIndices.size()), rowHeight);
         while(clipper.Step()) {
             for(int row = clipper.DisplayStart; row < clipper.DisplayEnd; ++row) {
-                const size_t index = static_cast<size_t>(row);
+                const size_t index = visibleIndices[static_cast<size_t>(row)];
                 if(index >= m_memoryCompareBaseline.size() || index >= m_memoryCompareCurrent.size()) {
                     continue;
                 }
@@ -167,9 +298,6 @@ inline void GeraNESApp::drawMemoryCompareWindow()
                 const uint8_t baseline = m_memoryCompareBaseline[index];
                 const uint8_t current = m_memoryCompareCurrent[index];
                 const bool changed = baseline != current;
-                if((m_memoryCompareFilter == 1 && !changed) || (m_memoryCompareFilter == 2 && changed)) {
-                    continue;
-                }
 
                 const ImVec4 changedColor = ImGuiTheme::accentActive();
                 if(changed) {

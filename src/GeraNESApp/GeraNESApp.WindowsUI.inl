@@ -19,6 +19,7 @@ inline void GeraNESApp::showGui()
     else m_menuBarHeight = 0;
 
     if(lastMenuBarHeight != m_menuBarHeight) updateBuffers();
+    m_imGuiWindowFocusBlocksEmulator = false;
 
 #ifdef ENABLE_NSF_PLAYER
     if(m_emu.isNsfLoaded()) drawNsfPlayerVisualizer();
@@ -32,6 +33,7 @@ inline void GeraNESApp::showGui()
         ImGui::SetNextWindowPos(viewportCenter, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
 
         if(ImGui::Begin("Improvements", &m_showImprovementsWindow, ImGuiWindowFlags_NoResize)) {
+            m_imGuiWindowFocusBlocksEmulator |= ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows);
             bool disableSpritesLimit = m_emu.spriteLimitDisabled();
             if(ImGui::Checkbox("Disable Sprites Limit", &disableSpritesLimit)) {
                 m_emu.disableSpriteLimit(disableSpritesLimit);
@@ -117,6 +119,7 @@ inline void GeraNESApp::showGui()
         ImGui::SetNextWindowPos(viewportCenter, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
 
         if(ImGui::Begin("About", &m_showAboutWindow, ImGuiWindowFlags_NoResize)) {
+            m_imGuiWindowFocusBlocksEmulator |= ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows);
             std::string txt = std::string(GERANES_NAME) + " " + GERANES_VERSION;
 
             TextCenteredWrapped(txt);
@@ -141,6 +144,7 @@ inline void GeraNESApp::showGui()
         ImGui::SetNextWindowPos(viewportCenter, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
 
         if(ImGui::Begin("Arkanoid Controller Config (NES)", &m_showArkanoidNesConfigWindow, ImGuiWindowFlags_NoResize)) {
+            m_imGuiWindowFocusBlocksEmulator |= ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows);
             ImGui::TextWrapped("The NES Arkanoid paddle uses grabbed relative mouse movement. Press Escape to release the mouse.");
             ImGui::Separator();
 
@@ -160,6 +164,7 @@ inline void GeraNESApp::showGui()
         ImGui::SetNextWindowPos(viewportCenter, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
 
         if(ImGui::Begin("Arkanoid Controller Config (Famicom)", &m_showArkanoidFamicomConfigWindow, ImGuiWindowFlags_NoResize)) {
+            m_imGuiWindowFocusBlocksEmulator |= ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows);
             ImGui::TextWrapped("The Famicom Arkanoid paddle uses grabbed relative mouse movement. Press Escape to release the mouse.");
             ImGui::Separator();
 
@@ -179,6 +184,7 @@ inline void GeraNESApp::showGui()
         ImGui::SetNextWindowPos(viewportCenter, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
 
         if(ImGui::Begin("Mouse Config", &m_showSnesMouseConfigWindow, ImGuiWindowFlags_NoResize)) {
+            m_imGuiWindowFocusBlocksEmulator |= ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows);
             ImGui::TextWrapped("The selected mouse device uses grabbed relative movement. Press Escape to release the mouse.");
             ImGui::Separator();
 
@@ -518,6 +524,7 @@ inline void GeraNESApp::showGui()
         bool lastState = m_showErrorWindow;
 
         if(ImGui::Begin("Error", &m_showErrorWindow)) {
+            m_imGuiWindowFocusBlocksEmulator |= ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows);
             float windowWidth = ImGui::GetContentRegionAvail().x;
 
             TextCenteredWrapped(m_errorMessage.c_str());
@@ -548,6 +555,7 @@ inline void GeraNESApp::showGui()
         ImGui::SetNextWindowPos(viewportCenter, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
 
         if(ImGui::Begin("Log", &m_showLogWindow)) {
+            m_imGuiWindowFocusBlocksEmulator |= ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows);
             InputTextMultilineLog("##LogOuterChild", "##LogMultilineInput", m_logBuf.data(), m_logBuf.size(), ImVec2(-1, 400));
 
             ImGui::Spacing();
@@ -583,6 +591,10 @@ inline void GeraNESApp::showGui()
         }
 
         ImGui::End();
+    }
+
+    if(m_snesMouseGrabActive || m_arkanoidGrabActive) {
+        m_imGuiWindowFocusBlocksEmulator = false;
     }
 }
 

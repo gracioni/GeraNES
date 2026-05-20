@@ -1375,6 +1375,11 @@ void GeraNESApp::openFile(const char* path)
         this->setTitle(std::string("GeraNES - ") + filename);
         Logger::instance().log("Rom loaded", Logger::Type::USER);
         m_netplayRuntime.refreshLocalRomSelectionImmediate();
+        m_imGuiWantsKeyboard = false;
+        m_imGuiWindowFocusBlocksEmulator = false;
+        if(ImGui::GetCurrentContext() != nullptr) {
+            ImGui::SetWindowFocus(nullptr);
+        }
     } else {
         Logger::instance().log("Failed to load ROM", Logger::Type::USER);
     }
@@ -2348,7 +2353,7 @@ void GeraNESApp::pollAndPrepareInput()
     if(m_emuInputEnabled) {
         InputManager& im = InputManager::instance();
         const ImGuiIO& io = ImGui::GetIO();
-        m_imGuiWantsKeyboard = io.WantCaptureKeyboard || io.WantTextInput;
+        m_imGuiWantsKeyboard = io.WantTextInput || m_imGuiWindowFocusBlocksEmulator;
         im.updateInputs(!m_imGuiWantsKeyboard);
 
         const auto inputTopology = m_emu.getInputTopologySnapshot();
@@ -3106,7 +3111,7 @@ bool GeraNESApp::onEvent(SDL_Event& event)
     ImGuiIO& io = ImGui::GetIO();
 
     m_imGuiWantsMouse = pointerGrabActive ? false : io.WantCaptureMouse;
-    m_imGuiWantsKeyboard = io.WantCaptureKeyboard || io.WantTextInput;
+    m_imGuiWantsKeyboard = io.WantTextInput || m_imGuiWindowFocusBlocksEmulator;
     if(m_forceImGuiMouseResync && !pointerGrabActive) {
         int mx = 0;
         int my = 0;
@@ -3145,6 +3150,13 @@ bool GeraNESApp::onEvent(SDL_Event& event)
         }
 
         case SDL_MOUSEBUTTONDOWN:
+            if(!m_imGuiWantsMouse && pointInRect(glm::vec2(static_cast<float>(event.button.x), static_cast<float>(event.button.y)), m_nesScreenRect)) {
+                m_imGuiWindowFocusBlocksEmulator = false;
+                m_imGuiWantsKeyboard = false;
+                if(ImGui::GetCurrentContext() != nullptr) {
+                    ImGui::SetWindowFocus(nullptr);
+                }
+            }
             if(!m_imGuiWantsMouse && !m_touch->buttons().anyPressed() && (isSnesMouseActive() || isSuborMouseActive())) {
                 if(event.button.button == SDL_BUTTON_LEFT || event.button.button == SDL_BUTTON_RIGHT) {
                     if(pointInRect(glm::vec2(static_cast<float>(event.button.x), static_cast<float>(event.button.y)), m_nesScreenRect)) {

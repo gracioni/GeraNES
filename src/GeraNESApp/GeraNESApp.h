@@ -264,9 +264,14 @@ private:
     char m_memoryViewerEditText[3] = "00";
     int m_memoryCompareType = 0;
     int m_memoryCompareFilter = 1;
+    char m_memoryCompareFromText[3] = "01";
+    char m_memoryCompareToText[3] = "02";
     bool m_memoryCompareAutoRefresh = true;
+    bool m_memoryCompareMaskActive = false;
     std::vector<uint8_t> m_memoryCompareBaseline;
     std::vector<uint8_t> m_memoryCompareCurrent;
+    std::vector<size_t> m_memoryCompareMask;
+    std::vector<std::vector<size_t>> m_memoryCompareMaskStack;
     std::string m_memoryCompareStatus;
     int m_selectedPpuEventIndex = -1;
     uint32_t m_selectedPpuEventFrame = 0;
@@ -326,6 +331,7 @@ private:
 
     bool m_imGuiWantsMouse = false;
     bool m_imGuiWantsKeyboard = false;
+    bool m_imGuiWindowFocusBlocksEmulator = false;
     bool m_cursorVisible = true;
     bool m_arkanoidGrabActive = false;
     bool m_arkanoidSuppressClickUntilRelease = false;

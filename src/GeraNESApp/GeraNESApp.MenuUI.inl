@@ -1071,6 +1071,7 @@ inline void GeraNESApp::drawPaletteWindow()
         ImGui::End();
         return;
     }
+    m_imGuiWindowFocusBlocksEmulator |= ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows);
 
     if(ImGui::BeginChild("PaletteList", ImVec2(180.0f, 0.0f), true)) {
         if(ImGui::Selectable("Default", m_selectedPaletteName == "Default")) {
@@ -1157,6 +1158,7 @@ inline void GeraNESApp::drawShaderStackWindow()
         ImGui::End();
         return;
     }
+    m_imGuiWindowFocusBlocksEmulator |= ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows);
 
     auto& video = AppSettings::instance().data.video;
     auto& shaderStack = video.shaderStack;
@@ -1413,6 +1415,7 @@ inline void GeraNESApp::drawPpuViewerWindow()
         ImGui::End();
         return;
     }
+    m_imGuiWindowFocusBlocksEmulator |= ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows);
 
     auto syncPpuViewerScanlineTrace = [&](bool enabled) {
         if(m_ppuViewerScanlineTraceActive == enabled) {
@@ -2080,6 +2083,7 @@ inline void GeraNESApp::drawEventViewerWindow()
         ImGui::End();
         return;
     }
+    m_imGuiWindowFocusBlocksEmulator |= ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows);
 
     if(!m_emu.valid()) {
         m_emu.setPpuEventViewerCaptureEnabled(false);

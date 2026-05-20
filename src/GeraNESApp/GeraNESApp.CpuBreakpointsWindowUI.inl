@@ -18,6 +18,7 @@ inline void GeraNESApp::drawCpuBreakpointsWindow()
 
     AppSettings::instance().data.debug.showCpuBreakpoints = m_showCpuBreakpointsWindow;
     m_cpuBreakpointsFocused = ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows);
+    m_imGuiWindowFocusBlocksEmulator |= m_cpuBreakpointsFocused;
 
     const bool hasRomLoaded = m_emu.valid();
     const auto netplaySnapshot = m_netplayRuntime.uiSnapshot();

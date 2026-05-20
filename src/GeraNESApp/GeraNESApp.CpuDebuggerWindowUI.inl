@@ -17,6 +17,7 @@ inline void GeraNESApp::drawCpuDebuggerWindow()
 
     AppSettings::instance().data.debug.showCpuDebugger = m_showCpuDebuggerWindow;
     m_cpuDebuggerFocused = ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows);
+    m_imGuiWindowFocusBlocksEmulator |= m_cpuDebuggerFocused;
 
     const bool hasRomLoaded = m_emu.valid();
     const auto netplaySnapshot = m_netplayRuntime.uiSnapshot();
