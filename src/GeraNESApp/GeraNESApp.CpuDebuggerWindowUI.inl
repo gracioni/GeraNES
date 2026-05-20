@@ -418,7 +418,10 @@ inline void GeraNESApp::drawCpuDebuggerWindow()
 
                 ImGui::PushID(row);
                 if(symbol != nullptr && !isDataSymbol) {
-                    ImGui::TextColored(ImGuiTheme::accentActive(), "  %s:", symbol->name.c_str());
+                    const ImVec4 symbolDeclarationColor = symbol->kind == CpuDebugSymbolKind::Label
+                        ? labelReferenceColor
+                        : ImGuiTheme::accentActive();
+                    ImGui::TextColored(symbolDeclarationColor, "  %s:", symbol->name.c_str());
                     if(ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)) {
                         navigateCpuDebuggerTo(line.address, false);
                     }
