@@ -67,6 +67,7 @@ namespace fs = std::filesystem;
 #include "GeraNESApp/InputManager.h"
 #include "GeraNESApp/ControllerInfo.h"
 #include "GeraNESApp/AppSettings.h"
+#include "GeraNESApp/ModManager.h"
 
 #include "GeraNES/util/CircularBuffer.h"
 #include "GeraNES/util/Crc32.h"
@@ -288,6 +289,7 @@ private:
 #endif
 
     ConsoleNetplay::NetplayAppRuntime m_netplayRuntime;
+    ModManager m_modManager;
     mutable std::mutex m_netplayInputStateMutex;
     IEmulationHost::InputState m_netplayLatestInputState = {};
 

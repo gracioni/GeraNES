@@ -244,6 +244,7 @@ public:
         }
         return m_fileName.empty() ? m_sourcePath : m_fileName;
     }
+    GERANES_INLINE const std::vector<uint8_t>& dataBytes() const { return m_data; }
     GERANES_INLINE uint8_t  data(size_t addr) const { return m_data[addr]; }
     GERANES_INLINE size_t size() const { return m_data.size(); }
 

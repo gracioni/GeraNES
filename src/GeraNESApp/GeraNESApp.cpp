@@ -764,6 +764,7 @@ void GeraNESApp::closeRomAction()
     }
 
     m_emu.closeRom();
+    m_modManager.clear();
     setTitle("GeraNES");
     m_framebufferUploadCopy.assign(PPU::SCREEN_WIDTH * PPU::SCREEN_HEIGHT, 0u);
     m_textureUploadBuffer.assign(256u * 256u, 0u);
@@ -1367,9 +1368,19 @@ void GeraNESApp::openFile(const char* path)
         return;
     }
 
+    const ModManager::LoadRequest modLoad = m_modManager.prepareRomLoad(
+        fs::path(path),
+        AppSettings::instance().data.modding.useModIfAvailable
+    );
+    const std::string effectivePath = modLoad.effectiveRomPath.string();
+
     AppSettings::instance().data.addRecentFile(path);
     AppSettings::instance().data.setLastFolder(path);
-    if(m_emu.open(path)) {
+    if(m_emu.open(effectivePath)) {
+        if(modLoad.modLoaded) {
+            m_modManager.loadScriptForCurrentMod();
+            Logger::instance().log(modLoad.message + " " + modLoad.modPath.string(), Logger::Type::USER);
+        }
         normalizeTouchControlsTargetForCurrentTopology();
         const std::string filename = fs::path(path).filename().string();
         this->setTitle(std::string("GeraNES - ") + filename);
@@ -1381,6 +1392,7 @@ void GeraNESApp::openFile(const char* path)
             ImGui::SetWindowFocus(nullptr);
         }
     } else {
+        m_modManager.clear();
         Logger::instance().log("Failed to load ROM", Logger::Type::USER);
     }
 }
@@ -1713,6 +1725,7 @@ GeraNESApp::GeraNESApp()
             runtimeSettings
         );
         cfg.inputDelayFrames = static_cast<int>(updateResult.inputDelayFrames);
+        m_modManager.onFrame(emu);
     });
 
     std::ofstream file(LOG_FILE);

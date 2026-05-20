@@ -293,6 +293,13 @@ public:
         NLOHMANN_DEFINE_TYPE_INTRUSIVE_WITH_DEFAULT(Debug, showFps, cpuDebuggerEnabled, showCpuDebugger, showCpuBreakpoints)
     };
 
+    struct Modding {
+
+        bool useModIfAvailable = false;
+
+        NLOHMANN_DEFINE_TYPE_INTRUSIVE_WITH_DEFAULT(Modding, useModIfAvailable)
+    };
+
     struct Netplay {
 
         int snapshotWindowFrames = 600;
@@ -381,6 +388,7 @@ public:
         Video video;
         Audio audio;
         Debug debug;
+        Modding modding;
 
         void addRecentFile(const std::string path);
 
@@ -392,7 +400,7 @@ public:
 
         void sanitizeDefaults();
 
-        NLOHMANN_DEFINE_TYPE_INTRUSIVE_WITH_DEFAULT(Data, input, recentFiles, lastFolder, saveStateSlot, improvements, netplay, video, audio, debug)
+        NLOHMANN_DEFINE_TYPE_INTRUSIVE_WITH_DEFAULT(Data, input, recentFiles, lastFolder, saveStateSlot, improvements, netplay, video, audio, debug, modding)
     } data;
 
     AppSettings(const AppSettings&) = delete;

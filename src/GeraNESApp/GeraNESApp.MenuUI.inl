@@ -877,6 +877,12 @@ inline void GeraNESApp::menuBar() {
 
             ImGui::Separator();
 
+            if(ImGui::MenuItem("Use Mod If Available", nullptr, AppSettings::instance().data.modding.useModIfAvailable)) {
+                AppSettings::instance().data.modding.useModIfAvailable = !AppSettings::instance().data.modding.useModIfAvailable;
+            }
+
+            ImGui::Separator();
+
             const bool hasLoadedRom = m_emu.valid();
             if(ImGui::MenuItem("Memory Viewer", nullptr, m_showMemoryViewerWindow, hasLoadedRom)) {
                 m_showMemoryViewerWindow = !m_showMemoryViewerWindow;
