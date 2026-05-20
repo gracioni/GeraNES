@@ -1611,6 +1611,9 @@ void GeraNESApp::createShortcuts()
     }});
 
     m_shortcuts.add(ShortcutManager::Data{"cpuBreakpoints", "CPU Breakpoints", "Alt+B", [this]() {
+        if(!m_emu.valid() || isNetplayBlockingCpuDebug() || (!m_cpuDebuggerFocused && !m_cpuBreakpointsFocused)) {
+            return;
+        }
         m_showCpuBreakpointsWindow = !m_showCpuBreakpointsWindow;
         if(m_showCpuBreakpointsWindow) {
             m_cpuBreakpointsRequestFocus = true;

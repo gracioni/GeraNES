@@ -916,6 +916,33 @@ inline void GeraNESApp::drawMemoryViewerWindow()
     if(m_memoryViewerType < 0 || m_memoryViewerType >= static_cast<int>(std::size(kRegions))) {
         m_memoryViewerType = 0;
     }
+    auto setMemoryViewerGotoText = [this](uint32_t address) {
+        std::ostringstream text;
+        text << std::uppercase << std::hex;
+        text.width(4);
+        text.fill('0');
+        text << static_cast<unsigned int>(address & 0xFFFFu);
+        const std::string value = text.str();
+        m_memoryViewerGotoText[0] = value[0];
+        m_memoryViewerGotoText[1] = value[1];
+        m_memoryViewerGotoText[2] = value[2];
+        m_memoryViewerGotoText[3] = value[3];
+        m_memoryViewerGotoText[4] = '\0';
+    };
+    auto parseMemoryViewerHexText = [](const char* text) {
+        uint32_t value = 0;
+        for(const char* c = text; *c != '\0'; ++c) {
+            value <<= 4;
+            if(*c >= '0' && *c <= '9') {
+                value |= static_cast<uint32_t>(*c - '0');
+            } else if(*c >= 'a' && *c <= 'f') {
+                value |= static_cast<uint32_t>(*c - 'a' + 10);
+            } else if(*c >= 'A' && *c <= 'F') {
+                value |= static_cast<uint32_t>(*c - 'A' + 10);
+            }
+        }
+        return value;
+    };
     const MemoryViewerRegion& comboRegion = kRegions[m_memoryViewerType];
 
     ImGui::TextUnformatted("Memory Type");
@@ -928,6 +955,7 @@ inline void GeraNESApp::drawMemoryViewerWindow()
                 m_memoryViewerType = i;
                 m_memoryViewerAddress = static_cast<uint16_t>(kRegions[i].baseAddress);
                 m_memoryViewerGotoAddress = m_memoryViewerAddress;
+                setMemoryViewerGotoText(m_memoryViewerGotoAddress);
                 m_memoryViewerScrollToAddress = kRegions[i].baseAddress;
                 m_memoryViewerScrollPendingFrames = 3;
             }
@@ -943,21 +971,24 @@ inline void GeraNESApp::drawMemoryViewerWindow()
     ImGui::TextUnformatted("Address");
     ImGui::SameLine();
     ImGui::SetNextItemWidth(86.0f);
-    const bool gotoSubmitted = ImGui::InputScalar(
+    const bool gotoSubmitted = ImGui::InputText(
         "##MemoryViewerAddress",
-        ImGuiDataType_U16,
-        &m_memoryViewerGotoAddress,
-        nullptr,
-        nullptr,
-        "%04X",
-        ImGuiInputTextFlags_CharsHexadecimal | ImGuiInputTextFlags_EnterReturnsTrue
+        m_memoryViewerGotoText,
+        sizeof(m_memoryViewerGotoText),
+        ImGuiInputTextFlags_CharsHexadecimal |
+        ImGuiInputTextFlags_EnterReturnsTrue |
+        ImGuiInputTextFlags_AutoSelectAll
     );
-    if(gotoSubmitted) {
+    ImGui::SameLine();
+    const bool gotoClicked = ImGui::Button("Go");
+    if(gotoSubmitted || gotoClicked) {
         const uint32_t minAddress = region.baseAddress;
         const uint32_t maxAddress = region.baseAddress + region.size - 1;
-        const uint32_t clamped = std::clamp<uint32_t>(m_memoryViewerGotoAddress, minAddress, maxAddress);
+        const uint32_t requestedAddress = parseMemoryViewerHexText(m_memoryViewerGotoText);
+        const uint32_t clamped = std::clamp<uint32_t>(requestedAddress, minAddress, maxAddress);
         m_memoryViewerAddress = static_cast<uint16_t>(clamped);
         m_memoryViewerGotoAddress = m_memoryViewerAddress;
+        setMemoryViewerGotoText(m_memoryViewerGotoAddress);
         m_memoryViewerScrollToAddress = clamped;
         m_memoryViewerScrollPendingFrames = 3;
     }
@@ -1004,7 +1035,7 @@ inline void GeraNESApp::drawMemoryViewerWindow()
     bool openEditPopup = false;
 
     if(ImGui::BeginChild("MemoryViewerData", ImVec2(0.0f, 0.0f), true, ImGuiWindowFlags_HorizontalScrollbar)) {
-        const float lineHeight = ImGui::GetTextLineHeightWithSpacing();
+        const float lineHeight = ImGui::GetTextLineHeight();
         if(ImGui::IsWindowAppearing() || (m_memoryViewerScrollToAddress != UINT32_MAX && m_memoryViewerScrollPendingFrames > 0)) {
             ImGui::SetScrollY(std::max(0.0f, static_cast<float>(scrollRow) * lineHeight - lineHeight * 3.0f));
             --m_memoryViewerScrollPendingFrames;
@@ -1013,7 +1044,7 @@ inline void GeraNESApp::drawMemoryViewerWindow()
             }
         }
 
-        ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(0.0f, ImGui::GetStyle().ItemSpacing.y));
+        ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(0.0f, 0.0f));
         ImGuiListClipper clipper;
         clipper.Begin(rowCount, lineHeight);
         while(clipper.Step()) {
@@ -1053,6 +1084,9 @@ inline void GeraNESApp::drawMemoryViewerWindow()
                         m_memoryViewerEditOpen = true;
                         m_memoryViewerEditAddress = region.baseAddress + offset;
                         m_memoryViewerEditValue = memory[offset];
+                        m_memoryViewerEditText[0] = byteText.str()[0];
+                        m_memoryViewerEditText[1] = byteText.str()[1];
+                        m_memoryViewerEditText[2] = '\0';
                         openEditPopup = true;
                     }
                     if(ImGui::IsItemHovered()) {
@@ -1088,23 +1122,42 @@ inline void GeraNESApp::drawMemoryViewerWindow()
     }
     ImGui::EndChild();
     if(openEditPopup) {
+        m_memoryViewerEditOpen = true;
         ImGui::OpenPopup("Edit Memory Byte");
     }
 
-    if(ImGui::BeginPopupModal("Edit Memory Byte", &m_memoryViewerEditOpen, ImGuiWindowFlags_AlwaysAutoResize)) {
+    if(m_memoryViewerEditOpen && ImGui::BeginPopupModal("Edit Memory Byte", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
         ImGui::Text("Address: $%04X", static_cast<unsigned int>(m_memoryViewerEditAddress & 0xFFFFu));
+        if(ImGui::IsWindowAppearing()) {
+            ImGui::SetKeyboardFocusHere();
+        }
         ImGui::SetNextItemWidth(70.0f);
-        const bool editSubmitted = ImGui::InputScalar(
+        const bool editSubmitted = ImGui::InputText(
             "Value",
-            ImGuiDataType_U8,
-            &m_memoryViewerEditValue,
-            nullptr,
-            nullptr,
-            "%02X",
-            ImGuiInputTextFlags_CharsHexadecimal | ImGuiInputTextFlags_EnterReturnsTrue
+            m_memoryViewerEditText,
+            sizeof(m_memoryViewerEditText),
+            ImGuiInputTextFlags_CharsHexadecimal |
+            ImGuiInputTextFlags_EnterReturnsTrue |
+            ImGuiInputTextFlags_AutoSelectAll
         );
-        if(editSubmitted || ImGui::Button("Write")) {
-            const uint8_t value = m_memoryViewerEditValue;
+        const bool writeClicked = ImGui::Button("Write");
+        if(editSubmitted || writeClicked) {
+            uint8_t value = 0;
+            for(char c : m_memoryViewerEditText) {
+                if(c == '\0') {
+                    break;
+                }
+
+                value <<= 4;
+                if(c >= '0' && c <= '9') {
+                    value |= static_cast<uint8_t>(c - '0');
+                } else if(c >= 'a' && c <= 'f') {
+                    value |= static_cast<uint8_t>(c - 'a' + 10);
+                } else if(c >= 'A' && c <= 'F') {
+                    value |= static_cast<uint8_t>(c - 'A' + 10);
+                }
+            }
+            m_memoryViewerEditValue = value;
             const uint32_t address = m_memoryViewerEditAddress;
             const MemoryViewerRegion writeRegion = region;
             m_emu.withExclusiveAccess([&](auto& emu) {

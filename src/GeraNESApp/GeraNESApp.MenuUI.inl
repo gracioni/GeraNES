@@ -877,22 +877,22 @@ inline void GeraNESApp::menuBar() {
 
             ImGui::Separator();
 
-            if(ImGui::MenuItem("Memory Viewer", nullptr, m_showMemoryViewerWindow, m_emu.valid())) {
+            const bool hasLoadedRom = m_emu.valid();
+            if(ImGui::MenuItem("Memory Viewer", nullptr, m_showMemoryViewerWindow, hasLoadedRom)) {
                 m_showMemoryViewerWindow = !m_showMemoryViewerWindow;
             }
 
-            if(ImGui::MenuItem("PPU Viewer", nullptr, m_showPpuViewerWindow)) {
+            if(ImGui::MenuItem("PPU Viewer", nullptr, m_showPpuViewerWindow, hasLoadedRom)) {
                 m_showPpuViewerWindow = !m_showPpuViewerWindow;
             }
 
-            if(ImGui::MenuItem("Event Viewer", nullptr, m_showEventViewerWindow)) {
+            if(ImGui::MenuItem("Event Viewer", nullptr, m_showEventViewerWindow, hasLoadedRom)) {
                 m_showEventViewerWindow = !m_showEventViewerWindow;
             }
 
             auto debugShortcut = m_shortcuts.get("cpuDebugger");
             const char* debugKey = (debugShortcut != nullptr) ? debugShortcut->shortcut.c_str() : nullptr;
-            const bool netplayBlocksCpuDebug = isNetplayBlockingCpuDebug();
-            if(ImGui::MenuItem("CPU Debugger", debugKey, m_showCpuDebuggerWindow)) {
+            if(ImGui::MenuItem("CPU Debugger", debugKey, m_showCpuDebuggerWindow, hasLoadedRom)) {
                 m_showCpuDebuggerWindow = !m_showCpuDebuggerWindow;
                 AppSettings::instance().data.debug.showCpuDebugger = m_showCpuDebuggerWindow;
                 if(m_showCpuDebuggerWindow) {
@@ -900,16 +900,6 @@ inline void GeraNESApp::menuBar() {
                 } else {
                     disableCpuDebugging();
                 }
-            }
-
-            auto breakpointShortcut = m_shortcuts.get("cpuBreakpoints");
-            const char* breakpointKey = (breakpointShortcut != nullptr) ? breakpointShortcut->shortcut.c_str() : nullptr;
-            if(ImGui::MenuItem("CPU Breakpoints", breakpointKey, m_showCpuBreakpointsWindow, !netplayBlocksCpuDebug)) {
-                m_showCpuBreakpointsWindow = !m_showCpuBreakpointsWindow;
-                if(m_showCpuBreakpointsWindow) {
-                    m_cpuBreakpointsRequestFocus = true;
-                }
-                AppSettings::instance().data.debug.showCpuBreakpoints = m_showCpuBreakpointsWindow;
             }
 
             ImGui::Separator();

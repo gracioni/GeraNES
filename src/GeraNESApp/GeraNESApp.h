@@ -252,6 +252,7 @@ private:
     int m_memoryViewerType = 0;
     uint16_t m_memoryViewerAddress = 0;
     uint16_t m_memoryViewerGotoAddress = 0;
+    char m_memoryViewerGotoText[5] = "0000";
     int m_memoryViewerColumns = 16;
     bool m_memoryViewerShowAscii = true;
     uint32_t m_memoryViewerScrollToAddress = UINT32_MAX;
@@ -259,6 +260,7 @@ private:
     bool m_memoryViewerEditOpen = false;
     uint32_t m_memoryViewerEditAddress = 0;
     uint8_t m_memoryViewerEditValue = 0;
+    char m_memoryViewerEditText[3] = "00";
     int m_selectedPpuEventIndex = -1;
     uint32_t m_selectedPpuEventFrame = 0;
 
