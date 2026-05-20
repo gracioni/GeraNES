@@ -34,7 +34,7 @@ public:
     /**
      * Must be called once per frame
     */
-    void updateInputs();
+    void updateInputs(bool captureKeyboard = true);
     bool isPressed(const std::string& name);
     bool isJustPressed(const std::string& name);
     std::vector<std::string> capture();

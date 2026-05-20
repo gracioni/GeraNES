@@ -2347,7 +2347,9 @@ void GeraNESApp::pollAndPrepareInput()
 {
     if(m_emuInputEnabled) {
         InputManager& im = InputManager::instance();
-        im.updateInputs();
+        const ImGuiIO& io = ImGui::GetIO();
+        m_imGuiWantsKeyboard = io.WantCaptureKeyboard || io.WantTextInput;
+        im.updateInputs(!m_imGuiWantsKeyboard);
 
         const auto inputTopology = m_emu.getInputTopologySnapshot();
         const bool touchInputActive = !m_imGuiWantsMouse;
@@ -2613,10 +2615,10 @@ void GeraNESApp::pollAndPrepareInput()
         inputState.p4Right = p4Right;
         inputState.p1PowerPadButtons = p1PowerPadButtons;
         inputState.p2PowerPadButtons = p2PowerPadButtons;
-        if(isSuborKeyboardActive()) {
+        if(isSuborKeyboardActive() && !m_imGuiWantsKeyboard) {
             inputState.suborKeyboardKeys = captureSuborKeyboardState();
         }
-        if(isFamilyBasicKeyboardActive()) {
+        if(isFamilyBasicKeyboardActive() && !m_imGuiWantsKeyboard) {
             inputState.familyBasicKeyboardKeys = captureFamilyBasicKeyboardState();
         }
         inputState.zapperX = zapperX;
@@ -3104,7 +3106,7 @@ bool GeraNESApp::onEvent(SDL_Event& event)
     ImGuiIO& io = ImGui::GetIO();
 
     m_imGuiWantsMouse = pointerGrabActive ? false : io.WantCaptureMouse;
-    bool imGuiWantsKeyboard = io.WantCaptureKeyboard;
+    m_imGuiWantsKeyboard = io.WantCaptureKeyboard || io.WantTextInput;
     if(m_forceImGuiMouseResync && !pointerGrabActive) {
         int mx = 0;
         int my = 0;
@@ -3124,7 +3126,7 @@ bool GeraNESApp::onEvent(SDL_Event& event)
             if(hasAltModifier) keyName = "Alt+" + keyName;
             const bool allowGlobalShortcutWhileImGuiFocused = hasAltModifier || keyName == "Escape";
 
-            if(imGuiWantsKeyboard && !allowGlobalShortcutWhileImGuiFocused) break;
+            if(m_imGuiWantsKeyboard && !allowGlobalShortcutWhileImGuiFocused) break;
 
             m_shortcuts.invokeShortcut(keyName);
 

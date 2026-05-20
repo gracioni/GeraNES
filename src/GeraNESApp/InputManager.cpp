@@ -36,14 +36,14 @@ InputManager& InputManager::instance()
     return staticInstance;
 }
 
-void InputManager::updateInputs()
+void InputManager::updateInputs(bool captureKeyboard)
 {
     ++m_currentFrameId;
 
     const Uint8* keyboardState = SDL_GetKeyboardState(nullptr);
 
     for(int i = 0; i < 256; i++) {
-        setInputState(SDL_KeyIndexName(static_cast<uint8_t>(i)), keyboardState[i], m_currentFrameId);
+        setInputState(SDL_KeyIndexName(static_cast<uint8_t>(i)), captureKeyboard && keyboardState[i], m_currentFrameId);
     }
 
     int numControllers = SDL_NumJoysticks();

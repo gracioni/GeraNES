@@ -325,6 +325,7 @@ private:
     int m_customChromeDragStartWindowY = 0;
 
     bool m_imGuiWantsMouse = false;
+    bool m_imGuiWantsKeyboard = false;
     bool m_cursorVisible = true;
     bool m_arkanoidGrabActive = false;
     bool m_arkanoidSuppressClickUntilRelease = false;
