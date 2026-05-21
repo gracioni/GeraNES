@@ -122,26 +122,7 @@ inline void GeraNESApp::render()
     const int activeBottomScaled = activeBottom * modScale;
     const uint32_t* framebuffer = nullptr;
     const bool useModRenderPath = m_emu.valid() && m_modManager.active();
-    const bool hasBackgroundReplacements = !m_modManager.backgroundReplacements().empty();
-    const bool hasConditionalChrOverrides = std::any_of(
-        m_modManager.chrOverrides().begin(),
-        m_modManager.chrOverrides().end(),
-        [](const ModManager::ChrOverride& override) {
-            return override.enabled && !override.assetPath.empty() && !override.conditions.empty();
-        }
-    );
-    const bool hasChrHashOverrides = std::any_of(
-        m_modManager.chrOverrides().begin(),
-        m_modManager.chrOverrides().end(),
-        [](const ModManager::ChrOverride& override) {
-            return override.enabled && !override.assetPath.empty() && override.hasChrHash;
-        }
-    );
-    const bool canUseSnapshotChrRenderPath =
-        useModRenderPath &&
-        !hasBackgroundReplacements &&
-        !hasConditionalChrOverrides &&
-        !hasChrHashOverrides;
+    const bool canUseSnapshotChrRenderPath = useModRenderPath;
 
     if(!m_emu.valid()) {
         fillNoRomStaticFramebuffer();
@@ -207,19 +188,6 @@ inline void GeraNESApp::render()
                 chrSnapshot
             );
         }
-    } else if(useModRenderPath) {
-        m_emu.withExclusiveAccess([&](GeraNESEmu& emu) {
-            copyScaledFramebuffer(emu.getFramebuffer());
-            m_modManager.renderReplacements(
-                m_textureUploadBuffer,
-                textureWidth,
-                textureHeight,
-                activeTopScaled,
-                activeBottomScaled,
-                modScale,
-                emu
-            );
-        });
     } else {
         copyScaledFramebuffer(framebuffer);
     }
