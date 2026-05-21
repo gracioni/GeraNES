@@ -124,7 +124,6 @@ public:
         std::array<uint32_t, 512> tileHashes = {};
         std::vector<PPU::DebugModBackgroundPixel> backgroundPixels;
         std::vector<PPU::DebugModSpritePixel> spritePixels;
-        std::vector<PPU::DebugModRenderedPixel> renderedPixels;
     };
     struct DebugDecodedImage {
         int width = 0;
@@ -136,9 +135,6 @@ public:
     LoadRequest prepareRomLoad(const std::filesystem::path& romPath, bool useModIfAvailable);
     bool loadScriptForCurrentMod();
     void onFrame(GeraNESEmu& emu);
-    void renderReplacements(std::vector<uint32_t>& framebuffer, int width, int height, int activeTop, int activeBottom, int scale, GeraNESEmu& emu);
-    ChrRenderSnapshot captureChrRenderSnapshot(GeraNESEmu& emu) const;
-    void renderChrOverrides(std::vector<uint32_t>& framebuffer, int width, int height, int activeTop, int activeBottom, int scale, const ChrRenderSnapshot& snapshot, const std::vector<const ChrOverride*>* activeOverrideFilter = nullptr);
     void composeChrFrame(std::vector<uint32_t>& framebuffer, int width, int height, int activeTop, int activeBottom, int scale, const uint32_t* sourceFramebuffer, const ChrRenderSnapshot& snapshot, const std::vector<const ChrOverride*>* activeOverrideFilter = nullptr);
 
     bool active() const { return m_active; }
@@ -199,7 +195,6 @@ private:
     static std::optional<MemoryCondition> parseMemoryConditionObject(const sol::object& object);
     static ChrOverride parseChrOverrideTable(const sol::table& table);
     static BackgroundReplacement parseBackgroundReplacementTable(const std::string& id, const sol::table& table);
-    void renderBackgroundReplacements(std::vector<uint32_t>& framebuffer, int width, int height, int activeTop, int activeBottom, int scale, GeraNESEmu& emu);
     static uint32_t blendPixel(uint32_t dst, uint32_t src, int alphaScale);
     static uint32_t hashChrTile(PPU& ppu, int patternAddress);
     static uint8_t readBackgroundPaletteIndexAt(PPU& ppu, int screenX, int screenY);

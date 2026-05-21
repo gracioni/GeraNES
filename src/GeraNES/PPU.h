@@ -219,12 +219,6 @@ private:
     uint64_t m_tileData;
 
 public:
-    enum class DebugModRenderLayer : uint8_t {
-        None = 0,
-        Background = 1,
-        Sprite = 2,
-    };
-
     struct DebugModBackgroundPixel {
         uint16_t patternAddress = 0xFFFF;
         uint8_t palette[3] = {};
@@ -261,19 +255,6 @@ public:
         std::array<DebugModSpriteCandidate, 8> candidates = {};
     };
 
-    struct DebugModRenderedPixel {
-        DebugModRenderLayer layer = DebugModRenderLayer::None;
-        uint16_t patternAddress = 0xFFFF;
-        uint8_t palette[3] = {};
-        uint8_t paletteIndex = 0;
-        uint8_t colorLowBits = 0;
-        uint8_t offsetX = 0;
-        uint8_t offsetY = 0;
-        bool horizontalMirror = false;
-        bool verticalMirror = false;
-        bool valid = false;
-    };
-
 private:
     struct DebugModBackgroundShiftPixel {
         uint16_t patternAddress = 0xFFFF;
@@ -286,10 +267,8 @@ private:
     bool m_debugModRenderCaptureEnabled = false;
     std::vector<DebugModBackgroundPixel> m_debugModBackgroundPixels;
     std::vector<DebugModSpritePixel> m_debugModSpritePixels;
-    std::vector<DebugModRenderedPixel> m_debugModRenderedPixels;
     std::vector<DebugModBackgroundPixel> m_debugModPresentedBackgroundPixels;
     std::vector<DebugModSpritePixel> m_debugModPresentedSpritePixels;
-    std::vector<DebugModRenderedPixel> m_debugModPresentedRenderedPixels;
     std::array<DebugModBackgroundShiftPixel, 16> m_debugModBackgroundShift = {};
 
     int m_lastPPUSTATUSReadCycle; //record the cycle when ppustatus is read
@@ -834,10 +813,8 @@ public:
         m_debugModBackgroundShift = {};
         m_debugModBackgroundPixels.clear();
         m_debugModSpritePixels.clear();
-        m_debugModRenderedPixels.clear();
         m_debugModPresentedBackgroundPixels.clear();
         m_debugModPresentedSpritePixels.clear();
-        m_debugModPresentedRenderedPixels.clear();
 
         m_lastPPUSTATUSReadCycle = -1;
 
@@ -1051,7 +1028,7 @@ public:
 
     GERANES_INLINE void captureModBackgroundPixel()
     {
-        if(!m_debugModRenderCaptureEnabled || m_debugModBackgroundPixels.empty() || m_debugModSpritePixels.empty() || m_debugModRenderedPixels.empty() ||
+        if(!m_debugModRenderCaptureEnabled || m_debugModBackgroundPixels.empty() || m_debugModSpritePixels.empty() ||
            m_currentX < 0 || m_currentX >= SCREEN_WIDTH || m_currentY < 0 || m_currentY >= SCREEN_HEIGHT) {
             return;
         }
@@ -1078,63 +1055,6 @@ public:
         const size_t index = static_cast<size_t>(m_currentY) * SCREEN_WIDTH + static_cast<size_t>(m_currentX);
         m_debugModBackgroundPixels[index] = pixel;
         m_debugModSpritePixels[index] = {};
-        m_debugModRenderedPixels[index] = {};
-    }
-
-    GERANES_INLINE void captureModRenderedPixel()
-    {
-        if(!m_debugModRenderCaptureEnabled || m_debugModBackgroundPixels.empty() || m_debugModSpritePixels.empty() || m_debugModRenderedPixels.empty() ||
-           m_currentX < 0 || m_currentX >= SCREEN_WIDTH || m_currentY < 0 || m_currentY >= SCREEN_HEIGHT) {
-            return;
-        }
-
-        const size_t index = static_cast<size_t>(m_currentY) * SCREEN_WIDTH + static_cast<size_t>(m_currentX);
-        const DebugModBackgroundPixel& bg = m_debugModBackgroundPixels[index];
-        const DebugModSpritePixel& sprite = m_debugModSpritePixels[index];
-
-        DebugModRenderedPixel rendered;
-        const bool bgOpaque = bg.valid && bg.colorLowBits != 0;
-
-        if(sprite.count > 0) {
-            for(uint8_t i = 0; i < sprite.count; ++i) {
-                const DebugModSpriteCandidate& candidate = sprite.candidates[i];
-                if(!candidate.valid || candidate.colorLowBits == 0) {
-                    continue;
-                }
-                if(bgOpaque && candidate.behindBackground) {
-                    continue;
-                }
-
-                rendered.layer = DebugModRenderLayer::Sprite;
-                rendered.patternAddress = candidate.patternAddress;
-                rendered.palette[0] = candidate.palette[0];
-                rendered.palette[1] = candidate.palette[1];
-                rendered.palette[2] = candidate.palette[2];
-                rendered.paletteIndex = static_cast<uint8_t>(m_currentPixelColorIndex & 0x3F);
-                rendered.colorLowBits = candidate.colorLowBits;
-                rendered.offsetX = candidate.offsetX;
-                rendered.offsetY = candidate.offsetY;
-                rendered.horizontalMirror = candidate.horizontalMirror;
-                rendered.verticalMirror = candidate.verticalMirror;
-                rendered.valid = true;
-                break;
-            }
-        }
-
-        if(!rendered.valid && bgOpaque) {
-            rendered.layer = DebugModRenderLayer::Background;
-            rendered.patternAddress = bg.patternAddress;
-            rendered.palette[0] = bg.palette[0];
-            rendered.palette[1] = bg.palette[1];
-            rendered.palette[2] = bg.palette[2];
-            rendered.paletteIndex = bg.paletteIndex;
-            rendered.colorLowBits = bg.colorLowBits;
-            rendered.offsetX = bg.offsetX;
-            rendered.offsetY = bg.offsetY;
-            rendered.valid = true;
-        }
-
-        m_debugModRenderedPixels[index] = rendered;
     }
 
     GERANES_INLINE_HOT void renderPixel()
@@ -1145,7 +1065,6 @@ public:
         if(m_backgroundEnabled) renderBackgroundPixel();
         captureModBackgroundPixel();
         if(m_spritesEnabled) renderSpritesPixel();
-        captureModRenderedPixel();
 
         uint8_t value;
 
@@ -1362,19 +1281,17 @@ yyy NN YYYYY XXXXX
         if(enabled) {
             m_debugModBackgroundPixels.assign(static_cast<size_t>(SCREEN_WIDTH * SCREEN_HEIGHT), {});
             m_debugModSpritePixels.assign(static_cast<size_t>(SCREEN_WIDTH * SCREEN_HEIGHT), {});
-            m_debugModRenderedPixels.assign(static_cast<size_t>(SCREEN_WIDTH * SCREEN_HEIGHT), {});
             m_debugModBackgroundShift = {};
         }
     }
 
     void debugPublishModRenderCapture()
     {
-        if(!m_debugModRenderCaptureEnabled || m_debugModBackgroundPixels.empty() || m_debugModSpritePixels.empty() || m_debugModRenderedPixels.empty()) {
+        if(!m_debugModRenderCaptureEnabled || m_debugModBackgroundPixels.empty() || m_debugModSpritePixels.empty()) {
             return;
         }
         m_debugModPresentedBackgroundPixels = m_debugModBackgroundPixels;
         m_debugModPresentedSpritePixels = m_debugModSpritePixels;
-        m_debugModPresentedRenderedPixels = m_debugModRenderedPixels;
     }
 
     const DebugModBackgroundPixel& debugModBackgroundPixelAt(int x, int y) const
@@ -1405,30 +1322,6 @@ yyy NN YYYYY XXXXX
             return empty;
         }
         return m_debugModSpritePixels[static_cast<size_t>(y) * SCREEN_WIDTH + static_cast<size_t>(x)];
-    }
-
-    const DebugModRenderedPixel& debugModRenderedPixelAt(int x, int y) const
-    {
-        static const DebugModRenderedPixel empty;
-        if(x < 0 || x >= SCREEN_WIDTH || y < 0 || y >= SCREEN_HEIGHT) {
-            return empty;
-        }
-        if(!m_debugModPresentedRenderedPixels.empty()) {
-            return m_debugModPresentedRenderedPixels[static_cast<size_t>(y) * SCREEN_WIDTH + static_cast<size_t>(x)];
-        }
-        if(m_debugModRenderedPixels.empty()) {
-            return empty;
-        }
-        return m_debugModRenderedPixels[static_cast<size_t>(y) * SCREEN_WIDTH + static_cast<size_t>(x)];
-    }
-
-    void debugCopyPresentedRenderedPixels(std::vector<DebugModRenderedPixel>& out) const
-    {
-        if(!m_debugModPresentedRenderedPixels.empty()) {
-            out = m_debugModPresentedRenderedPixels;
-            return;
-        }
-        out = m_debugModRenderedPixels;
     }
 
     void debugCopyPresentedBackgroundPixels(std::vector<DebugModBackgroundPixel>& out) const
@@ -1464,26 +1357,6 @@ yyy NN YYYYY XXXXX
         }
         const size_t index = static_cast<size_t>(y) * SCREEN_WIDTH + static_cast<size_t>(x);
         m_debugModPresentedBackgroundPixels[index] = normalized;
-
-        DebugModRenderedPixel rendered;
-        rendered.layer = DebugModRenderLayer::Background;
-        rendered.patternAddress = normalized.patternAddress;
-        rendered.palette[0] = normalized.palette[0];
-        rendered.palette[1] = normalized.palette[1];
-        rendered.palette[2] = normalized.palette[2];
-        rendered.paletteIndex = normalized.paletteIndex;
-        rendered.colorLowBits = normalized.colorLowBits;
-        rendered.offsetX = normalized.offsetX;
-        rendered.offsetY = normalized.offsetY;
-        rendered.valid = normalized.valid;
-        if(m_debugModRenderedPixels.empty()) {
-            m_debugModRenderedPixels.assign(static_cast<size_t>(SCREEN_WIDTH * SCREEN_HEIGHT), {});
-        }
-        m_debugModRenderedPixels[index] = rendered;
-        if(m_debugModPresentedRenderedPixels.empty()) {
-            m_debugModPresentedRenderedPixels.assign(static_cast<size_t>(SCREEN_WIDTH * SCREEN_HEIGHT), {});
-        }
-        m_debugModPresentedRenderedPixels[index] = rendered;
     }
 
     void debugSetModSpritePixelForTest(int x, int y, const DebugModSpritePixel& pixel)
@@ -1501,71 +1374,6 @@ yyy NN YYYYY XXXXX
         }
         const size_t index = static_cast<size_t>(y) * SCREEN_WIDTH + static_cast<size_t>(x);
         m_debugModPresentedSpritePixels[index] = normalized;
-
-        DebugModRenderedPixel rendered = {};
-        const DebugModBackgroundPixel* bg = nullptr;
-        if(!m_debugModPresentedBackgroundPixels.empty()) {
-            bg = &m_debugModPresentedBackgroundPixels[index];
-        }
-        const DebugModSpriteCandidate* chosen = nullptr;
-        for(const DebugModSpriteCandidate& candidate : normalized.candidates) {
-            if(candidate.valid) {
-                chosen = &candidate;
-                break;
-            }
-        }
-        if(chosen != nullptr) {
-            const bool bgOpaque = bg != nullptr && bg->valid && bg->colorLowBits != 0;
-            if(!chosen->behindBackground || !bgOpaque) {
-                rendered.layer = DebugModRenderLayer::Sprite;
-                rendered.patternAddress = chosen->patternAddress;
-                rendered.palette[0] = chosen->palette[0];
-                rendered.palette[1] = chosen->palette[1];
-                rendered.palette[2] = chosen->palette[2];
-                rendered.paletteIndex = chosen->palette[0];
-                rendered.colorLowBits = chosen->colorLowBits;
-                rendered.offsetX = chosen->offsetX;
-                rendered.offsetY = chosen->offsetY;
-                rendered.horizontalMirror = chosen->horizontalMirror;
-                rendered.verticalMirror = chosen->verticalMirror;
-                rendered.valid = true;
-            }
-        }
-        if(!rendered.valid && bg != nullptr && bg->valid) {
-            rendered.layer = DebugModRenderLayer::Background;
-            rendered.patternAddress = bg->patternAddress;
-            rendered.palette[0] = bg->palette[0];
-            rendered.palette[1] = bg->palette[1];
-            rendered.palette[2] = bg->palette[2];
-            rendered.paletteIndex = bg->paletteIndex;
-            rendered.colorLowBits = bg->colorLowBits;
-            rendered.offsetX = bg->offsetX;
-            rendered.offsetY = bg->offsetY;
-            rendered.valid = true;
-        }
-        if(m_debugModRenderedPixels.empty()) {
-            m_debugModRenderedPixels.assign(static_cast<size_t>(SCREEN_WIDTH * SCREEN_HEIGHT), {});
-        }
-        m_debugModRenderedPixels[index] = rendered;
-        if(m_debugModPresentedRenderedPixels.empty()) {
-            m_debugModPresentedRenderedPixels.assign(static_cast<size_t>(SCREEN_WIDTH * SCREEN_HEIGHT), {});
-        }
-        m_debugModPresentedRenderedPixels[index] = rendered;
-    }
-
-    void debugSetModRenderedPixelForTest(int x, int y, const DebugModRenderedPixel& pixel)
-    {
-        if(x < 0 || x >= SCREEN_WIDTH || y < 0 || y >= SCREEN_HEIGHT) {
-            return;
-        }
-        if(m_debugModRenderedPixels.empty()) {
-            m_debugModRenderedPixels.assign(static_cast<size_t>(SCREEN_WIDTH * SCREEN_HEIGHT), {});
-        }
-        m_debugModRenderedPixels[static_cast<size_t>(y) * SCREEN_WIDTH + static_cast<size_t>(x)] = pixel;
-        if(m_debugModPresentedRenderedPixels.empty()) {
-            m_debugModPresentedRenderedPixels.assign(static_cast<size_t>(SCREEN_WIDTH * SCREEN_HEIGHT), {});
-        }
-        m_debugModPresentedRenderedPixels[static_cast<size_t>(y) * SCREEN_WIDTH + static_cast<size_t>(x)] = pixel;
     }
 
     GERANES_INLINE_HOT void evaluateSprites()

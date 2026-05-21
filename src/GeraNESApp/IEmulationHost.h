@@ -144,7 +144,6 @@ struct EmulationHostTypes
         std::array<uint32_t, 64> paletteColors = {};
         std::vector<PPU::DebugModBackgroundPixel> backgroundPixels;
         std::vector<PPU::DebugModSpritePixel> spritePixels;
-        std::vector<PPU::DebugModRenderedPixel> renderedPixels;
     };
 };
 

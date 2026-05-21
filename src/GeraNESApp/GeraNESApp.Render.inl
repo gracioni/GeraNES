@@ -176,7 +176,6 @@ inline void GeraNESApp::render()
             chrSnapshot.paletteColors = hostSnapshot.paletteColors;
             chrSnapshot.backgroundPixels = std::move(hostSnapshot.backgroundPixels);
             chrSnapshot.spritePixels = std::move(hostSnapshot.spritePixels);
-            chrSnapshot.renderedPixels = std::move(hostSnapshot.renderedPixels);
             m_modManager.composeChrFrame(
                 m_textureUploadBuffer,
                 textureWidth,

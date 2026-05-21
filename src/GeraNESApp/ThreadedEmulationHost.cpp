@@ -274,7 +274,6 @@ void ThreadedEmulationHost::refreshModRenderSnapshotLocked(uint32_t frameCount)
         PPU& ppu = m_emu.getConsole().ppu();
         ppu.debugCopyPresentedBackgroundPixels(snapshot.backgroundPixels);
         ppu.debugCopyPresentedSpritePixels(snapshot.spritePixels);
-        ppu.debugCopyPresentedRenderedPixels(snapshot.renderedPixels);
         for(size_t i = 0; i < snapshot.paletteColors.size(); ++i) {
             snapshot.paletteColors[i] = ppu.NESToRGBAColor(static_cast<uint8_t>(i));
         }

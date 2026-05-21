@@ -331,7 +331,6 @@ void SingleThreadEmulationHost::refreshModRenderSnapshot()
     PPU& ppu = m_emu.getConsole().ppu();
     ppu.debugCopyPresentedBackgroundPixels(m_modRenderSnapshot.backgroundPixels);
     ppu.debugCopyPresentedSpritePixels(m_modRenderSnapshot.spritePixels);
-    ppu.debugCopyPresentedRenderedPixels(m_modRenderSnapshot.renderedPixels);
     for(size_t i = 0; i < m_modRenderSnapshot.paletteColors.size(); ++i) {
         m_modRenderSnapshot.paletteColors[i] = ppu.NESToRGBAColor(static_cast<uint8_t>(i));
     }
