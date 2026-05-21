@@ -136,6 +136,16 @@ struct EmulationHostTypes
         std::vector<GeraNESEmu::PpuRegisterAccessEvent> events;
         std::vector<uint32_t> framebuffer;
     };
+
+    struct ModRenderSnapshot
+    {
+        bool valid = false;
+        uint32_t frameCount = 0;
+        std::array<uint32_t, 64> paletteColors = {};
+        std::vector<PPU::DebugModBackgroundPixel> backgroundPixels;
+        std::vector<PPU::DebugModSpritePixel> spritePixels;
+        std::vector<PPU::DebugModRenderedPixel> renderedPixels;
+    };
 };
 
 class IEmulationHost : public SigSlot::SigSlotBase
@@ -148,6 +158,7 @@ public:
     using ManualStateChangeKind = ConsoleNetplay::NetplayManualStateChangeKind;
     using ManualStateChangeRecord = ConsoleNetplay::NetplayManualStateChangeRecord;
     using InputTopologySnapshot = EmulationHostTypes::InputTopologySnapshot;
+    using ModRenderSnapshot = EmulationHostTypes::ModRenderSnapshot;
 
     virtual ~IEmulationHost() = default;
 
@@ -230,6 +241,7 @@ public:
     virtual void discardQueuedInputFramesAfter(uint32_t frame) = 0;
     virtual const uint32_t* getFramebuffer() const = 0;
     virtual void copyFramebuffer(std::vector<uint32_t>& out) const = 0;
+    virtual bool getModRenderSnapshot(ModRenderSnapshot& out) const = 0;
     virtual void beginPresentationHoldUntilNextFrameReady() = 0;
     virtual void setPresenterLockActive(bool active) = 0;
     virtual void setSimulationSuspended(bool suspended) = 0;

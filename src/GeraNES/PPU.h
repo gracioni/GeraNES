@@ -9,6 +9,7 @@
 
 #include <array>
 #include <algorithm>
+#include <vector>
 
 const int VBLANK_CYCLE = 1;
 
@@ -158,15 +159,24 @@ private:
         uint8_t attr;
         uint8_t lowByte;
         uint8_t highByte;
+        uint16_t tileIndex;
+        uint16_t patternAddress;
+        uint8_t row;
         bool sprite0;
+        bool valid;
     };
     struct SpriteRenderEntry {
+        uint8_t x;
         uint8_t xCounter;
         uint8_t attr;
         uint8_t lowShift;
         uint8_t highShift;
+        uint16_t tileIndex;
+        uint16_t patternAddress;
+        uint8_t row;
         bool sprite0;
         bool active;
+        bool valid;
     };
     SpriteFetchEntry m_spriteFetchEntries[8];
     SpriteRenderEntry m_spriteRenderEntries[8];
@@ -207,6 +217,80 @@ private:
     bool m_bgAttribLowLatch;
     bool m_bgAttribHighLatch;
     uint64_t m_tileData;
+
+public:
+    enum class DebugModRenderLayer : uint8_t {
+        None = 0,
+        Background = 1,
+        Sprite = 2,
+    };
+
+    struct DebugModBackgroundPixel {
+        uint16_t patternAddress = 0xFFFF;
+        uint8_t palette[3] = {};
+        uint8_t paletteIndex = 0;
+        uint8_t colorLowBits = 0;
+        uint8_t offsetX = 0;
+        uint8_t offsetY = 0;
+        bool valid = false;
+    };
+
+    struct DebugModSpriteCandidate {
+        uint16_t patternAddress = 0xFFFF;
+        uint8_t palette[3] = {};
+        uint8_t colorLowBits = 0;
+        uint8_t offsetX = 0;
+        uint8_t offsetY = 0;
+        bool behindBackground = false;
+        bool horizontalMirror = false;
+        bool verticalMirror = false;
+        bool valid = false;
+    };
+
+    struct DebugModSpritePixel {
+        uint16_t patternAddress = 0xFFFF;
+        uint8_t palette[3] = {};
+        uint8_t colorLowBits = 0;
+        uint8_t offsetX = 0;
+        uint8_t offsetY = 0;
+        bool behindBackground = false;
+        bool horizontalMirror = false;
+        bool verticalMirror = false;
+        bool valid = false;
+        uint8_t count = 0;
+        std::array<DebugModSpriteCandidate, 8> candidates = {};
+    };
+
+    struct DebugModRenderedPixel {
+        DebugModRenderLayer layer = DebugModRenderLayer::None;
+        uint16_t patternAddress = 0xFFFF;
+        uint8_t palette[3] = {};
+        uint8_t paletteIndex = 0;
+        uint8_t colorLowBits = 0;
+        uint8_t offsetX = 0;
+        uint8_t offsetY = 0;
+        bool horizontalMirror = false;
+        bool verticalMirror = false;
+        bool valid = false;
+    };
+
+private:
+    struct DebugModBackgroundShiftPixel {
+        uint16_t patternAddress = 0xFFFF;
+        uint8_t paletteOffset = 0;
+        uint8_t offsetX = 0;
+        uint8_t offsetY = 0;
+        bool valid = false;
+    };
+
+    bool m_debugModRenderCaptureEnabled = false;
+    std::vector<DebugModBackgroundPixel> m_debugModBackgroundPixels;
+    std::vector<DebugModSpritePixel> m_debugModSpritePixels;
+    std::vector<DebugModRenderedPixel> m_debugModRenderedPixels;
+    std::vector<DebugModBackgroundPixel> m_debugModPresentedBackgroundPixels;
+    std::vector<DebugModSpritePixel> m_debugModPresentedSpritePixels;
+    std::vector<DebugModRenderedPixel> m_debugModPresentedRenderedPixels;
+    std::array<DebugModBackgroundShiftPixel, 16> m_debugModBackgroundShift = {};
 
     int m_lastPPUSTATUSReadCycle; //record the cycle when ppustatus is read
 
@@ -746,6 +830,14 @@ public:
         m_lowTileByte = 0;
         m_highTileByte = 0;
         m_tileData = 0;
+        m_debugModRenderCaptureEnabled = false;
+        m_debugModBackgroundShift = {};
+        m_debugModBackgroundPixels.clear();
+        m_debugModSpritePixels.clear();
+        m_debugModRenderedPixels.clear();
+        m_debugModPresentedBackgroundPixels.clear();
+        m_debugModPresentedSpritePixels.clear();
+        m_debugModPresentedRenderedPixels.clear();
 
         m_lastPPUSTATUSReadCycle = -1;
 
@@ -957,13 +1049,103 @@ public:
         return (m_reg_v >= 0x3F00 && m_reg_v < 0x4000);
     }
 
+    GERANES_INLINE void captureModBackgroundPixel()
+    {
+        if(!m_debugModRenderCaptureEnabled || m_debugModBackgroundPixels.empty() || m_debugModSpritePixels.empty() || m_debugModRenderedPixels.empty() ||
+           m_currentX < 0 || m_currentX >= SCREEN_WIDTH || m_currentY < 0 || m_currentY >= SCREEN_HEIGHT) {
+            return;
+        }
+
+        DebugModBackgroundPixel pixel;
+        if(m_backgroundEnabled && (m_showBackgroundLeftmost8Pixels || m_currentX >= 8)) {
+            const DebugModBackgroundShiftPixel& source = m_debugModBackgroundShift[m_reg_x & 0x0F];
+            if(source.valid) {
+                const uint8_t colorLowBits = static_cast<uint8_t>(m_currentPixelColorIndex & 0x03);
+                pixel.patternAddress = source.patternAddress;
+                pixel.palette[0] = static_cast<uint8_t>(m_palette[(source.paletteOffset + 1) & 0x1F] & 0x3F);
+                pixel.palette[1] = static_cast<uint8_t>(m_palette[(source.paletteOffset + 2) & 0x1F] & 0x3F);
+                pixel.palette[2] = static_cast<uint8_t>(m_palette[(source.paletteOffset + 3) & 0x1F] & 0x3F);
+                pixel.paletteIndex = colorLowBits == 0
+                    ? static_cast<uint8_t>(m_palette[0] & 0x3F)
+                    : static_cast<uint8_t>(m_palette[(source.paletteOffset + colorLowBits) & 0x1F] & 0x3F);
+                pixel.colorLowBits = colorLowBits;
+                pixel.offsetX = source.offsetX;
+                pixel.offsetY = source.offsetY;
+                pixel.valid = true;
+            }
+        }
+
+        const size_t index = static_cast<size_t>(m_currentY) * SCREEN_WIDTH + static_cast<size_t>(m_currentX);
+        m_debugModBackgroundPixels[index] = pixel;
+        m_debugModSpritePixels[index] = {};
+        m_debugModRenderedPixels[index] = {};
+    }
+
+    GERANES_INLINE void captureModRenderedPixel()
+    {
+        if(!m_debugModRenderCaptureEnabled || m_debugModBackgroundPixels.empty() || m_debugModSpritePixels.empty() || m_debugModRenderedPixels.empty() ||
+           m_currentX < 0 || m_currentX >= SCREEN_WIDTH || m_currentY < 0 || m_currentY >= SCREEN_HEIGHT) {
+            return;
+        }
+
+        const size_t index = static_cast<size_t>(m_currentY) * SCREEN_WIDTH + static_cast<size_t>(m_currentX);
+        const DebugModBackgroundPixel& bg = m_debugModBackgroundPixels[index];
+        const DebugModSpritePixel& sprite = m_debugModSpritePixels[index];
+
+        DebugModRenderedPixel rendered;
+        const bool bgOpaque = bg.valid && bg.colorLowBits != 0;
+
+        if(sprite.count > 0) {
+            for(uint8_t i = 0; i < sprite.count; ++i) {
+                const DebugModSpriteCandidate& candidate = sprite.candidates[i];
+                if(!candidate.valid || candidate.colorLowBits == 0) {
+                    continue;
+                }
+                if(bgOpaque && candidate.behindBackground) {
+                    continue;
+                }
+
+                rendered.layer = DebugModRenderLayer::Sprite;
+                rendered.patternAddress = candidate.patternAddress;
+                rendered.palette[0] = candidate.palette[0];
+                rendered.palette[1] = candidate.palette[1];
+                rendered.palette[2] = candidate.palette[2];
+                rendered.paletteIndex = static_cast<uint8_t>(m_currentPixelColorIndex & 0x3F);
+                rendered.colorLowBits = candidate.colorLowBits;
+                rendered.offsetX = candidate.offsetX;
+                rendered.offsetY = candidate.offsetY;
+                rendered.horizontalMirror = candidate.horizontalMirror;
+                rendered.verticalMirror = candidate.verticalMirror;
+                rendered.valid = true;
+                break;
+            }
+        }
+
+        if(!rendered.valid && bgOpaque) {
+            rendered.layer = DebugModRenderLayer::Background;
+            rendered.patternAddress = bg.patternAddress;
+            rendered.palette[0] = bg.palette[0];
+            rendered.palette[1] = bg.palette[1];
+            rendered.palette[2] = bg.palette[2];
+            rendered.paletteIndex = bg.paletteIndex;
+            rendered.colorLowBits = bg.colorLowBits;
+            rendered.offsetX = bg.offsetX;
+            rendered.offsetY = bg.offsetY;
+            rendered.valid = true;
+        }
+
+        m_debugModRenderedPixels[index] = rendered;
+    }
+
     GERANES_INLINE_HOT void renderPixel()
     {
         m_currentPixelColorIndex = 0;
         const bool renderingEnabled = m_renderingEnabled;
 
         if(m_backgroundEnabled) renderBackgroundPixel();
+        captureModBackgroundPixel();
         if(m_spritesEnabled) renderSpritesPixel();
+        captureModRenderedPixel();
 
         uint8_t value;
 
@@ -1167,6 +1349,223 @@ yyy NN YYYYY XXXXX
     int debugBackgroundPatternTableAddress() const
     {
         return m_backgroundPatternTableAddress ? 0x1000 : 0x0000;
+    }
+
+    bool debugSpritesEnabled() const
+    {
+        return m_spritesEnabled;
+    }
+
+    void debugSetModRenderCaptureEnabled(bool enabled)
+    {
+        m_debugModRenderCaptureEnabled = enabled;
+        if(enabled) {
+            m_debugModBackgroundPixels.assign(static_cast<size_t>(SCREEN_WIDTH * SCREEN_HEIGHT), {});
+            m_debugModSpritePixels.assign(static_cast<size_t>(SCREEN_WIDTH * SCREEN_HEIGHT), {});
+            m_debugModRenderedPixels.assign(static_cast<size_t>(SCREEN_WIDTH * SCREEN_HEIGHT), {});
+            m_debugModBackgroundShift = {};
+        }
+    }
+
+    void debugPublishModRenderCapture()
+    {
+        if(!m_debugModRenderCaptureEnabled || m_debugModBackgroundPixels.empty() || m_debugModSpritePixels.empty() || m_debugModRenderedPixels.empty()) {
+            return;
+        }
+        m_debugModPresentedBackgroundPixels = m_debugModBackgroundPixels;
+        m_debugModPresentedSpritePixels = m_debugModSpritePixels;
+        m_debugModPresentedRenderedPixels = m_debugModRenderedPixels;
+    }
+
+    const DebugModBackgroundPixel& debugModBackgroundPixelAt(int x, int y) const
+    {
+        static const DebugModBackgroundPixel empty;
+        if(x < 0 || x >= SCREEN_WIDTH || y < 0 || y >= SCREEN_HEIGHT) {
+            return empty;
+        }
+        if(!m_debugModPresentedBackgroundPixels.empty()) {
+            return m_debugModPresentedBackgroundPixels[static_cast<size_t>(y) * SCREEN_WIDTH + static_cast<size_t>(x)];
+        }
+        if(m_debugModBackgroundPixels.empty()) {
+            return empty;
+        }
+        return m_debugModBackgroundPixels[static_cast<size_t>(y) * SCREEN_WIDTH + static_cast<size_t>(x)];
+    }
+
+    const DebugModSpritePixel& debugModSpritePixelAt(int x, int y) const
+    {
+        static const DebugModSpritePixel empty;
+        if(x < 0 || x >= SCREEN_WIDTH || y < 0 || y >= SCREEN_HEIGHT) {
+            return empty;
+        }
+        if(!m_debugModPresentedSpritePixels.empty()) {
+            return m_debugModPresentedSpritePixels[static_cast<size_t>(y) * SCREEN_WIDTH + static_cast<size_t>(x)];
+        }
+        if(m_debugModSpritePixels.empty()) {
+            return empty;
+        }
+        return m_debugModSpritePixels[static_cast<size_t>(y) * SCREEN_WIDTH + static_cast<size_t>(x)];
+    }
+
+    const DebugModRenderedPixel& debugModRenderedPixelAt(int x, int y) const
+    {
+        static const DebugModRenderedPixel empty;
+        if(x < 0 || x >= SCREEN_WIDTH || y < 0 || y >= SCREEN_HEIGHT) {
+            return empty;
+        }
+        if(!m_debugModPresentedRenderedPixels.empty()) {
+            return m_debugModPresentedRenderedPixels[static_cast<size_t>(y) * SCREEN_WIDTH + static_cast<size_t>(x)];
+        }
+        if(m_debugModRenderedPixels.empty()) {
+            return empty;
+        }
+        return m_debugModRenderedPixels[static_cast<size_t>(y) * SCREEN_WIDTH + static_cast<size_t>(x)];
+    }
+
+    void debugCopyPresentedRenderedPixels(std::vector<DebugModRenderedPixel>& out) const
+    {
+        if(!m_debugModPresentedRenderedPixels.empty()) {
+            out = m_debugModPresentedRenderedPixels;
+            return;
+        }
+        out = m_debugModRenderedPixels;
+    }
+
+    void debugCopyPresentedBackgroundPixels(std::vector<DebugModBackgroundPixel>& out) const
+    {
+        if(!m_debugModPresentedBackgroundPixels.empty()) {
+            out = m_debugModPresentedBackgroundPixels;
+            return;
+        }
+        out = m_debugModBackgroundPixels;
+    }
+
+    void debugCopyPresentedSpritePixels(std::vector<DebugModSpritePixel>& out) const
+    {
+        if(!m_debugModPresentedSpritePixels.empty()) {
+            out = m_debugModPresentedSpritePixels;
+            return;
+        }
+        out = m_debugModSpritePixels;
+    }
+
+    void debugSetModBackgroundPixelForTest(int x, int y, const DebugModBackgroundPixel& pixel)
+    {
+        if(x < 0 || x >= SCREEN_WIDTH || y < 0 || y >= SCREEN_HEIGHT) {
+            return;
+        }
+        DebugModBackgroundPixel normalized = pixel;
+        if(m_debugModBackgroundPixels.empty()) {
+            m_debugModBackgroundPixels.assign(static_cast<size_t>(SCREEN_WIDTH * SCREEN_HEIGHT), {});
+        }
+        m_debugModBackgroundPixels[static_cast<size_t>(y) * SCREEN_WIDTH + static_cast<size_t>(x)] = normalized;
+        if(m_debugModPresentedBackgroundPixels.empty()) {
+            m_debugModPresentedBackgroundPixels.assign(static_cast<size_t>(SCREEN_WIDTH * SCREEN_HEIGHT), {});
+        }
+        const size_t index = static_cast<size_t>(y) * SCREEN_WIDTH + static_cast<size_t>(x);
+        m_debugModPresentedBackgroundPixels[index] = normalized;
+
+        DebugModRenderedPixel rendered;
+        rendered.layer = DebugModRenderLayer::Background;
+        rendered.patternAddress = normalized.patternAddress;
+        rendered.palette[0] = normalized.palette[0];
+        rendered.palette[1] = normalized.palette[1];
+        rendered.palette[2] = normalized.palette[2];
+        rendered.paletteIndex = normalized.paletteIndex;
+        rendered.colorLowBits = normalized.colorLowBits;
+        rendered.offsetX = normalized.offsetX;
+        rendered.offsetY = normalized.offsetY;
+        rendered.valid = normalized.valid;
+        if(m_debugModRenderedPixels.empty()) {
+            m_debugModRenderedPixels.assign(static_cast<size_t>(SCREEN_WIDTH * SCREEN_HEIGHT), {});
+        }
+        m_debugModRenderedPixels[index] = rendered;
+        if(m_debugModPresentedRenderedPixels.empty()) {
+            m_debugModPresentedRenderedPixels.assign(static_cast<size_t>(SCREEN_WIDTH * SCREEN_HEIGHT), {});
+        }
+        m_debugModPresentedRenderedPixels[index] = rendered;
+    }
+
+    void debugSetModSpritePixelForTest(int x, int y, const DebugModSpritePixel& pixel)
+    {
+        if(x < 0 || x >= SCREEN_WIDTH || y < 0 || y >= SCREEN_HEIGHT) {
+            return;
+        }
+        DebugModSpritePixel normalized = pixel;
+        if(m_debugModSpritePixels.empty()) {
+            m_debugModSpritePixels.assign(static_cast<size_t>(SCREEN_WIDTH * SCREEN_HEIGHT), {});
+        }
+        m_debugModSpritePixels[static_cast<size_t>(y) * SCREEN_WIDTH + static_cast<size_t>(x)] = normalized;
+        if(m_debugModPresentedSpritePixels.empty()) {
+            m_debugModPresentedSpritePixels.assign(static_cast<size_t>(SCREEN_WIDTH * SCREEN_HEIGHT), {});
+        }
+        const size_t index = static_cast<size_t>(y) * SCREEN_WIDTH + static_cast<size_t>(x);
+        m_debugModPresentedSpritePixels[index] = normalized;
+
+        DebugModRenderedPixel rendered = {};
+        const DebugModBackgroundPixel* bg = nullptr;
+        if(!m_debugModPresentedBackgroundPixels.empty()) {
+            bg = &m_debugModPresentedBackgroundPixels[index];
+        }
+        const DebugModSpriteCandidate* chosen = nullptr;
+        for(const DebugModSpriteCandidate& candidate : normalized.candidates) {
+            if(candidate.valid) {
+                chosen = &candidate;
+                break;
+            }
+        }
+        if(chosen != nullptr) {
+            const bool bgOpaque = bg != nullptr && bg->valid && bg->colorLowBits != 0;
+            if(!chosen->behindBackground || !bgOpaque) {
+                rendered.layer = DebugModRenderLayer::Sprite;
+                rendered.patternAddress = chosen->patternAddress;
+                rendered.palette[0] = chosen->palette[0];
+                rendered.palette[1] = chosen->palette[1];
+                rendered.palette[2] = chosen->palette[2];
+                rendered.paletteIndex = chosen->palette[0];
+                rendered.colorLowBits = chosen->colorLowBits;
+                rendered.offsetX = chosen->offsetX;
+                rendered.offsetY = chosen->offsetY;
+                rendered.horizontalMirror = chosen->horizontalMirror;
+                rendered.verticalMirror = chosen->verticalMirror;
+                rendered.valid = true;
+            }
+        }
+        if(!rendered.valid && bg != nullptr && bg->valid) {
+            rendered.layer = DebugModRenderLayer::Background;
+            rendered.patternAddress = bg->patternAddress;
+            rendered.palette[0] = bg->palette[0];
+            rendered.palette[1] = bg->palette[1];
+            rendered.palette[2] = bg->palette[2];
+            rendered.paletteIndex = bg->paletteIndex;
+            rendered.colorLowBits = bg->colorLowBits;
+            rendered.offsetX = bg->offsetX;
+            rendered.offsetY = bg->offsetY;
+            rendered.valid = true;
+        }
+        if(m_debugModRenderedPixels.empty()) {
+            m_debugModRenderedPixels.assign(static_cast<size_t>(SCREEN_WIDTH * SCREEN_HEIGHT), {});
+        }
+        m_debugModRenderedPixels[index] = rendered;
+        if(m_debugModPresentedRenderedPixels.empty()) {
+            m_debugModPresentedRenderedPixels.assign(static_cast<size_t>(SCREEN_WIDTH * SCREEN_HEIGHT), {});
+        }
+        m_debugModPresentedRenderedPixels[index] = rendered;
+    }
+
+    void debugSetModRenderedPixelForTest(int x, int y, const DebugModRenderedPixel& pixel)
+    {
+        if(x < 0 || x >= SCREEN_WIDTH || y < 0 || y >= SCREEN_HEIGHT) {
+            return;
+        }
+        if(m_debugModRenderedPixels.empty()) {
+            m_debugModRenderedPixels.assign(static_cast<size_t>(SCREEN_WIDTH * SCREEN_HEIGHT), {});
+        }
+        m_debugModRenderedPixels[static_cast<size_t>(y) * SCREEN_WIDTH + static_cast<size_t>(x)] = pixel;
+        if(m_debugModPresentedRenderedPixels.empty()) {
+            m_debugModPresentedRenderedPixels.assign(static_cast<size_t>(SCREEN_WIDTH * SCREEN_HEIGHT), {});
+        }
+        m_debugModPresentedRenderedPixels[static_cast<size_t>(y) * SCREEN_WIDTH + static_cast<size_t>(x)] = pixel;
     }
 
     GERANES_INLINE_HOT void evaluateSprites()
@@ -1418,6 +1817,38 @@ yyy NN YYYYY XXXXX
 
             paletteIndex = color | ((sprite.attr & 0x03) << 2);
 
+            if(m_debugModRenderCaptureEnabled && !m_debugModSpritePixels.empty() &&
+               m_currentX >= 0 && m_currentX < SCREEN_WIDTH && m_currentY >= 0 && m_currentY < SCREEN_HEIGHT) {
+                DebugModSpritePixel& captured = m_debugModSpritePixels[static_cast<size_t>(m_currentY) * SCREEN_WIDTH + static_cast<size_t>(m_currentX)];
+                if(sprite.valid && captured.count < captured.candidates.size()) {
+                    DebugModSpriteCandidate& candidate = captured.candidates[captured.count++];
+                    candidate.patternAddress = sprite.patternAddress;
+                    candidate.palette[0] = static_cast<uint8_t>(m_palette[0x11 + ((sprite.attr & 0x03) << 2)] & 0x3F);
+                    candidate.palette[1] = static_cast<uint8_t>(m_palette[0x12 + ((sprite.attr & 0x03) << 2)] & 0x3F);
+                    candidate.palette[2] = static_cast<uint8_t>(m_palette[0x13 + ((sprite.attr & 0x03) << 2)] & 0x3F);
+                    candidate.colorLowBits = static_cast<uint8_t>(color);
+                    candidate.offsetX = static_cast<uint8_t>(std::clamp(m_currentX - static_cast<int>(sprite.x), 0, 7));
+                    candidate.offsetY = sprite.row;
+                    candidate.behindBackground = (sprite.attr & 0x20) != 0;
+                    candidate.horizontalMirror = (sprite.attr & 0x40) != 0;
+                    candidate.verticalMirror = (sprite.attr & 0x80) != 0;
+                    candidate.valid = true;
+                    if(!captured.valid) {
+                        captured.patternAddress = candidate.patternAddress;
+                        captured.palette[0] = candidate.palette[0];
+                        captured.palette[1] = candidate.palette[1];
+                        captured.palette[2] = candidate.palette[2];
+                        captured.colorLowBits = candidate.colorLowBits;
+                        captured.offsetX = candidate.offsetX;
+                        captured.offsetY = candidate.offsetY;
+                        captured.behindBackground = candidate.behindBackground;
+                        captured.horizontalMirror = candidate.horizontalMirror;
+                        captured.verticalMirror = candidate.verticalMirror;
+                        captured.valid = true;
+                    }
+                }
+            }
+
             if(sprite.sprite0 && m_backgroundEnabled &&
                (m_currentPixelColorIndex & 0x03) != 0 &&
                m_currentX != 255) {
@@ -1492,12 +1923,17 @@ yyy NN YYYYY XXXXX
         for(int i = 0; i < 8; i++) {
             SpriteRenderEntry& entry = m_spriteRenderEntries[i];
             const SpriteFetchEntry& fetched = m_spriteFetchEntries[i];
+            entry.x = fetched.x;
             entry.xCounter = m_forceSpriteXZeroThisLine ? 0 : fetched.x;
             entry.attr = fetched.attr;
             entry.lowShift = fetched.lowByte;
             entry.highShift = fetched.highByte;
+            entry.tileIndex = fetched.tileIndex;
+            entry.patternAddress = fetched.patternAddress;
+            entry.row = fetched.row;
             entry.sprite0 = fetched.sprite0;
             entry.active = i < activeSpriteCount;
+            entry.valid = fetched.valid;
 
             if(entry.active && (entry.attr & 0x40) != 0) {
                 entry.lowShift = reverseByte(entry.lowShift);
@@ -1543,6 +1979,7 @@ yyy NN YYYYY XXXXX
         }
         else if(m_scanline == 241){
             decayOpenBus();
+            debugPublishModRenderCapture();
             memcpy(m_framebufferFriendly,m_framebuffer,SCREEN_WIDTH*SCREEN_HEIGHT*sizeof(uint32_t));
             signalFrameReady();
 
@@ -1696,11 +2133,18 @@ yyy NN YYYYY XXXXX
         if(m_needUpdateState) updateState();
     }
 
-    GERANES_INLINE uint16_t getSpritePatternAddress(const Sprite& sprite, bool highPlane)
+    struct SpritePatternInfo {
+        uint16_t tileIndex = 0xFFFF;
+        uint8_t row = 0;
+        uint16_t address = 0;
+    };
+
+    GERANES_INLINE SpritePatternInfo getSpritePatternInfo(const Sprite& sprite, bool highPlane)
     {
         const int spriteHeight = m_spriteSize8x16 ? 16 : 8;
         const uint8_t spriteScanline = static_cast<uint8_t>(m_preLine ? 6 : (m_scanline + 1));
         uint8_t row = static_cast<uint8_t>(spriteScanline - static_cast<uint8_t>(sprite.y + 1));
+        const uint8_t localRow = static_cast<uint8_t>(row & 0x07);
 
         if(sprite.attrib & 0x80) {
             row = static_cast<uint8_t>((spriteHeight - 1) - (row & (spriteHeight - 1)));
@@ -1723,7 +2167,19 @@ yyy NN YYYYY XXXXX
             base = m_sprite8x8PatternTableAddress ? 0x1000 : 0x0000;
         }
 
-        return static_cast<uint16_t>(base + (tileIndex << 4) + row + (highPlane ? 8 : 0));
+        SpritePatternInfo info;
+        info.tileIndex = static_cast<uint16_t>((base >> 4) + tileIndex);
+        // Keep the captured row in display-local 0..7 space. The mirror flag remains
+        // authoritative for source sampling; the fetched pattern address already points
+        // at the mirrored tile row used by the PPU.
+        info.row = localRow;
+        info.address = static_cast<uint16_t>(base + (tileIndex << 4) + row + (highPlane ? 8 : 0));
+        return info;
+    }
+
+    GERANES_INLINE uint16_t getSpritePatternAddress(const Sprite& sprite, bool highPlane)
+    {
+        return getSpritePatternInfo(sprite, highPlane).address;
     }
 
     GERANES_INLINE bool isSpriteInRangeForScanline(const Sprite& sprite, int scanline) const
@@ -1809,8 +2265,14 @@ yyy NN YYYYY XXXXX
                 break;
             case 4:
                 {
-                    const uint16_t patternAddr = getSpritePatternAddress(sprite, false);
-                    setupPpuReadAddress(patternAddr);
+                    const SpritePatternInfo info = getSpritePatternInfo(sprite, false);
+                    if(hasSpriteData && sprite.y != 0xFF) {
+                        entry.tileIndex = info.tileIndex;
+                        entry.patternAddress = info.address;
+                        entry.row = info.row;
+                        entry.valid = true;
+                    }
+                    setupPpuReadAddress(info.address);
                 }
                 break;
             case 5:
@@ -2476,6 +2938,15 @@ yyy NNYY YYYX XXXX
         m_bgAttribHighLatch = (m_paletteOffset & 0x08) != 0;
         m_bgAttribLowShift = static_cast<uint16_t>((m_bgAttribLowShift & 0xFF00) | (m_bgAttribLowLatch ? 0x00FF : 0x0000));
         m_bgAttribHighShift = static_cast<uint16_t>((m_bgAttribHighShift & 0xFF00) | (m_bgAttribHighLatch ? 0x00FF : 0x0000));
+        const uint8_t offsetY = static_cast<uint8_t>(m_tileAddr & 0x07);
+        for(uint8_t x = 0; x < 8; ++x) {
+            DebugModBackgroundShiftPixel& pixel = m_debugModBackgroundShift[8 + x];
+            pixel.patternAddress = m_tileAddr;
+            pixel.paletteOffset = m_paletteOffset;
+            pixel.offsetX = x;
+            pixel.offsetY = offsetY;
+            pixel.valid = true;
+        }
         m_staleBgShiftActive = false;
     }
 
@@ -2485,6 +2956,10 @@ yyy NNYY YYYX XXXX
         m_bgPatternHighShift |= 0x01;
         m_bgAttribLowShift <<= 1;
         m_bgAttribHighShift <<= 1;
+        for(size_t i = 0; i + 1 < m_debugModBackgroundShift.size(); ++i) {
+            m_debugModBackgroundShift[i] = m_debugModBackgroundShift[i + 1];
+        }
+        m_debugModBackgroundShift.back() = {};
     }
 
     GERANES_INLINE uint32_t fetchTileData() {

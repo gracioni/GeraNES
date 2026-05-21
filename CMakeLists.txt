@@ -718,6 +718,7 @@ target_compile_features(GeraNESTests PUBLIC cxx_std_20)
 target_include_directories(GeraNESTests PRIVATE
     "${CMAKE_CURRENT_BINARY_DIR}/generated"
     "${CMAKE_CURRENT_SOURCE_DIR}/tests"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src"
 )
 target_precompile_headers(GeraNESTests PRIVATE
     <catch2/catch_test_macros.hpp>

@@ -10,6 +10,16 @@
 #include <cmath>
 #include <iomanip>
 #include <sstream>
+#include <vector>
+
+extern "C" {
+    using mz_ulong = unsigned long;
+
+    mz_ulong mz_crc32(mz_ulong crc, const unsigned char* ptr, size_t buf_len);
+    void* tdefl_compress_mem_to_heap(const void* pSrcBuf, size_t srcBufLen, size_t* pOutLen, int flags);
+    unsigned int tdefl_create_comp_flags_from_zip_params(int level, int windowBits, int strategy);
+    void mz_free(void* p);
+}
 
 #ifdef __EMSCRIPTEN__
     #include <emscripten.h>
@@ -59,6 +69,123 @@ std::string sanitizeCpuSymbolName(std::string name)
     }
     return name;
 }
+
+#ifndef __EMSCRIPTEN__
+constexpr mz_ulong kPngCrc32Init = 0;
+constexpr int kPngBestCompression = 9;
+constexpr int kPngDefaultWindowBits = 15;
+constexpr int kPngDefaultStrategy = 0;
+
+void appendPngBe32(std::vector<uint8_t>& bytes, uint32_t value)
+{
+    bytes.push_back(static_cast<uint8_t>((value >> 24) & 0xFF));
+    bytes.push_back(static_cast<uint8_t>((value >> 16) & 0xFF));
+    bytes.push_back(static_cast<uint8_t>((value >> 8) & 0xFF));
+    bytes.push_back(static_cast<uint8_t>(value & 0xFF));
+}
+
+void appendPngChunk(std::vector<uint8_t>& png, const char type[4], const std::vector<uint8_t>& data)
+{
+    appendPngBe32(png, static_cast<uint32_t>(data.size()));
+    const size_t typeOffset = png.size();
+    png.insert(png.end(), type, type + 4);
+    png.insert(png.end(), data.begin(), data.end());
+
+    mz_ulong crc = mz_crc32(kPngCrc32Init, png.data() + typeOffset, 4);
+    if(!data.empty()) {
+        crc = mz_crc32(crc, data.data(), data.size());
+    }
+    appendPngBe32(png, static_cast<uint32_t>(crc));
+}
+
+bool encodeIndexedChrPng(const std::vector<uint32_t>& pixels, int width, int height, std::vector<uint8_t>& png)
+{
+    if(width <= 0 || height <= 0 || pixels.size() != static_cast<size_t>(width * height)) {
+        return false;
+    }
+
+    std::array<std::array<uint8_t, 4>, 4> palette = {{
+        {{0, 0, 0, 0}},
+        {{85, 85, 85, 255}},
+        {{170, 170, 170, 255}},
+        {{255, 255, 255, 255}}
+    }};
+    std::array<bool, 4> paletteSeen = {};
+    for(uint32_t pixel : pixels) {
+        const uint8_t index = static_cast<uint8_t>((pixel >> 24) & 0x03);
+        if(paletteSeen[index]) {
+            continue;
+        }
+
+        palette[index][0] = static_cast<uint8_t>(pixel & 0xFF);
+        palette[index][1] = static_cast<uint8_t>((pixel >> 8) & 0xFF);
+        palette[index][2] = static_cast<uint8_t>((pixel >> 16) & 0xFF);
+        palette[index][3] = index == 0 ? 0 : 255;
+        paletteSeen[index] = true;
+    }
+
+    const size_t rowBytes = static_cast<size_t>((width + 3) / 4);
+    std::vector<uint8_t> scanlines(static_cast<size_t>(height) * (rowBytes + 1), 0);
+    for(int y = 0; y < height; ++y) {
+        uint8_t* dstRow = scanlines.data() + (static_cast<size_t>(y) * (rowBytes + 1));
+        dstRow[0] = 0;
+        for(int x = 0; x < width; ++x) {
+            const uint8_t index = static_cast<uint8_t>((pixels[static_cast<size_t>((y * width) + x)] >> 24) & 0x03);
+            const int shift = 6 - ((x & 0x03) * 2);
+            dstRow[1 + (x >> 2)] |= static_cast<uint8_t>(index << shift);
+        }
+    }
+
+    size_t compressedSize = 0;
+    void* compressedData = tdefl_compress_mem_to_heap(
+        scanlines.data(),
+        scanlines.size(),
+        &compressedSize,
+        static_cast<int>(tdefl_create_comp_flags_from_zip_params(kPngBestCompression, kPngDefaultWindowBits, kPngDefaultStrategy))
+    );
+    if(compressedData == nullptr || compressedSize == 0) {
+        return false;
+    }
+
+    png.clear();
+    const uint8_t signature[] = {0x89, 'P', 'N', 'G', 0x0D, 0x0A, 0x1A, 0x0A};
+    png.insert(png.end(), signature, signature + sizeof(signature));
+
+    std::vector<uint8_t> ihdr;
+    appendPngBe32(ihdr, static_cast<uint32_t>(width));
+    appendPngBe32(ihdr, static_cast<uint32_t>(height));
+    ihdr.push_back(2);
+    ihdr.push_back(3);
+    ihdr.push_back(0);
+    ihdr.push_back(0);
+    ihdr.push_back(0);
+    appendPngChunk(png, "IHDR", ihdr);
+
+    std::vector<uint8_t> plte;
+    plte.reserve(12);
+    for(const auto& color : palette) {
+        plte.push_back(color[0]);
+        plte.push_back(color[1]);
+        plte.push_back(color[2]);
+    }
+    appendPngChunk(png, "PLTE", plte);
+
+    std::vector<uint8_t> trns;
+    trns.reserve(4);
+    for(const auto& color : palette) {
+        trns.push_back(color[3]);
+    }
+    appendPngChunk(png, "tRNS", trns);
+
+    const auto* compressedBytes = static_cast<const uint8_t*>(compressedData);
+    std::vector<uint8_t> idat(compressedBytes, compressedBytes + compressedSize);
+    appendPngChunk(png, "IDAT", idat);
+    appendPngChunk(png, "IEND", {});
+
+    mz_free(compressedData);
+    return true;
+}
+#endif
 
 bool parseCpuSymbolValue(const std::string& text, uint16_t& address, bool preferHexForBareAddress = false)
 {
@@ -1924,6 +2051,157 @@ void GeraNESApp::saveCurrentPalette()
     Logger::instance().log("Palette saved: " + name, Logger::Type::USER);
 }
 
+void GeraNESApp::exportPpuViewerChrPng(const std::vector<uint32_t>& pixels, int width, int height)
+{
+#ifdef __EMSCRIPTEN__
+    Logger::instance().log("PPU CHR PNG export is not available in the web build.", Logger::Type::USER);
+#else
+    if(width <= 0 || height <= 0 || pixels.size() != static_cast<size_t>(width * height)) {
+        Logger::instance().log("Could not export PPU CHR PNG: invalid image buffer.", Logger::Type::ERROR);
+        return;
+    }
+
+    const bool resumeAfterDialog = m_emu.withExclusiveAccess([](auto& emu) {
+        if(!emu.valid()) return false;
+
+        const bool shouldResume = !emu.paused();
+        if(shouldResume) {
+            emu.togglePaused();
+        }
+        return shouldResume;
+    });
+    setWindowsNativePumpEnabled(false);
+
+    const bool restoreAfterDialog = this->isFullScreen();
+#ifndef _WIN32
+    if(restoreAfterDialog) minimizeWindow();
+#endif
+
+    NFD_Init();
+
+    nfdu8char_t* outPath = nullptr;
+    nfdu8filteritem_t filterItem[] = {
+        { "PNG image", "png" },
+        { "All files", "*" }
+    };
+    nfdsavedialogu8args_t args = {};
+    args.filterList = filterItem;
+    args.filterCount = sizeof(filterItem) / sizeof(nfdu8filteritem_t);
+    args.defaultPath = AppSettings::instance().data.getLastFolder().c_str();
+    args.defaultName = "ppu_chr.png";
+#ifdef _WIN32
+    args.parentWindow.type = NFD_WINDOW_HANDLE_TYPE_WINDOWS;
+    args.parentWindow.handle = nativeWindowHandle();
+#endif
+
+    const nfdresult_t result = NFD_SaveDialogU8_With(&outPath, &args);
+
+    if(result == NFD_OKAY) {
+        fs::path path(outPath);
+        NFD_FreePathU8(outPath);
+        if(path.extension().empty()) {
+            path.replace_extension(".png");
+        }
+
+        std::vector<uint8_t> pngData;
+        if(!encodeIndexedChrPng(pixels, width, height, pngData)) {
+            Logger::instance().log("Could not encode PPU CHR PNG.", Logger::Type::ERROR);
+        } else {
+            std::ofstream file(path, std::ios::binary | std::ios::trunc);
+            if(!file.is_open()) {
+                Logger::instance().log("Could not open PPU CHR PNG for writing: " + path.string(), Logger::Type::ERROR);
+            } else {
+                file.write(reinterpret_cast<const char*>(pngData.data()), static_cast<std::streamsize>(pngData.size()));
+                if(file.good()) {
+                    Logger::instance().log("PPU CHR PNG exported: " + path.string(), Logger::Type::USER);
+                } else {
+                    Logger::instance().log("Failed writing PPU CHR PNG: " + path.string(), Logger::Type::ERROR);
+                }
+            }
+        }
+    } else if(result != NFD_CANCEL) {
+        Logger::instance().log(NFD_GetError(), Logger::Type::ERROR);
+    }
+
+    NFD_Quit();
+    setWindowsNativePumpEnabled(true);
+
+    m_emu.withExclusiveAccess([resumeAfterDialog](auto& emu) {
+        if(resumeAfterDialog && emu.paused()) {
+            emu.togglePaused();
+        }
+    });
+
+    if(restoreAfterDialog) this->restoreWindow();
+#endif
+}
+
+void GeraNESApp::exportCurrentPpuChrPng()
+{
+    if(!m_emu.valid()) {
+        return;
+    }
+
+    constexpr int kChrWidth = 256;
+    constexpr int kChrHeight = 128;
+
+    const bool restoreCaptureEnabled = m_showPpuViewerWindow;
+    const bool restoreScanlineTrace = restoreCaptureEnabled && m_ppuViewerScanlineTraceActive;
+    m_emu.setPpuViewerCaptureEnabled(true, false);
+
+    EmulationHost::PpuViewerSnapshot viewerSnapshot;
+    const bool hasSnapshot = m_emu.getPpuViewerSnapshot(viewerSnapshot) && viewerSnapshot.valid;
+
+    if(!restoreCaptureEnabled) {
+        m_emu.setPpuViewerCaptureEnabled(false, false);
+    } else if(restoreScanlineTrace) {
+        m_emu.setPpuViewerCaptureEnabled(true, true);
+    }
+
+    if(!hasSnapshot) {
+        Logger::instance().log("Could not capture PPU CHR data for export.", Logger::Type::ERROR);
+        return;
+    }
+
+    m_ppuChrExportBuffer.assign(static_cast<size_t>(kChrWidth * kChrHeight), 0);
+    const auto& chrData = viewerSnapshot.chrData;
+    const auto& paletteData = viewerSnapshot.paletteData;
+    const auto& rgbPalette = viewerSnapshot.rgbPalette;
+    const uint8_t universalBackground = static_cast<uint8_t>(paletteData[0] & 0x3F);
+
+    for(int table = 0; table < 2; ++table) {
+        const int tableBase = table * 0x1000;
+        const int xOffset = table * 128;
+
+        for(int tileY = 0; tileY < 16; ++tileY) {
+            for(int tileX = 0; tileX < 16; ++tileX) {
+                const int tileIndex = (tileY * 16) + tileX;
+                for(int fineY = 0; fineY < 8; ++fineY) {
+                    const uint8_t lowPlane = chrData[static_cast<size_t>(tableBase + (tileIndex * 16) + fineY)];
+                    const uint8_t highPlane = chrData[static_cast<size_t>(tableBase + (tileIndex * 16) + fineY + 8)];
+                    const int dstY = (tileY * 8) + fineY;
+
+                    for(int fineX = 0; fineX < 8; ++fineX) {
+                        const int bit = 7 - fineX;
+                        const uint8_t colorIndex = static_cast<uint8_t>(((lowPlane >> bit) & 0x01) | (((highPlane >> bit) & 0x01) << 1));
+                        uint8_t paletteEntry = universalBackground;
+                        if(colorIndex != 0) {
+                            paletteEntry = static_cast<uint8_t>(paletteData[static_cast<size_t>(colorIndex)] & 0x3F);
+                        }
+
+                        const int dstX = xOffset + (tileX * 8) + fineX;
+                        const size_t dstIndex = static_cast<size_t>((dstY * kChrWidth) + dstX);
+                        const uint32_t pixel = rgbPalette[paletteEntry & 0x3F];
+                        m_ppuChrExportBuffer[dstIndex] = (pixel & 0x00FFFFFFu) | (static_cast<uint32_t>(colorIndex) << 24);
+                    }
+                }
+            }
+        }
+    }
+
+    exportPpuViewerChrPng(m_ppuChrExportBuffer, kChrWidth, kChrHeight);
+}
+
 void GeraNESApp::createNewPalette()
 {
     m_paletteNameInput = "New Palette";
@@ -3092,10 +3370,14 @@ void GeraNESApp::updateBuffers()
     m_nesScreenRect.min = glm::vec2(minX, minY);
     m_nesScreenRect.max = glm::vec2(maxX, maxY);
 
-    setVertex(0u, minX, minY, 0.0f, m_clipHeightValue / 256.0f);
-    setVertex(1u, minX, maxY, 0.0f, 240.0f / 256.0f - m_clipHeightValue / 256.0f);
-    setVertex(2u, maxX, minY, 1.0f, m_clipHeightValue / 256.0f);
-    setVertex(3u, maxX, maxY, 1.0f, 240.0f / 256.0f - m_clipHeightValue / 256.0f);
+    const int modScale = std::max(1, m_renderTextureWidth / PPU::SCREEN_WIDTH);
+    const GLfloat textureHeight = static_cast<GLfloat>(std::max(1, m_renderTextureHeight));
+    const GLfloat topUv = static_cast<GLfloat>(m_clipHeightValue * modScale) / textureHeight;
+    const GLfloat bottomUv = static_cast<GLfloat>((PPU::SCREEN_HEIGHT - m_clipHeightValue) * modScale) / textureHeight;
+    setVertex(0u, minX, minY, 0.0f, topUv);
+    setVertex(1u, minX, maxY, 0.0f, bottomUv);
+    setVertex(2u, maxX, minY, 1.0f, topUv);
+    setVertex(3u, maxX, maxY, 1.0f, bottomUv);
 
     m_vbo.bind();
     if(static_cast<size_t>(m_vbo.size()) != sizeof(data)) {

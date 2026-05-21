@@ -139,7 +139,6 @@ private:
         int width = 0;
         int height = 0;
     };
-
     std::vector<ShaderPass> m_shaderPasses;
     std::array<PostProcessTarget, 2> m_postProcessTargets = {};
 
@@ -148,11 +147,14 @@ private:
     GLuint m_texture = 0;
     std::vector<uint32_t> m_framebufferUploadCopy;
     std::vector<uint32_t> m_textureUploadBuffer;
+    int m_renderTextureWidth = 256;
+    int m_renderTextureHeight = 256;
     GLuint m_ppuNametableTexture = 0;
     GLuint m_ppuChrTexture = 0;
     GLuint m_ppuEventTexture = 0;
     std::vector<uint32_t> m_ppuNametableBuffer;
     std::vector<uint32_t> m_ppuChrBuffer;
+    std::vector<uint32_t> m_ppuChrExportBuffer;
     std::vector<uint32_t> m_ppuEventBuffer;
     std::vector<GeraNESEmu::PpuViewerScanlineState> m_ppuViewerScanlineStates;
     std::vector<GeraNESEmu::PpuViewerScanlineSnapshot> m_ppuViewerScanlineSnapshots;
@@ -355,6 +357,7 @@ private:
     uint64_t m_presenterFrameAccumScaled = 0;
     uint32_t m_presenterStepRemainder = 0;
     int m_lastTextureUploadClipHeightValue = -1;
+    int m_lastTextureUploadModScale = -1;
 
     static constexpr std::array<const char*, 3> VSYNC_TYPE_LABELS {"Off", "Syncronized", "Adaptative"};
     static constexpr std::array<const char*, 3> FILTER_TYPE_LABELS {"Nearest", "Bilinear"};    
@@ -452,11 +455,13 @@ private:
     void drawShaderStackWindow();
     void applyPalette(const std::array<uint32_t, 64>& colors, const std::string& name);
     void saveCurrentPalette();
+    void exportPpuViewerChrPng(const std::vector<uint32_t>& pixels, int width, int height);
     void createNewPalette();
     void deleteCurrentPalette();
     void drawPaletteWindow();
     void drawPpuViewerWindow();
     void drawEventViewerWindow();
+    void exportCurrentPpuChrPng();
     void drawCpuDebuggerWindow();
     void drawCpuBreakpointsWindow();
     void drawMemoryViewerWindow();

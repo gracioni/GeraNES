@@ -112,6 +112,14 @@ inline void GeraNESApp::menuBar() {
             ImGui::EndMenu();
         }
 
+        if(beginTopMenu("Export", m_emu.valid()))
+        {
+            if(ImGui::MenuItem("CHR")) {
+                exportCurrentPpuChrPng();
+            }
+            ImGui::EndMenu();
+        }
+
         if (beginTopMenu("Emulator", !netplayClientRestricted))
         {
             const bool hasRomLoaded = m_emu.valid();
@@ -1477,6 +1485,9 @@ inline void GeraNESApp::drawPpuViewerWindow()
     if(m_ppuChrBuffer.size() != static_cast<size_t>(kChrWidth * kChrHeight)) {
         m_ppuChrBuffer.resize(static_cast<size_t>(kChrWidth * kChrHeight));
     }
+    if(m_ppuChrExportBuffer.size() != static_cast<size_t>(kChrWidth * kChrHeight)) {
+        m_ppuChrExportBuffer.resize(static_cast<size_t>(kChrWidth * kChrHeight));
+    }
 
     EmulationHost::PpuViewerSnapshot viewerSnapshot;
     if(!m_emu.getPpuViewerSnapshot(viewerSnapshot) || !viewerSnapshot.valid) {
@@ -1811,7 +1822,10 @@ inline void GeraNESApp::drawPpuViewerWindow()
                             }
 
                             const int dstX = xOffset + (tileX * 8) + fineX;
-                            m_ppuChrBuffer[static_cast<size_t>((dstY * kChrWidth) + dstX)] = colorForPaletteEntry(paletteEntry);
+                            const size_t dstIndex = static_cast<size_t>((dstY * kChrWidth) + dstX);
+                            const uint32_t pixel = colorForPaletteEntry(paletteEntry);
+                            m_ppuChrBuffer[dstIndex] = pixel;
+                            m_ppuChrExportBuffer[dstIndex] = (pixel & 0x00FFFFFFu) | (static_cast<uint32_t>(colorIndex) << 24);
                         }
                     }
                 }

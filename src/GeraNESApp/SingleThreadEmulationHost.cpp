@@ -220,6 +220,7 @@ void SingleThreadEmulationHost::onFrameReady()
     m_holdPresentedFramebufferUntilFrameReady = false;
     refreshPpuViewerSnapshot();
     refreshPpuEventViewerSnapshot();
+    refreshModRenderSnapshot();
     if(!m_emu.valid()) {
         std::fill(m_presentedFramebuffer.begin(), m_presentedFramebuffer.end(), 0u);
         return;
@@ -316,6 +317,23 @@ void SingleThreadEmulationHost::refreshPpuEventViewerSnapshot()
             framebuffer,
             framebuffer + (PPU::SCREEN_WIDTH * PPU::SCREEN_HEIGHT)
         );
+    }
+}
+
+void SingleThreadEmulationHost::refreshModRenderSnapshot()
+{
+    m_modRenderSnapshot = {};
+    m_modRenderSnapshot.valid = m_emu.valid();
+    m_modRenderSnapshot.frameCount = m_emu.frameCount();
+    if(!m_modRenderSnapshot.valid) {
+        return;
+    }
+    PPU& ppu = m_emu.getConsole().ppu();
+    ppu.debugCopyPresentedBackgroundPixels(m_modRenderSnapshot.backgroundPixels);
+    ppu.debugCopyPresentedSpritePixels(m_modRenderSnapshot.spritePixels);
+    ppu.debugCopyPresentedRenderedPixels(m_modRenderSnapshot.renderedPixels);
+    for(size_t i = 0; i < m_modRenderSnapshot.paletteColors.size(); ++i) {
+        m_modRenderSnapshot.paletteColors[i] = ppu.NESToRGBAColor(static_cast<uint8_t>(i));
     }
 }
 
@@ -478,6 +496,12 @@ const uint32_t* SingleThreadEmulationHost::getFramebuffer() const
 void SingleThreadEmulationHost::copyFramebuffer(std::vector<uint32_t>& out) const
 {
     out = m_presentedFramebuffer;
+}
+
+bool SingleThreadEmulationHost::getModRenderSnapshot(ModRenderSnapshot& out) const
+{
+    out = m_modRenderSnapshot;
+    return out.valid;
 }
 
 void SingleThreadEmulationHost::beginPresentationHoldUntilNextFrameReady()

@@ -33,6 +33,7 @@ public:
     using ManualStateChangeKind = IEmulationHost::ManualStateChangeKind;
     using ManualStateChangeRecord = IEmulationHost::ManualStateChangeRecord;
     using InputTopologySnapshot = IEmulationHost::InputTopologySnapshot;
+    using ModRenderSnapshot = IEmulationHost::ModRenderSnapshot;
     using PpuViewerSnapshot = EmulationHostTypes::PpuViewerSnapshot;
     using PpuEventViewerSnapshot = EmulationHostTypes::PpuEventViewerSnapshot;
 
@@ -185,6 +186,7 @@ private:
     std::function<void(GeraNESEmu&)> m_preAdvanceHook;
     PpuViewerSnapshot m_ppuViewerSnapshot;
     PpuEventViewerSnapshot m_ppuEventViewerSnapshot;
+    ModRenderSnapshot m_modRenderSnapshot;
     bool m_ppuViewerCaptureEnabled = false;
     bool m_ppuViewerScanlineCaptureEnabled = false;
     bool m_ppuEventViewerCaptureEnabled = false;
@@ -199,6 +201,7 @@ private:
     void refreshPresentedFramebuffer();
     void refreshPpuViewerSnapshot();
     void refreshPpuEventViewerSnapshot();
+    void refreshModRenderSnapshot();
 
 public:
     explicit SingleThreadEmulationHost(IAudioOutput& audioOutput);
@@ -558,6 +561,7 @@ public:
 
     const uint32_t* getFramebuffer() const override;
     void copyFramebuffer(std::vector<uint32_t>& out) const override;
+    bool getModRenderSnapshot(ModRenderSnapshot& out) const override;
     void beginPresentationHoldUntilNextFrameReady() override;
     void setPresenterLockActive(bool active) override;
     void setSimulationSuspended(bool suspended) override;

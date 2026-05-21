@@ -113,30 +113,115 @@ inline void GeraNESApp::fillNoRomStaticFramebuffer()
 
 inline void GeraNESApp::render()
 {
-    const int textureWidth = 256;
-    const int textureHeight = 256;
+    const int modScale = (m_emu.valid() && m_modManager.active()) ? std::clamp(m_modManager.resolutionMultiplier(), 1, 8) : 1;
+    const int textureWidth = 256 * modScale;
+    const int textureHeight = 256 * modScale;
     const int activeTop = m_clipHeightValue;
     const int activeBottom = PPU::SCREEN_HEIGHT - m_clipHeightValue;
+    const int activeTopScaled = activeTop * modScale;
+    const int activeBottomScaled = activeBottom * modScale;
     const uint32_t* framebuffer = nullptr;
+    const bool useModRenderPath = m_emu.valid() && m_modManager.active();
+    const bool hasBackgroundReplacements = !m_modManager.backgroundReplacements().empty();
+    const bool hasConditionalChrOverrides = std::any_of(
+        m_modManager.chrOverrides().begin(),
+        m_modManager.chrOverrides().end(),
+        [](const ModManager::ChrOverride& override) {
+            return override.enabled && !override.assetPath.empty() && !override.conditions.empty();
+        }
+    );
+    const bool hasChrHashOverrides = std::any_of(
+        m_modManager.chrOverrides().begin(),
+        m_modManager.chrOverrides().end(),
+        [](const ModManager::ChrOverride& override) {
+            return override.enabled && !override.assetPath.empty() && override.hasChrHash;
+        }
+    );
+    const bool canUseSnapshotChrRenderPath =
+        useModRenderPath &&
+        !hasBackgroundReplacements &&
+        !hasConditionalChrOverrides &&
+        !hasChrHashOverrides;
 
     if(!m_emu.valid()) {
         fillNoRomStaticFramebuffer();
         framebuffer = m_framebufferUploadCopy.data();
-    } else {
+    } else if(!useModRenderPath) {
         framebuffer = m_emu.getFramebuffer();
     }
-    if(framebuffer == nullptr) return;
+    if(!useModRenderPath && framebuffer == nullptr) return;
 
-    if(m_textureUploadBuffer.size() != static_cast<size_t>(textureWidth * textureHeight) ||
-       m_lastTextureUploadClipHeightValue != m_clipHeightValue) {
-        m_textureUploadBuffer.assign(static_cast<size_t>(textureWidth * textureHeight), 0u);
-        m_lastTextureUploadClipHeightValue = m_clipHeightValue;
+    if(m_renderTextureWidth != textureWidth || m_renderTextureHeight != textureHeight) {
+        m_renderTextureWidth = textureWidth;
+        m_renderTextureHeight = textureHeight;
+        glActiveTexture(GL_TEXTURE0);
+        glBindTexture(GL_TEXTURE_2D, m_texture);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, textureWidth, textureHeight, 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
+        m_updateObjectsFlag = true;
     }
 
-    for(int y = activeTop; y < activeBottom; ++y) {
-        const uint32_t* srcRow = framebuffer + static_cast<size_t>(y) * textureWidth;
-        uint32_t* dstRow = m_textureUploadBuffer.data() + static_cast<size_t>(y) * textureWidth;
-        std::memcpy(dstRow, srcRow, static_cast<size_t>(textureWidth) * sizeof(uint32_t));
+    if(m_textureUploadBuffer.size() != static_cast<size_t>(textureWidth * textureHeight) ||
+       m_lastTextureUploadClipHeightValue != m_clipHeightValue ||
+       m_lastTextureUploadModScale != modScale) {
+        m_textureUploadBuffer.assign(static_cast<size_t>(textureWidth * textureHeight), 0u);
+        m_lastTextureUploadClipHeightValue = m_clipHeightValue;
+        m_lastTextureUploadModScale = modScale;
+    }
+
+    auto copyScaledFramebuffer = [&](const uint32_t* sourceFramebuffer) {
+        if(sourceFramebuffer == nullptr) return;
+        for(int y = activeTop; y < activeBottom; ++y) {
+            const uint32_t* srcRow = sourceFramebuffer + static_cast<size_t>(y) * PPU::SCREEN_WIDTH;
+            for(int sy = 0; sy < modScale; ++sy) {
+                uint32_t* dstRow = m_textureUploadBuffer.data() + static_cast<size_t>(y * modScale + sy) * static_cast<size_t>(textureWidth);
+                if(modScale == 1) {
+                    std::memcpy(dstRow, srcRow, static_cast<size_t>(PPU::SCREEN_WIDTH) * sizeof(uint32_t));
+                } else {
+                    for(int x = 0; x < PPU::SCREEN_WIDTH; ++x) {
+                        std::fill_n(dstRow + x * modScale, modScale, srcRow[x]);
+                    }
+                }
+            }
+        }
+    };
+
+    if(canUseSnapshotChrRenderPath) {
+        const uint32_t* presentedFramebuffer = m_emu.getFramebuffer();
+        IEmulationHost::ModRenderSnapshot hostSnapshot;
+        if(!m_emu.getModRenderSnapshot(hostSnapshot)) {
+            copyScaledFramebuffer(presentedFramebuffer);
+        } else {
+            ModManager::ChrRenderSnapshot chrSnapshot;
+            chrSnapshot.paletteColors = hostSnapshot.paletteColors;
+            chrSnapshot.backgroundPixels = std::move(hostSnapshot.backgroundPixels);
+            chrSnapshot.spritePixels = std::move(hostSnapshot.spritePixels);
+            chrSnapshot.renderedPixels = std::move(hostSnapshot.renderedPixels);
+            m_modManager.composeChrFrame(
+                m_textureUploadBuffer,
+                textureWidth,
+                textureHeight,
+                activeTopScaled,
+                activeBottomScaled,
+                modScale,
+                presentedFramebuffer,
+                chrSnapshot
+            );
+        }
+    } else if(useModRenderPath) {
+        m_emu.withExclusiveAccess([&](GeraNESEmu& emu) {
+            copyScaledFramebuffer(emu.getFramebuffer());
+            m_modManager.renderReplacements(
+                m_textureUploadBuffer,
+                textureWidth,
+                textureHeight,
+                activeTopScaled,
+                activeBottomScaled,
+                modScale,
+                emu
+            );
+        });
+    } else {
+        copyScaledFramebuffer(framebuffer);
     }
 
     glActiveTexture(GL_TEXTURE0);
@@ -228,10 +313,10 @@ inline bool GeraNESApp::paintGL()
                 };
 
                 if(passCount == 1) {
-                    drawPass(m_shaderPasses.front(), m_texture, glm::vec2(256.0f, 256.0f), true, 0);
+                    drawPass(m_shaderPasses.front(), m_texture, glm::vec2(static_cast<float>(m_renderTextureWidth), static_cast<float>(m_renderTextureHeight)), true, 0);
                 } else {
                     GLuint sourceTexture = m_texture;
-                    glm::vec2 sourceSize(256.0f, 256.0f);
+                    glm::vec2 sourceSize(static_cast<float>(m_renderTextureWidth), static_cast<float>(m_renderTextureHeight));
 
                     for(size_t i = 0; i < passCount; ++i) {
                         const bool finalPass = i + 1 == passCount;

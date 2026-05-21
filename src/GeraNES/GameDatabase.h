@@ -256,7 +256,11 @@ public:
 
 private:
 
-    static inline std::string s_databasePath = "db.txt";
+    static std::string& databasePathStorage()
+    {
+        static std::string path = "db.txt";
+        return path;
+    }
 
     std::map<std::string, Item> m_map;
 
@@ -281,7 +285,7 @@ private:
         
         Logger::instance().log(std::string("(DB) Loading database"), Logger::Type::INFO);
 
-        const std::string filename = s_databasePath;
+        const std::string filename = databasePathStorage();
 
         std::ifstream file(filename);
 
@@ -394,8 +398,8 @@ public:
 
     static void setDatabasePath(const std::string& path)
     {
-        if(path.empty()) s_databasePath = "db.txt";
-        else s_databasePath = path;
+        if(path.empty()) databasePathStorage() = "db.txt";
+        else databasePathStorage() = path;
     }
 
     static GameDatabase& instance() {
@@ -500,7 +504,7 @@ public:
         const std::string crc = trim(raw.PrgChrCrc32);
         if(crc.empty()) return fail("CRC cannot be empty");
 
-        const std::string filename = s_databasePath;
+        const std::string filename = databasePathStorage();
         std::vector<std::string> lines;
         {
             std::ifstream in(filename);
@@ -570,7 +574,7 @@ public:
         const std::string crc = trim(crcValue);
         if(crc.empty()) return fail("CRC cannot be empty");
 
-        const std::string filename = s_databasePath;
+        const std::string filename = databasePathStorage();
         std::vector<std::string> lines;
         {
             std::ifstream in(filename);

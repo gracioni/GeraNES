@@ -33,6 +33,7 @@ public:
     using ManualStateChangeKind = IEmulationHost::ManualStateChangeKind;
     using ManualStateChangeRecord = IEmulationHost::ManualStateChangeRecord;
     using InputTopologySnapshot = IEmulationHost::InputTopologySnapshot;
+    using ModRenderSnapshot = IEmulationHost::ModRenderSnapshot;
     using PpuViewerSnapshot = EmulationHostTypes::PpuViewerSnapshot;
     using PpuEventViewerSnapshot = EmulationHostTypes::PpuEventViewerSnapshot;
 
@@ -202,6 +203,8 @@ private:
     PpuViewerSnapshot m_ppuViewerSnapshot;
     mutable std::mutex m_ppuEventViewerSnapshotMutex;
     PpuEventViewerSnapshot m_ppuEventViewerSnapshot;
+    mutable std::mutex m_modRenderSnapshotMutex;
+    ModRenderSnapshot m_modRenderSnapshot;
     bool m_ppuViewerCaptureEnabled = false;
     bool m_ppuViewerScanlineCaptureEnabled = false;
     bool m_ppuEventViewerCaptureEnabled = false;
@@ -222,6 +225,7 @@ private:
     void refreshSnapshotLocked();
     void refreshPpuViewerSnapshotLocked(uint32_t frameCount);
     void refreshPpuEventViewerSnapshotLocked(uint32_t frameCount);
+    void refreshModRenderSnapshotLocked(uint32_t frameCount);
     void onFrameReadyLocked();
     void workerLoop(std::stop_token stopToken);
     static thread_local const ThreadedEmulationHost* t_directAccessHost;
@@ -758,6 +762,7 @@ public:
 
     const uint32_t* getFramebuffer() const override;
     void copyFramebuffer(std::vector<uint32_t>& out) const override;
+    bool getModRenderSnapshot(ModRenderSnapshot& out) const override;
     void beginPresentationHoldUntilNextFrameReady() override;
     void setPresenterLockActive(bool active) override;
     void setSimulationSuspended(bool suspended) override;
