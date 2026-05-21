@@ -112,14 +112,6 @@ inline void GeraNESApp::menuBar() {
             ImGui::EndMenu();
         }
 
-        if(beginTopMenu("Export", m_emu.valid()))
-        {
-            if(ImGui::MenuItem("CHR")) {
-                exportCurrentPpuChrPng();
-            }
-            ImGui::EndMenu();
-        }
-
         if (beginTopMenu("Emulator", !netplayClientRestricted))
         {
             const bool hasRomLoaded = m_emu.valid();
@@ -885,8 +877,22 @@ inline void GeraNESApp::menuBar() {
 
             ImGui::Separator();
 
-            if(ImGui::MenuItem("Use Mod If Available", nullptr, AppSettings::instance().data.modding.useModIfAvailable)) {
-                AppSettings::instance().data.modding.useModIfAvailable = !AppSettings::instance().data.modding.useModIfAvailable;
+            if(ImGui::BeginMenu("Mod")) {
+                if(ImGui::BeginMenu("Load", !netplayRomChangeRestricted)) {
+                    if(ImGui::MenuItem("ZIP File...")) {
+                        loadModArchive();
+                    }
+                    if(ImGui::MenuItem("Folder...")) {
+                        loadModFolder();
+                    }
+                    ImGui::EndMenu();
+                }
+
+                const bool hasSelectedMod = m_modManager.hasSelectedSource();
+                if(ImGui::MenuItem("Clear", nullptr, false, hasSelectedMod && !netplayRomChangeRestricted)) {
+                    clearSelectedMod();
+                }
+                ImGui::EndMenu();
             }
 
             ImGui::Separator();
@@ -1425,11 +1431,21 @@ inline void GeraNESApp::drawPpuViewerWindow()
 
     ImGui::SetNextWindowSize(ImVec2(1080.0f, 830.0f), ImGuiCond_Appearing);
 
-    if(!ImGui::Begin("PPU Viewer", &m_showPpuViewerWindow)) {
+    if(!ImGui::Begin("PPU Viewer", &m_showPpuViewerWindow, ImGuiWindowFlags_MenuBar)) {
         ImGui::End();
         return;
     }
     m_imGuiWindowFocusBlocksEmulator |= ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows);
+
+    if(ImGui::BeginMenuBar()) {
+        if(ImGui::BeginMenu("Export")) {
+            if(ImGui::MenuItem("CHR")) {
+                exportCurrentPpuChrPng();
+            }
+            ImGui::EndMenu();
+        }
+        ImGui::EndMenuBar();
+    }
 
     auto syncPpuViewerScanlineTrace = [&](bool enabled) {
         if(m_ppuViewerScanlineTraceActive == enabled) {

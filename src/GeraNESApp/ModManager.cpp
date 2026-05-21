@@ -301,41 +301,82 @@ void ModManager::clear()
     m_lua = sol::state();
 }
 
-ModManager::LoadRequest ModManager::prepareRomLoad(const std::filesystem::path& romPath, bool useModIfAvailable)
+bool ModManager::selectModSource(const std::filesystem::path& modSourcePath, std::string& error)
 {
     clear();
 
+    if(modSourcePath.empty()) {
+        error = "Mod source path is empty.";
+        return false;
+    }
+
+    std::error_code ec;
+    const bool exists = std::filesystem::exists(modSourcePath, ec);
+    if(ec || !exists) {
+        error = "Mod source does not exist.";
+        return false;
+    }
+
+    const bool isDirectory = std::filesystem::is_directory(modSourcePath, ec);
+    if(ec) {
+        error = "Failed to inspect mod source.";
+        return false;
+    }
+    const bool isFile = std::filesystem::is_regular_file(modSourcePath, ec);
+    if(ec) {
+        error = "Failed to inspect mod source.";
+        return false;
+    }
+    if(!isDirectory && !isFile) {
+        error = "Mod source must be a folder or zip file.";
+        return false;
+    }
+    if(isFile) {
+        std::string extension = toLower(modSourcePath.extension().string());
+        if(extension != ".zip" && extension != ".mod") {
+            error = "Mod file must be a .zip or .mod archive.";
+            return false;
+        }
+    }
+
+    m_modPath = modSourcePath;
+    m_active = true;
+    return true;
+}
+
+void ModManager::clearModSource()
+{
+    clear();
+}
+
+ModManager::LoadRequest ModManager::prepareRomLoad(const std::filesystem::path& romPath)
+{
     LoadRequest request;
     request.romPath = romPath;
     request.effectiveRomPath = romPath;
 
-    if(!useModIfAvailable) {
-        request.message = "Mod loading disabled.";
-        return request;
-    }
-
-    const std::filesystem::path modPath = findModPath(romPath);
-    if(modPath.empty()) {
-        request.message = "No mod file found.";
-        return request;
-    }
-
     m_originalRomPath = romPath;
     m_effectiveRomPath = romPath;
-    m_modPath = modPath;
+
+    if(m_modPath.empty()) {
+        m_active = false;
+        request.message = "No mod selected.";
+        return request;
+    }
+
     m_active = true;
-    request.modPath = modPath;
+    request.modPath = m_modPath;
     request.modLoaded = true;
 
-    const auto ipsData = readZipEntry(modPath, "rom.ips");
+    const auto ipsData = readSourceEntry("rom.ips");
     if(!ipsData.has_value()) {
-        request.message = "Mod loaded.";
+        request.message = "Mod selected.";
         return request;
     }
 
     RomFile baseRom;
     if(!baseRom.open(romPath.string()) || !baseRom.error().empty()) {
-        request.message = "Mod found, but base ROM could not be read for rom.ips.";
+        request.message = "Mod selected, but base ROM could not be read for rom.ips.";
         Logger::instance().log(request.message, Logger::Type::ERROR);
         return request;
     }
@@ -343,7 +384,7 @@ ModManager::LoadRequest ModManager::prepareRomLoad(const std::filesystem::path& 
     std::string patchError;
     auto patchedRom = applyIpsPatch(baseRom.dataBytes(), *ipsData, patchError);
     if(!patchedRom.has_value()) {
-        request.message = "Mod found, but rom.ips failed: " + patchError;
+        request.message = "Mod selected, but rom.ips failed: " + patchError;
         Logger::instance().log(request.message, Logger::Type::ERROR);
         return request;
     }
@@ -359,7 +400,7 @@ ModManager::LoadRequest ModManager::prepareRomLoad(const std::filesystem::path& 
 
     request.effectiveRomPath = patchedPath;
     request.ipsApplied = true;
-    request.message = "Mod loaded with rom.ips.";
+    request.message = "Mod selected with rom.ips.";
     m_effectiveRomPath = patchedPath;
     return request;
 }
@@ -372,7 +413,7 @@ bool ModManager::loadScriptForCurrentMod()
     m_chrOverrides.clear();
     m_backgroundReplacements.clear();
     m_imageCache.clear();
-    const auto script = readZipEntry(m_modPath, "script.lua");
+    const auto script = readSourceEntry("script.lua");
     if(!script.has_value()) {
         Logger::instance().log("Mod loaded without script.lua.", Logger::Type::INFO);
         return true;
@@ -439,19 +480,16 @@ void ModManager::onFrame(GeraNESEmu& emu)
 std::optional<std::vector<uint8_t>> ModManager::readAsset(const std::string& assetPath) const
 {
     if(!m_active) return std::nullopt;
-    return readZipEntry(m_modPath, normalizeZipPath(assetPath));
+    return readSourceEntry(normalizeZipPath(assetPath));
 }
 
-std::filesystem::path ModManager::findModPath(const std::filesystem::path& romPath)
+bool ModManager::isFolderSource() const
 {
-    if(romPath.empty()) return {};
-    std::filesystem::path modPath = romPath;
-    modPath.replace_extension(".mod");
-    std::error_code ec;
-    if(std::filesystem::exists(modPath, ec) && std::filesystem::is_regular_file(modPath, ec)) {
-        return modPath;
+    if(m_modPath.empty()) {
+        return false;
     }
-    return {};
+    std::error_code ec;
+    return std::filesystem::is_directory(m_modPath, ec);
 }
 
 std::string ModManager::normalizeZipPath(std::string path)
@@ -461,6 +499,78 @@ std::string ModManager::normalizeZipPath(std::string path)
         path.erase(path.begin());
     }
     return path;
+}
+
+std::optional<std::filesystem::path> ModManager::resolveFolderEntryPath(const std::filesystem::path& rootPath, const std::string& entryName)
+{
+    if(rootPath.empty()) {
+        return std::nullopt;
+    }
+
+    const std::string normalized = normalizeZipPath(entryName);
+    if(normalized.empty()) {
+        return std::nullopt;
+    }
+
+    std::filesystem::path relativePath = std::filesystem::path(normalized).lexically_normal();
+    if(relativePath.is_absolute()) {
+        return std::nullopt;
+    }
+    for(const auto& component : relativePath) {
+        if(component == "..") {
+            return std::nullopt;
+        }
+    }
+    return rootPath / relativePath;
+}
+
+std::optional<std::vector<uint8_t>> ModManager::readFileEntry(const std::filesystem::path& rootPath, const std::string& entryName)
+{
+    const auto resolvedPath = resolveFolderEntryPath(rootPath, entryName);
+    if(!resolvedPath.has_value()) {
+        return std::nullopt;
+    }
+
+    std::error_code ec;
+    if(!std::filesystem::exists(*resolvedPath, ec) || !std::filesystem::is_regular_file(*resolvedPath, ec)) {
+        return std::nullopt;
+    }
+
+    std::ifstream file(*resolvedPath, std::ios::binary);
+    if(!file) {
+        return std::nullopt;
+    }
+    return std::vector<uint8_t>(
+        (std::istreambuf_iterator<char>(file)),
+        std::istreambuf_iterator<char>()
+    );
+}
+
+bool ModManager::sourceHasEntry(const std::string& entryName) const
+{
+    if(m_modPath.empty()) {
+        return false;
+    }
+    if(isFolderSource()) {
+        const auto resolvedPath = resolveFolderEntryPath(m_modPath, entryName);
+        if(!resolvedPath.has_value()) {
+            return false;
+        }
+        std::error_code ec;
+        return std::filesystem::exists(*resolvedPath, ec) && std::filesystem::is_regular_file(*resolvedPath, ec);
+    }
+    return zipHasEntry(m_modPath, entryName);
+}
+
+std::optional<std::vector<uint8_t>> ModManager::readSourceEntry(const std::string& entryName) const
+{
+    if(m_modPath.empty()) {
+        return std::nullopt;
+    }
+    if(isFolderSource()) {
+        return readFileEntry(m_modPath, entryName);
+    }
+    return readZipEntry(m_modPath, entryName);
 }
 
 std::optional<std::vector<uint8_t>> ModManager::readZipEntry(const std::filesystem::path& zipPath, const std::string& entryName)
@@ -661,7 +771,7 @@ void ModManager::bindApi(GeraNESEmu* emu)
         }
     });
     api.set_function("asset_exists", [this](const std::string& assetPath) {
-        return zipHasEntry(m_modPath, normalizeZipPath(assetPath));
+        return sourceHasEntry(normalizeZipPath(assetPath));
     });
     api.set_function("read_memory", [this, emu](const std::string& type, uint32_t address) {
         return static_cast<int>(readMemory(emu, type, address));

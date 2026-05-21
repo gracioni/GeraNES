@@ -132,12 +132,15 @@ public:
     };
 
     void clear();
-    LoadRequest prepareRomLoad(const std::filesystem::path& romPath, bool useModIfAvailable);
+    bool selectModSource(const std::filesystem::path& modSourcePath, std::string& error);
+    void clearModSource();
+    LoadRequest prepareRomLoad(const std::filesystem::path& romPath);
     bool loadScriptForCurrentMod();
     void onFrame(GeraNESEmu& emu);
     void composeChrFrame(std::vector<uint32_t>& framebuffer, int width, int height, int activeTop, int activeBottom, int scale, const uint32_t* sourceFramebuffer, const ChrRenderSnapshot& snapshot, const std::vector<const ChrOverride*>* activeOverrideFilter = nullptr);
 
     bool active() const { return m_active; }
+    bool hasSelectedSource() const { return !m_modPath.empty(); }
     const std::filesystem::path& modPath() const { return m_modPath; }
     int resolutionMultiplier() const { return m_resolutionMultiplier; }
     const std::vector<ChrOverride>& chrOverrides() const { return m_chrOverrides; }
@@ -172,8 +175,12 @@ private:
 
     std::unordered_map<std::string, std::optional<DecodedImage>> m_imageCache;
 
-    static std::filesystem::path findModPath(const std::filesystem::path& romPath);
     static std::string normalizeZipPath(std::string path);
+    static std::optional<std::filesystem::path> resolveFolderEntryPath(const std::filesystem::path& rootPath, const std::string& entryName);
+    static std::optional<std::vector<uint8_t>> readFileEntry(const std::filesystem::path& rootPath, const std::string& entryName);
+    bool isFolderSource() const;
+    bool sourceHasEntry(const std::string& entryName) const;
+    std::optional<std::vector<uint8_t>> readSourceEntry(const std::string& entryName) const;
     static std::optional<std::vector<uint8_t>> readZipEntry(const std::filesystem::path& zipPath, const std::string& entryName);
     static bool zipHasEntry(const std::filesystem::path& zipPath, const std::string& entryName);
     static bool writeBinaryFile(const std::filesystem::path& path, const std::vector<uint8_t>& data, std::string& error);

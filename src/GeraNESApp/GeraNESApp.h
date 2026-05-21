@@ -412,6 +412,7 @@ private:
     std::array<uint32_t, 64> m_editPalette = {};
     std::string m_selectedPaletteName = "";
     std::string m_paletteNameInput = "";
+    fs::path m_loadedRomPath;
 
     std::unique_ptr<TouchControls> m_touch;
 
@@ -429,6 +430,10 @@ private:
     void togglePauseAction();
     void resetAction();
     void closeRomAction();
+    bool openRomPath(const fs::path& path, bool updateRecentFiles = true);
+    void loadModArchive();
+    void loadModFolder();
+    void clearSelectedMod();
     bool shouldSuppressRewindForNetplay() const;
     void applyEffectiveRewindSettings();
     static bool isTouchCompatibleControllerDevice(const std::optional<Settings::Device>& device);

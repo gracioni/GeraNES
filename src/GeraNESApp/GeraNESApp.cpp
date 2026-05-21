@@ -891,7 +891,7 @@ void GeraNESApp::closeRomAction()
     }
 
     m_emu.closeRom();
-    m_modManager.clear();
+    m_loadedRomPath.clear();
     setTitle("GeraNES");
     m_framebufferUploadCopy.assign(PPU::SCREEN_WIDTH * PPU::SCREEN_HEIGHT, 0u);
     m_textureUploadBuffer.assign(256u * 256u, 0u);
@@ -1490,26 +1490,31 @@ void GeraNESApp::setSnesMouseGrab(bool active)
 
 void GeraNESApp::openFile(const char* path)
 {
+    openRomPath(fs::path(path), true);
+}
+
+bool GeraNESApp::openRomPath(const fs::path& path, bool updateRecentFiles)
+{
     if(isNetplayRomChangeRestricted()) {
         notifyNetplayRomChangeRestrictedAction("Open ROM");
-        return;
+        return false;
     }
 
-    const ModManager::LoadRequest modLoad = m_modManager.prepareRomLoad(
-        fs::path(path),
-        AppSettings::instance().data.modding.useModIfAvailable
-    );
+    const ModManager::LoadRequest modLoad = m_modManager.prepareRomLoad(path);
     const std::string effectivePath = modLoad.effectiveRomPath.string();
 
-    AppSettings::instance().data.addRecentFile(path);
-    AppSettings::instance().data.setLastFolder(path);
+    if(updateRecentFiles) {
+        AppSettings::instance().data.addRecentFile(path.string());
+        AppSettings::instance().data.setLastFolder(path.string());
+    }
     if(m_emu.open(effectivePath)) {
         if(modLoad.modLoaded) {
             m_modManager.loadScriptForCurrentMod();
             Logger::instance().log(modLoad.message + " " + modLoad.modPath.string(), Logger::Type::USER);
         }
         normalizeTouchControlsTargetForCurrentTopology();
-        const std::string filename = fs::path(path).filename().string();
+        m_loadedRomPath = path;
+        const std::string filename = path.filename().string();
         this->setTitle(std::string("GeraNES - ") + filename);
         Logger::instance().log("Rom loaded", Logger::Type::USER);
         m_netplayRuntime.refreshLocalRomSelectionImmediate();
@@ -1518,9 +1523,11 @@ void GeraNESApp::openFile(const char* path)
         if(ImGui::GetCurrentContext() != nullptr) {
             ImGui::SetWindowFocus(nullptr);
         }
+        return true;
     } else {
-        m_modManager.clear();
+        m_loadedRomPath.clear();
         Logger::instance().log("Failed to load ROM", Logger::Type::USER);
+        return false;
     }
 }
 
@@ -2468,6 +2475,147 @@ void GeraNESApp::openRom()
 #ifndef __EMSCRIPTEN__
     if(restoreAfterDialog) this->restoreWindow();
 #endif
+}
+
+void GeraNESApp::loadModArchive()
+{
+#ifdef __EMSCRIPTEN__
+    Logger::instance().log("Mod loading from disk is not available in the web build.", Logger::Type::USER);
+#else
+    const bool resumeAfterDialog = m_emu.withExclusiveAccess([](auto& emu) {
+        if(!emu.valid()) return false;
+
+        const bool shouldResume = !emu.paused();
+        if(shouldResume) {
+            emu.togglePaused();
+        }
+        return shouldResume;
+    });
+    setWindowsNativePumpEnabled(false);
+
+    const bool restoreAfterDialog = this->isFullScreen();
+#ifndef _WIN32
+    if(restoreAfterDialog) minimizeWindow();
+#endif
+
+    NFD_Init();
+
+    nfdu8char_t* outPath = nullptr;
+    nfdu8filteritem_t filterItem[] = {
+        { "Mod Archives", "zip,mod" },
+        { "ZIP", "zip" },
+        { "MOD", "mod" }
+    };
+    nfdopendialogu8args_t args = {};
+    args.filterList = filterItem;
+    args.filterCount = sizeof(filterItem) / sizeof(nfdu8filteritem_t);
+    args.defaultPath = AppSettings::instance().data.getLastFolder().c_str();
+#ifdef _WIN32
+    args.parentWindow.type = NFD_WINDOW_HANDLE_TYPE_WINDOWS;
+    args.parentWindow.handle = nativeWindowHandle();
+#endif
+
+    const nfdresult_t result = NFD_OpenDialogU8_With(&outPath, &args);
+    if(result == NFD_OKAY) {
+        std::string error;
+        const fs::path selectedPath(outPath);
+        if(m_modManager.selectModSource(selectedPath, error)) {
+            Logger::instance().log("Mod selected: " + selectedPath.string(), Logger::Type::USER);
+            AppSettings::instance().data.setLastFolder(selectedPath.string());
+            if(!m_loadedRomPath.empty() && m_emu.valid()) {
+                openRomPath(m_loadedRomPath, false);
+            }
+        } else {
+            Logger::instance().log(error, Logger::Type::ERROR);
+        }
+        NFD_FreePathU8(outPath);
+    } else if(result != NFD_CANCEL) {
+        Logger::instance().log(NFD_GetError(), Logger::Type::ERROR);
+    }
+
+    NFD_Quit();
+    setWindowsNativePumpEnabled(true);
+    m_emu.withExclusiveAccess([resumeAfterDialog](auto& emu) {
+        if(resumeAfterDialog && emu.paused()) {
+            emu.togglePaused();
+        }
+    });
+
+    if(restoreAfterDialog) this->restoreWindow();
+#endif
+}
+
+void GeraNESApp::loadModFolder()
+{
+#ifdef __EMSCRIPTEN__
+    Logger::instance().log("Mod loading from disk is not available in the web build.", Logger::Type::USER);
+#else
+    const bool resumeAfterDialog = m_emu.withExclusiveAccess([](auto& emu) {
+        if(!emu.valid()) return false;
+
+        const bool shouldResume = !emu.paused();
+        if(shouldResume) {
+            emu.togglePaused();
+        }
+        return shouldResume;
+    });
+    setWindowsNativePumpEnabled(false);
+
+    const bool restoreAfterDialog = this->isFullScreen();
+#ifndef _WIN32
+    if(restoreAfterDialog) minimizeWindow();
+#endif
+
+    NFD_Init();
+
+    nfdu8char_t* outPath = nullptr;
+    nfdpickfolderu8args_t args = {};
+    args.defaultPath = AppSettings::instance().data.getLastFolder().c_str();
+#ifdef _WIN32
+    args.parentWindow.type = NFD_WINDOW_HANDLE_TYPE_WINDOWS;
+    args.parentWindow.handle = nativeWindowHandle();
+#endif
+
+    const nfdresult_t result = NFD_PickFolderU8_With(&outPath, &args);
+    if(result == NFD_OKAY) {
+        std::string error;
+        const fs::path selectedPath(outPath);
+        if(m_modManager.selectModSource(selectedPath, error)) {
+            Logger::instance().log("Mod selected: " + selectedPath.string(), Logger::Type::USER);
+            AppSettings::instance().data.setLastFolder(selectedPath.string());
+            if(!m_loadedRomPath.empty() && m_emu.valid()) {
+                openRomPath(m_loadedRomPath, false);
+            }
+        } else {
+            Logger::instance().log(error, Logger::Type::ERROR);
+        }
+        NFD_FreePathU8(outPath);
+    } else if(result != NFD_CANCEL) {
+        Logger::instance().log(NFD_GetError(), Logger::Type::ERROR);
+    }
+
+    NFD_Quit();
+    setWindowsNativePumpEnabled(true);
+    m_emu.withExclusiveAccess([resumeAfterDialog](auto& emu) {
+        if(resumeAfterDialog && emu.paused()) {
+            emu.togglePaused();
+        }
+    });
+
+    if(restoreAfterDialog) this->restoreWindow();
+#endif
+}
+
+void GeraNESApp::clearSelectedMod()
+{
+    const bool hadSelectedMod = m_modManager.hasSelectedSource();
+    m_modManager.clearModSource();
+    if(hadSelectedMod) {
+        Logger::instance().log("Mod cleared.", Logger::Type::USER);
+    }
+    if(!m_loadedRomPath.empty() && m_emu.valid()) {
+        openRomPath(m_loadedRomPath, false);
+    }
 }
 
 void GeraNESApp::loadCpuDebuggerSymbols()
