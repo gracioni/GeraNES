@@ -265,6 +265,24 @@ void ThreadedEmulationHost::refreshPpuEventViewerSnapshotLocked(uint32_t frameCo
     m_ppuEventViewerSnapshot = std::move(snapshot);
 }
 
+void ThreadedEmulationHost::refreshModRenderSnapshotLocked(uint32_t frameCount)
+{
+    ModRenderSnapshot snapshot;
+    snapshot.valid = m_emu.valid();
+    snapshot.frameCount = frameCount;
+    if(snapshot.valid) {
+        PPU& ppu = m_emu.getConsole().ppu();
+        ppu.debugCopyPresentedBackgroundPixels(snapshot.backgroundPixels);
+        ppu.debugCopyPresentedSpritePixels(snapshot.spritePixels);
+        ppu.debugCopyPresentedRenderedPixels(snapshot.renderedPixels);
+        for(size_t i = 0; i < snapshot.paletteColors.size(); ++i) {
+            snapshot.paletteColors[i] = ppu.NESToRGBAColor(static_cast<uint8_t>(i));
+        }
+    }
+    std::scoped_lock modRenderLock(m_modRenderSnapshotMutex);
+    m_modRenderSnapshot = std::move(snapshot);
+}
+
 void ThreadedEmulationHost::refreshSnapshotLocked()
 {
     const bool valid = m_emu.valid();
@@ -298,6 +316,7 @@ void ThreadedEmulationHost::refreshSnapshotLocked()
 
     refreshPpuViewerSnapshotLocked(frameCount);
     refreshPpuEventViewerSnapshotLocked(frameCount);
+    refreshModRenderSnapshotLocked(frameCount);
 
     constexpr auto kSlowSnapshotRefreshInterval = std::chrono::milliseconds(250);
     const auto now = std::chrono::steady_clock::now();
@@ -687,6 +706,13 @@ void ThreadedEmulationHost::copyFramebuffer(std::vector<uint32_t>& out) const
     std::scoped_lock framebufferLock(m_framebufferMutex);
     const auto& framebuffer = m_framebuffers[m_frontFramebufferIndex.load(std::memory_order_acquire)];
     out.assign(framebuffer.begin(), framebuffer.end());
+}
+
+bool ThreadedEmulationHost::getModRenderSnapshot(ModRenderSnapshot& out) const
+{
+    std::scoped_lock modRenderLock(m_modRenderSnapshotMutex);
+    out = m_modRenderSnapshot;
+    return out.valid;
 }
 
 void ThreadedEmulationHost::beginPresentationHoldUntilNextFrameReady()
