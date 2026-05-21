@@ -449,7 +449,7 @@ void ModManager::renderReplacements(std::vector<uint32_t>& framebuffer, int widt
             activeOverrides.push_back(&override);
         }
     }
-    renderChrOverrides(framebuffer, width, height, activeTop, activeBottom, scale, captureChrRenderSnapshot(emu), &activeOverrides);
+    composeChrFrame(framebuffer, width, height, activeTop, activeBottom, scale, nullptr, captureChrRenderSnapshot(emu), &activeOverrides);
 }
 
 ModManager::ChrRenderSnapshot ModManager::captureChrRenderSnapshot(GeraNESEmu& emu) const

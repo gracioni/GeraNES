@@ -138,7 +138,6 @@ public:
     void onFrame(GeraNESEmu& emu);
     void renderReplacements(std::vector<uint32_t>& framebuffer, int width, int height, int activeTop, int activeBottom, int scale, GeraNESEmu& emu);
     ChrRenderSnapshot captureChrRenderSnapshot(GeraNESEmu& emu) const;
-    void renderChrOverrides(std::vector<uint32_t>& framebuffer, int width, int height, int activeTop, int activeBottom, int scale, const ChrRenderSnapshot& snapshot, const std::vector<const ChrOverride*>* activeOverrideFilter = nullptr);
     void composeChrFrame(std::vector<uint32_t>& framebuffer, int width, int height, int activeTop, int activeBottom, int scale, const uint32_t* sourceFramebuffer, const ChrRenderSnapshot& snapshot, const std::vector<const ChrOverride*>* activeOverrideFilter = nullptr);
 
     bool active() const { return m_active; }
