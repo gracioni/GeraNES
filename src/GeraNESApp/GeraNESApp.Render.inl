@@ -173,6 +173,8 @@ inline void GeraNESApp::render()
             copyScaledFramebuffer(presentedFramebuffer);
         } else {
             ModManager::ChrRenderSnapshot chrSnapshot;
+            chrSnapshot.scrollX = hostSnapshot.scrollX;
+            chrSnapshot.scrollY = hostSnapshot.scrollY;
             chrSnapshot.paletteColors = hostSnapshot.paletteColors;
             chrSnapshot.tileHashes = hostSnapshot.tileHashes;
             chrSnapshot.backgroundPixels = std::move(hostSnapshot.backgroundPixels);

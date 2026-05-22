@@ -329,6 +329,8 @@ void SingleThreadEmulationHost::refreshModRenderSnapshot()
         return;
     }
     PPU& ppu = m_emu.getConsole().ppu();
+    m_modRenderSnapshot.scrollX = ppu.getVirtualScrollX();
+    m_modRenderSnapshot.scrollY = ppu.getVirtualScrollY();
     ppu.debugCopyPresentedBackgroundPixels(m_modRenderSnapshot.backgroundPixels);
     ppu.debugCopyPresentedSpritePixels(m_modRenderSnapshot.spritePixels);
     for(size_t i = 0; i < m_modRenderSnapshot.paletteColors.size(); ++i) {

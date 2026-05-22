@@ -653,7 +653,7 @@ bool ModManager::loadDefinitionForCurrentMod()
             if(decodedImage(override.assetPath) == nullptr) {
                 Logger::instance().log(
                     "Failed to load CHR image asset: " + override.assetPath,
-                    Logger::Type::ERROR);
+                    Logger::Type::WARNING);
                 override.enabled = false;
             }
             continue;
@@ -666,7 +666,7 @@ bool ModManager::loadDefinitionForCurrentMod()
             if(!valid) {
                 Logger::instance().log(
                     "CHR sheet must be an indexed PNG with exactly 4 colors: " + normalizedPath,
-                    Logger::Type::ERROR);
+                    Logger::Type::WARNING);
             }
             it = chrAssetValidity.emplace(normalizedPath, valid).first;
         }
@@ -787,7 +787,7 @@ bool ModManager::loadMesenHiresFile()
         if(line.rfind("<img>", 0) == 0) {
             const std::string imagePath = normalizeZipPath(trimMesenToken(line.substr(5)));
             if(!sourceHasEntry(imagePath)) {
-                Logger::instance().log("Mesen image not found: " + imagePath, Logger::Type::ERROR);
+                Logger::instance().log("Mesen image not found: " + imagePath, Logger::Type::WARNING);
             }
             images.push_back(imagePath);
             continue;
@@ -1552,7 +1552,7 @@ const ModManager::DecodedImage* ModManager::decodedImage(const std::string& asse
         }
         cacheIt = m_imageCache.emplace(normalizedPath, std::move(decoded)).first;
         if(!cacheIt->second.has_value()) {
-            Logger::instance().log("Failed to load mod image asset: " + normalizedPath, Logger::Type::ERROR);
+            Logger::instance().log("Failed to load mod image asset: " + normalizedPath, Logger::Type::WARNING);
         }
     }
     return cacheIt->second.has_value() ? &*cacheIt->second : nullptr;
@@ -2530,16 +2530,16 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
     };
 
     const ConditionContext backgroundConditionContext = {};
-    std::vector<const PreparedBackground*> activeBackgrounds;
-    activeBackgrounds.reserve(preparedBackgrounds.size());
+    std::array<const PreparedBackground*, 40> activeBackgroundsByPriority = {};
     for(const PreparedBackground& prepared : preparedBackgrounds) {
+        const int priority = std::clamp(prepared.replacement->priority, 0, 39);
+        if(activeBackgroundsByPriority[static_cast<size_t>(priority)] != nullptr) {
+            continue;
+        }
         if(conditionsMatchAt(prepared.replacement->conditions, backgroundConditionContext)) {
-            activeBackgrounds.push_back(&prepared);
+            activeBackgroundsByPriority[static_cast<size_t>(priority)] = &prepared;
         }
     }
-    std::stable_sort(activeBackgrounds.begin(), activeBackgrounds.end(), [](const PreparedBackground* a, const PreparedBackground* b) {
-        return a->replacement->priority < b->replacement->priority;
-    });
 
     auto sampleBackgroundPixel = [&](uint32_t dstColor, const PreparedBackground& prepared, int nesX, int nesY, int subX, int subY) {
         const BackgroundReplacement& replacement = *prepared.replacement;
@@ -2549,8 +2549,8 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
         }
 
         const int backgroundScale = std::max(1, m_resolutionMultiplier);
-        const int bgScrollX = replacement.scrollX;
-        const int bgScrollY = replacement.scrollY;
+        const int bgScrollX = static_cast<int>(snapshot.scrollX * replacement.parallaxX) + replacement.scrollX;
+        const int bgScrollY = static_cast<int>(snapshot.scrollY * replacement.parallaxY) + replacement.scrollY;
         const int srcNesX = replacement.sourceX + nesX + bgScrollX;
         const int srcNesY = replacement.sourceY + nesY + bgScrollY;
 
@@ -2653,15 +2653,15 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
                     if(outX < 0 || outX >= width) continue;
                     uint32_t color = m_disableOriginalTiles ? 0x00000000u : baseColor;
 
-                    for(const PreparedBackground* preparedBackground : activeBackgrounds) {
-                        if(preparedBackground->replacement->priority < 10) {
+                    for(int priority = 0; priority < 10; ++priority) {
+                        if(const PreparedBackground* preparedBackground = activeBackgroundsByPriority[static_cast<size_t>(priority)]; preparedBackground != nullptr) {
                             color = sampleBackgroundPixel(color, *preparedBackground, nesX, nesY, subX, subY);
                         }
                     }
 
                     if(bgPixel != nullptr && bgPixel->valid) {
-                        for(const PreparedBackground* preparedBackground : activeBackgrounds) {
-                            if(preparedBackground->replacement->priority >= 10 && preparedBackground->replacement->priority < 20) {
+                        for(int priority = 10; priority < 20; ++priority) {
+                            if(const PreparedBackground* preparedBackground = activeBackgroundsByPriority[static_cast<size_t>(priority)]; preparedBackground != nullptr) {
                                 color = sampleBackgroundPixel(color, *preparedBackground, nesX, nesY, subX, subY);
                             }
                         }
@@ -2685,8 +2685,8 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
                         }
                     }
 
-                    for(const PreparedBackground* preparedBackground : activeBackgrounds) {
-                        if(preparedBackground->replacement->priority >= 20 && preparedBackground->replacement->priority < 30) {
+                    for(int priority = 20; priority < 30; ++priority) {
+                        if(const PreparedBackground* preparedBackground = activeBackgroundsByPriority[static_cast<size_t>(priority)]; preparedBackground != nullptr) {
                             color = sampleBackgroundPixel(color, *preparedBackground, nesX, nesY, subX, subY);
                         }
                     }
@@ -2756,8 +2756,8 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
                         }
                     }
 
-                    for(const PreparedBackground* preparedBackground : activeBackgrounds) {
-                        if(preparedBackground->replacement->priority >= 30) {
+                    for(int priority = 30; priority < 40; ++priority) {
+                        if(const PreparedBackground* preparedBackground = activeBackgroundsByPriority[static_cast<size_t>(priority)]; preparedBackground != nullptr) {
                             color = sampleBackgroundPixel(color, *preparedBackground, nesX, nesY, subX, subY);
                         }
                     }

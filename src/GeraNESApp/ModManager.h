@@ -142,6 +142,8 @@ public:
     };
 
     struct ChrRenderSnapshot {
+        int scrollX = 0;
+        int scrollY = 0;
         std::array<uint32_t, 64> paletteColors = {};
         std::array<uint32_t, 512> tileHashes = {};
         std::vector<PPU::DebugModBackgroundPixel> backgroundPixels;
