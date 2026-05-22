@@ -1,11 +1,13 @@
 #include "GeraNESApp/ModManager.h"
 
 #include <algorithm>
+#include <array>
 #include <cctype>
 #include <cmath>
 #include <cstring>
 #include <cstdlib>
 #include <fstream>
+#include <iomanip>
 #include <limits>
 #include <sstream>
 
@@ -237,6 +239,19 @@ uint32_t parseHexValue(const std::string& text, uint32_t fallback = 0)
     }
 }
 
+uint32_t parseDecOrHexValue(const std::string& text, uint32_t fallback = 0)
+{
+    if(text.empty()) return fallback;
+    const bool looksHex = text.find_first_of("ABCDEFabcdef") != std::string::npos;
+    try {
+        size_t index = 0;
+        const uint32_t value = static_cast<uint32_t>(std::stoul(text, &index, looksHex ? 16 : 10));
+        return index == text.size() ? value : fallback;
+    } catch(...) {
+        return fallback;
+    }
+}
+
 bool parseMesenBool(const std::string& text)
 {
     const std::string value = toLower(trimMesenToken(text));
@@ -286,6 +301,24 @@ std::optional<int> parseDecimalIntStrict(const std::string& text)
     }
 }
 
+std::optional<int> parseSignedDecimalIntStrict(const std::string& text)
+{
+    if(text.empty()) {
+        return std::nullopt;
+    }
+
+    try {
+        size_t index = 0;
+        const int value = std::stoi(text, &index, 10);
+        if(index != text.size()) {
+            return std::nullopt;
+        }
+        return value;
+    } catch(...) {
+        return std::nullopt;
+    }
+}
+
 std::string safeCacheStem(const std::filesystem::path& path)
 {
     std::string stem = path.stem().string();
@@ -300,6 +333,69 @@ std::string safeCacheStem(const std::filesystem::path& path)
         if(!keep) ch = '_';
     }
     return stem;
+}
+
+struct Sha1State {
+    uint32_t h0 = 0x67452301u;
+    uint32_t h1 = 0xEFCDAB89u;
+    uint32_t h2 = 0x98BADCFEu;
+    uint32_t h3 = 0x10325476u;
+    uint32_t h4 = 0xC3D2E1F0u;
+};
+
+uint32_t rotl32(uint32_t value, uint32_t amount)
+{
+    return (value << amount) | (value >> (32u - amount));
+}
+
+void sha1ProcessBlock(Sha1State& state, const uint8_t* block)
+{
+    uint32_t w[80] = {};
+    for(int i = 0; i < 16; ++i) {
+        w[i] =
+            (static_cast<uint32_t>(block[i * 4 + 0]) << 24u) |
+            (static_cast<uint32_t>(block[i * 4 + 1]) << 16u) |
+            (static_cast<uint32_t>(block[i * 4 + 2]) << 8u) |
+            static_cast<uint32_t>(block[i * 4 + 3]);
+    }
+    for(int i = 16; i < 80; ++i) {
+        w[i] = rotl32(w[i - 3] ^ w[i - 8] ^ w[i - 14] ^ w[i - 16], 1u);
+    }
+
+    uint32_t a = state.h0;
+    uint32_t b = state.h1;
+    uint32_t c = state.h2;
+    uint32_t d = state.h3;
+    uint32_t e = state.h4;
+    for(int i = 0; i < 80; ++i) {
+        uint32_t f = 0;
+        uint32_t k = 0;
+        if(i < 20) {
+            f = (b & c) | ((~b) & d);
+            k = 0x5A827999u;
+        } else if(i < 40) {
+            f = b ^ c ^ d;
+            k = 0x6ED9EBA1u;
+        } else if(i < 60) {
+            f = (b & c) | (b & d) | (c & d);
+            k = 0x8F1BBCDCu;
+        } else {
+            f = b ^ c ^ d;
+            k = 0xCA62C1D6u;
+        }
+        const uint32_t temp = rotl32(a, 5u) + f + e + k + w[i];
+        e = d;
+        d = c;
+        c = rotl32(b, 30u);
+        b = a;
+        a = temp;
+    }
+
+    state.h0 += a;
+    state.h1 += b;
+    state.h2 += c;
+    state.h3 += d;
+    state.h4 += e;
 }
 
 sol::object tableObject(const sol::table& source, const char* key)
@@ -377,9 +473,15 @@ void ModManager::clear()
     m_active = false;
     m_scriptLoaded = false;
     m_resolutionMultiplier = 1;
+    m_disableOriginalTiles = false;
+    m_disableContours = false;
     m_customPalette.reset();
     m_chrOverrides.clear();
     m_backgroundReplacements.clear();
+    m_supportedRomHashes.clear();
+    m_patchAssetPath.clear();
+    m_patchExpectedRomHash.clear();
+    m_frameConditionState = {};
     m_imageCache.clear();
 }
 
@@ -450,23 +552,65 @@ ModManager::LoadRequest ModManager::prepareRomLoad(const std::filesystem::path& 
     request.modPath = m_modPath;
     request.modLoaded = true;
 
-    const auto ipsData = readSourceEntry("rom.ips");
-    if(!ipsData.has_value()) {
+    m_patchAssetPath.clear();
+    m_patchExpectedRomHash.clear();
+    const auto hiresData = readSourceEntry("hires.txt");
+    if(!hiresData.has_value()) {
         request.message = "Mod selected.";
+        return request;
+    }
+
+    const std::string hiresText(reinterpret_cast<const char*>(hiresData->data()), hiresData->size());
+    std::stringstream hiresLines(hiresText);
+    std::string hiresLine;
+    while(std::getline(hiresLines, hiresLine)) {
+        hiresLine = trimMesenToken(hiresLine);
+        if(hiresLine.rfind("<patch>", 0) != 0) {
+            continue;
+        }
+        const std::vector<std::string> tokens = splitComma(hiresLine.substr(7));
+        if(tokens.empty()) {
+            continue;
+        }
+        m_patchAssetPath = normalizeZipPath(tokens[0]);
+        if(tokens.size() >= 2) {
+            m_patchExpectedRomHash = toLower(tokens[1]);
+        }
+        break;
+    }
+
+    if(m_patchAssetPath.empty()) {
+        request.message = "Mod selected.";
+        return request;
+    }
+
+    const auto ipsData = readSourceEntry(m_patchAssetPath);
+    if(!ipsData.has_value()) {
+        request.message = "Mod selected, but patch file is missing: " + m_patchAssetPath;
+        Logger::instance().log(request.message, Logger::Type::ERROR);
         return request;
     }
 
     RomFile baseRom;
     if(!baseRom.open(romPath.string()) || !baseRom.error().empty()) {
-        request.message = "Mod selected, but base ROM could not be read for rom.ips.";
+        request.message = "Mod selected, but base ROM could not be read for Mesen patch.";
         Logger::instance().log(request.message, Logger::Type::ERROR);
         return request;
+    }
+
+    if(!m_patchExpectedRomHash.empty()) {
+        const std::string actualHash = toLower(sha1Hex(baseRom.dataBytes()));
+        if(actualHash != m_patchExpectedRomHash) {
+            request.message = "Mod selected, but ROM hash does not match hires.txt patch.";
+            Logger::instance().log(request.message, Logger::Type::ERROR);
+            return request;
+        }
     }
 
     std::string patchError;
     auto patchedRom = applyIpsPatch(baseRom.dataBytes(), *ipsData, patchError);
     if(!patchedRom.has_value()) {
-        request.message = "Mod selected, but rom.ips failed: " + patchError;
+        request.message = "Mod selected, but hires.txt patch failed: " + patchError;
         Logger::instance().log(request.message, Logger::Type::ERROR);
         return request;
     }
@@ -482,7 +626,7 @@ ModManager::LoadRequest ModManager::prepareRomLoad(const std::filesystem::path& 
 
     request.effectiveRomPath = patchedPath;
     request.ipsApplied = true;
-    request.message = "Mod selected with rom.ips.";
+    request.message = "Mod selected with hires.txt patch.";
     m_effectiveRomPath = patchedPath;
     return request;
 }
@@ -549,6 +693,11 @@ bool ModManager::loadMesenHiresFile()
     std::unordered_map<std::string, std::vector<MemoryCondition>> namedConditions;
     int nextPriority = 1000000;
     int lineNumber = 0;
+    m_disableOriginalTiles = false;
+    m_disableContours = false;
+    m_supportedRomHashes.clear();
+    m_patchAssetPath.clear();
+    m_patchExpectedRomHash.clear();
 
     auto makeConditions = [&](const std::string& conditionText) {
         std::vector<MemoryCondition> conditions;
@@ -557,9 +706,15 @@ bool ModManager::loadMesenHiresFile()
         while(std::getline(stream, name, '&')) {
             name = trimMesenToken(name);
             if(name.empty()) continue;
-            const auto it = namedConditions.find(name);
+            const bool inverted = !name.empty() && name.front() == '!';
+            const std::string lookupName = inverted ? name.substr(1) : name;
+            const auto it = namedConditions.find(lookupName);
             if(it != namedConditions.end()) {
-                conditions.insert(conditions.end(), it->second.begin(), it->second.end());
+                for(const MemoryCondition& source : it->second) {
+                    MemoryCondition condition = source;
+                    condition.inverted = condition.inverted ^ inverted;
+                    conditions.push_back(std::move(condition));
+                }
             }
         }
         return conditions;
@@ -592,6 +747,35 @@ bool ModManager::loadMesenHiresFile()
         if(line.rfind("<ver>", 0) == 0) {
             continue;
         }
+        if(line.rfind("<options>", 0) == 0) {
+            const std::string option = toLower(trimMesenToken(line.substr(9)));
+            if(option == "disableoriginaltiles") {
+                m_disableOriginalTiles = true;
+            } else if(option == "disablecontours") {
+                m_disableContours = true;
+            }
+            continue;
+        }
+        if(line.rfind("<overscan>", 0) == 0) {
+            continue;
+        }
+        if(line.rfind("<supportedrom>", 0) == 0) {
+            const std::string hash = toLower(trimMesenToken(line.substr(14)));
+            if(!hash.empty()) {
+                m_supportedRomHashes.push_back(hash);
+            }
+            continue;
+        }
+        if(line.rfind("<patch>", 0) == 0) {
+            const std::vector<std::string> tokens = splitComma(line.substr(7));
+            if(!tokens.empty()) {
+                m_patchAssetPath = normalizeZipPath(tokens[0]);
+                if(tokens.size() >= 2) {
+                    m_patchExpectedRomHash = toLower(tokens[1]);
+                }
+            }
+            continue;
+        }
         if(line.rfind("<scale>", 0) == 0) {
             try {
                 m_resolutionMultiplier = std::clamp(std::stoi(trimMesenToken(line.substr(7))), 1, 8);
@@ -610,13 +794,13 @@ bool ModManager::loadMesenHiresFile()
         }
         if(line.rfind("<condition>", 0) == 0) {
             const std::vector<std::string> tokens = splitComma(line.substr(11));
-            if(tokens.size() < 5) continue;
+            if(tokens.size() < 2) continue;
             const std::string type = tokens[1];
-            const bool ppuMemory = type == "ppuMemoryCheckConstant";
-            const bool cpuMemory = type == "memoryCheckConstant";
-            if((cpuMemory || ppuMemory) && tokens.size() >= 5) {
+            const std::string normalizedType = toLower(type);
+            if((normalizedType == "memorycheckconstant" || normalizedType == "ppumemorycheckconstant") && tokens.size() >= 5) {
                 MemoryCondition condition;
-                condition.memoryType = ppuMemory ? "ppu" : "cpu";
+                condition.kind = MemoryCondition::Kind::MemoryCheck;
+                condition.memoryType = normalizedType == "ppumemorycheckconstant" ? "ppu" : "cpu";
                 condition.address = parseHexValue(tokens[2]);
                 condition.op = tokens[3];
                 condition.value = parseHexValue(tokens[4]);
@@ -625,15 +809,31 @@ bool ModManager::loadMesenHiresFile()
                     condition.mask = parseHexValue(tokens[5]);
                 }
                 namedConditions[tokens[0]].push_back(condition);
-
-                MemoryCondition inverted = condition;
-                if(inverted.op == "==") inverted.op = "!=";
-                else if(inverted.op == "!=") inverted.op = "==";
-                else if(inverted.op == ">") inverted.op = "<=";
-                else if(inverted.op == "<") inverted.op = ">=";
-                else if(inverted.op == ">=") inverted.op = "<";
-                else if(inverted.op == "<=") inverted.op = ">";
-                namedConditions["!" + tokens[0]].push_back(inverted);
+            } else if(normalizedType == "framerange" && tokens.size() >= 4) {
+                MemoryCondition condition;
+                condition.kind = MemoryCondition::Kind::FrameRange;
+                condition.value = parseDecOrHexValue(tokens[2], 1);
+                condition.address = parseDecOrHexValue(tokens[3], 0);
+                namedConditions[tokens[0]].push_back(condition);
+            } else if((normalizedType == "tileatposition" || normalizedType == "tilenearby" ||
+                        normalizedType == "spriteatposition" || normalizedType == "spritenearby") && tokens.size() >= 6) {
+                MemoryCondition condition;
+                condition.kind =
+                    normalizedType == "tileatposition" ? MemoryCondition::Kind::TileAtPosition :
+                    normalizedType == "tilenearby" ? MemoryCondition::Kind::TileNearby :
+                    normalizedType == "spriteatposition" ? MemoryCondition::Kind::SpriteAtPosition :
+                    MemoryCondition::Kind::SpriteNearby;
+                condition.x = parseSignedDecimalIntStrict(tokens[2]).value_or(0);
+                condition.y = parseSignedDecimalIntStrict(tokens[3]).value_or(0);
+                condition.hasExpectedTile = true;
+                if(tokens[4].size() >= 32) {
+                    condition.expectedTileByHash = true;
+                    condition.expectedTileHash = hashTileBytes(tokens[4]);
+                } else {
+                    condition.expectedTileIndex = static_cast<int>(parseHexValue(tokens[4]));
+                }
+                condition.expectedPalette = parseMesenPalette(tokens[5]);
+                namedConditions[tokens[0]].push_back(condition);
             }
             continue;
         }
@@ -737,9 +937,9 @@ bool ModManager::loadMesenHiresFile()
             BackgroundReplacement replacement;
             replacement.id = tokens[0] + "#" + std::to_string(lineNumber);
             replacement.assetPath = normalizeZipPath(tokens[0]);
-            replacement.opacity = 1.0f;
-            replacement.parallaxX = tokens.size() >= 3 ? std::strtof(tokens[2].c_str(), nullptr) : 0.0f;
-            replacement.parallaxY = tokens.size() >= 4 ? std::strtof(tokens[3].c_str(), nullptr) : 0.0f;
+            replacement.opacity = tokens.size() >= 2 ? std::strtof(tokens[1].c_str(), nullptr) : 1.0f;
+            replacement.parallaxX = tokens.size() >= 3 ? std::strtof(tokens[2].c_str(), nullptr) : 1.0f;
+            replacement.parallaxY = tokens.size() >= 4 ? std::strtof(tokens[3].c_str(), nullptr) : 1.0f;
             replacement.priority = tokens.size() >= 5 ? std::atoi(tokens[4].c_str()) : 10;
             replacement.sourceX = tokens.size() >= 6 ? std::atoi(tokens[5].c_str()) : 0;
             replacement.sourceY = tokens.size() >= 7 ? std::atoi(tokens[6].c_str()) : 0;
@@ -763,11 +963,32 @@ void ModManager::onFrame(GeraNESEmu& emu)
     if(m_customPalette.has_value()) {
         emu.getConsole().ppu().setColorPalette(*m_customPalette);
     }
-    for(ChrOverride& override : m_chrOverrides) {
-        override.enabled = conditionsMatch(override.conditions, emu);
+    FrameConditionState frameConditionState;
+    frameConditionState.frameCount = emu.frameCount();
+
+    auto cacheConditionMemory = [&](const MemoryCondition& condition) {
+        if(condition.kind != MemoryCondition::Kind::MemoryCheck) {
+            return;
+        }
+        const uint64_t key = makeMemoryCacheKey(condition.memoryType, condition.address, condition.word, condition.scale);
+        if(frameConditionState.memoryValues.find(key) == frameConditionState.memoryValues.end()) {
+            frameConditionState.memoryValues.emplace(key, readMemoryValue(condition, emu));
+        }
+    };
+
+    for(const ChrOverride& override : m_chrOverrides) {
+        for(const MemoryCondition& condition : override.conditions) {
+            cacheConditionMemory(condition);
+        }
     }
-    for(BackgroundReplacement& replacement : m_backgroundReplacements) {
-        replacement.enabled = conditionsMatch(replacement.conditions, emu);
+    for(const BackgroundReplacement& replacement : m_backgroundReplacements) {
+        for(const MemoryCondition& condition : replacement.conditions) {
+            cacheConditionMemory(condition);
+        }
+    }
+    {
+        const std::lock_guard<std::mutex> lock(m_frameConditionStateMutex);
+        m_frameConditionState = std::move(frameConditionState);
     }
 }
 
@@ -970,6 +1191,49 @@ std::optional<std::vector<uint8_t>> ModManager::applyIpsPatch(
     return patched;
 }
 
+std::string ModManager::sha1Hex(const std::vector<uint8_t>& data)
+{
+    Sha1State state;
+    std::vector<uint8_t> padded = data;
+    const uint64_t bitLength = static_cast<uint64_t>(padded.size()) * 8u;
+    padded.push_back(0x80u);
+    while((padded.size() % 64u) != 56u) {
+        padded.push_back(0u);
+    }
+    for(int i = 7; i >= 0; --i) {
+        padded.push_back(static_cast<uint8_t>((bitLength >> (i * 8)) & 0xFFu));
+    }
+    for(size_t offset = 0; offset < padded.size(); offset += 64u) {
+        sha1ProcessBlock(state, padded.data() + offset);
+    }
+
+    std::ostringstream out;
+    out << std::uppercase << std::hex << std::setfill('0');
+    out << std::setw(8) << state.h0;
+    out << std::setw(8) << state.h1;
+    out << std::setw(8) << state.h2;
+    out << std::setw(8) << state.h3;
+    out << std::setw(8) << state.h4;
+    return out.str();
+}
+
+uint64_t ModManager::makeMemoryCacheKey(const std::string& type, uint32_t address, bool word, int scale)
+{
+    uint64_t hash = 1469598103934665603ull;
+    const std::string normalizedType = toLower(type);
+    for(unsigned char ch : normalizedType) {
+        hash ^= ch;
+        hash *= 1099511628211ull;
+    }
+    hash ^= static_cast<uint64_t>(address);
+    hash *= 1099511628211ull;
+    hash ^= static_cast<uint64_t>(word ? 1u : 0u);
+    hash *= 1099511628211ull;
+    hash ^= static_cast<uint64_t>(std::max(1, scale));
+    hash *= 1099511628211ull;
+    return hash;
+}
+
 uint8_t ModManager::readMemory(GeraNESEmu* emu, const std::string& type, uint32_t address) const
 {
     if(emu == nullptr) return 0;
@@ -1024,6 +1288,15 @@ bool ModManager::conditionsMatch(const std::vector<MemoryCondition>& conditions,
 
 bool ModManager::conditionMatches(const MemoryCondition& condition, GeraNESEmu& emu) const
 {
+    if(condition.kind == MemoryCondition::Kind::FrameRange) {
+        const uint32_t range = std::max(1u, condition.value);
+        const bool match = (emu.frameCount() % range) >= condition.address;
+        return condition.inverted ? !match : match;
+    }
+    if(condition.kind != MemoryCondition::Kind::MemoryCheck) {
+        return !condition.inverted;
+    }
+
     uint32_t actual = readMemoryValue(condition, emu);
     uint32_t expected = condition.value;
     if(condition.hasMask) {
@@ -1033,20 +1306,26 @@ bool ModManager::conditionMatches(const MemoryCondition& condition, GeraNESEmu& 
 
     const std::string op = toLower(condition.op);
     if(op == "in" || op == "any_of" || op == "anyof") {
+        bool match = false;
         for(uint32_t value : condition.values) {
             if(condition.hasMask) value &= condition.mask;
-            if(actual == value) return true;
+            if(actual == value) {
+                match = true;
+                break;
+            }
         }
-        return false;
+        return condition.inverted ? !match : match;
     }
-    if(op == "!=" || op == "~=" || op == "not_equal" || op == "not_equals") return actual != expected;
-    if(op == ">" || op == "greater_than" || op == "greater") return actual > expected;
-    if(op == ">=" || op == "greater_or_equal" || op == "greater_equals") return actual >= expected;
-    if(op == "<" || op == "less_than" || op == "less") return actual < expected;
-    if(op == "<=" || op == "less_or_equal" || op == "less_equals") return actual <= expected;
-    if(op == "bit_set" || op == "bits_set") return (actual & expected) == expected;
-    if(op == "bit_clear" || op == "bits_clear") return (actual & expected) == 0;
-    return actual == expected;
+    bool match = false;
+    if(op == "!=" || op == "~=" || op == "not_equal" || op == "not_equals") match = actual != expected;
+    else if(op == ">" || op == "greater_than" || op == "greater") match = actual > expected;
+    else if(op == ">=" || op == "greater_or_equal" || op == "greater_equals") match = actual >= expected;
+    else if(op == "<" || op == "less_than" || op == "less") match = actual < expected;
+    else if(op == "<=" || op == "less_or_equal" || op == "less_equals") match = actual <= expected;
+    else if(op == "bit_set" || op == "bits_set") match = (actual & expected) == expected;
+    else if(op == "bit_clear" || op == "bits_clear") match = (actual & expected) == 0;
+    else match = actual == expected;
+    return condition.inverted ? !match : match;
 }
 
 std::optional<ModManager::MemoryCondition> ModManager::parseMemoryConditionObject(const sol::object& object)
@@ -1545,6 +1824,12 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
         return;
     }
 
+    FrameConditionState frameConditionState;
+    {
+        const std::lock_guard<std::mutex> lock(m_frameConditionStateMutex);
+        frameConditionState = m_frameConditionState;
+    }
+
     if(m_chrOverrides.empty()) {
         for(int nesY = std::max(0, activeTop / scale); nesY < std::min(PPU::SCREEN_HEIGHT, (activeBottom + scale - 1) / scale); ++nesY) {
             const uint32_t* srcRow = sourceFramebuffer + static_cast<size_t>(nesY) * PPU::SCREEN_WIDTH;
@@ -1571,6 +1856,12 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
         const DecodedImage* image = nullptr;
         int sourceScale = 1;
         ChrOverride::SourceLayout wholeChrLayout = ChrOverride::SourceLayout::PatternTables;
+        bool hasDynamicConditions = false;
+    };
+
+    struct PreparedBackground {
+        const BackgroundReplacement* replacement = nullptr;
+        const DecodedImage* image = nullptr;
     };
 
     std::vector<const ChrOverride*> activeOverrides;
@@ -1584,12 +1875,11 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
             }
         }
     }
-    if(activeOverrides.empty()) {
-        return;
+    if(!activeOverrides.empty()) {
+        std::stable_sort(activeOverrides.begin(), activeOverrides.end(), [](const ChrOverride* a, const ChrOverride* b) {
+            return a->priority > b->priority;
+        });
     }
-    std::stable_sort(activeOverrides.begin(), activeOverrides.end(), [](const ChrOverride* a, const ChrOverride* b) {
-        return a->priority > b->priority;
-    });
 
     std::vector<PreparedOverride> preparedOverrides;
     preparedOverrides.reserve(activeOverrides.size());
@@ -1614,6 +1904,15 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
             override->sourceLayout == ChrOverride::SourceLayout::Auto
                 ? ChrOverride::SourceLayout::PatternTables
                 : override->sourceLayout;
+        prepared.hasDynamicConditions = std::any_of(
+            override->conditions.begin(),
+            override->conditions.end(),
+            [](const MemoryCondition& condition) {
+                return condition.kind == MemoryCondition::Kind::TileAtPosition ||
+                       condition.kind == MemoryCondition::Kind::TileNearby ||
+                       condition.kind == MemoryCondition::Kind::SpriteAtPosition ||
+                       condition.kind == MemoryCondition::Kind::SpriteNearby;
+            });
         preparedOverrides.push_back(prepared);
         const PreparedOverride* preparedPtr = &preparedOverrides.back();
         if(override->wholeChr()) {
@@ -1632,7 +1931,41 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
             }
         }
     }
-    if(preparedOverrides.empty()) {
+    const bool canUseOverrideLookupCache = std::none_of(
+        preparedOverrides.begin(),
+        preparedOverrides.end(),
+        [](const PreparedOverride& prepared) { return prepared.hasDynamicConditions; });
+    std::vector<PreparedBackground> preparedBackgrounds;
+    preparedBackgrounds.reserve(m_backgroundReplacements.size());
+    for(const BackgroundReplacement& replacement : m_backgroundReplacements) {
+        if(!replacement.enabled || replacement.assetPath.empty()) {
+            continue;
+        }
+        const DecodedImage* image = decodedImage(replacement.assetPath);
+        if(image == nullptr || image->rgba.empty()) {
+            continue;
+        }
+        preparedBackgrounds.push_back({ &replacement, image });
+    }
+
+    if(preparedOverrides.empty() && preparedBackgrounds.empty()) {
+        for(int nesY = std::max(0, activeTop / scale); nesY < std::min(PPU::SCREEN_HEIGHT, (activeBottom + scale - 1) / scale); ++nesY) {
+            const uint32_t* srcRow = sourceFramebuffer + static_cast<size_t>(nesY) * PPU::SCREEN_WIDTH;
+            for(int sy = 0; sy < scale; ++sy) {
+                const int outY = nesY * scale + sy;
+                if(outY < activeTop || outY >= activeBottom || outY < 0 || outY >= height) continue;
+                uint32_t* dstRow = framebuffer.data() + static_cast<size_t>(outY) * static_cast<size_t>(width);
+                for(int nesX = 0; nesX < PPU::SCREEN_WIDTH; ++nesX) {
+                    const uint32_t color = srcRow[nesX];
+                    for(int sx = 0; sx < scale; ++sx) {
+                        const int outX = nesX * scale + sx;
+                        if(outX >= 0 && outX < width) {
+                            dstRow[outX] = color;
+                        }
+                    }
+                }
+            }
+        }
         return;
     }
 
@@ -1641,6 +1974,35 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
             return 0u;
         }
         return snapshot.tileHashes[static_cast<size_t>(tileIndex)];
+    };
+
+    auto backgroundPixelAt = [&](int x, int y) -> const PPU::DebugModBackgroundPixel* {
+        if(x < 0 || x >= PPU::SCREEN_WIDTH || y < 0 || y >= PPU::SCREEN_HEIGHT) {
+            return nullptr;
+        }
+        const size_t index = static_cast<size_t>(y) * PPU::SCREEN_WIDTH + static_cast<size_t>(x);
+        if(index >= snapshot.backgroundPixels.size()) {
+            return nullptr;
+        }
+        return &snapshot.backgroundPixels[index];
+    };
+
+    auto spritePixelAt = [&](int x, int y) -> const PPU::DebugModSpritePixel* {
+        if(x < 0 || x >= PPU::SCREEN_WIDTH || y < 0 || y >= PPU::SCREEN_HEIGHT) {
+            return nullptr;
+        }
+        const size_t index = static_cast<size_t>(y) * PPU::SCREEN_WIDTH + static_cast<size_t>(x);
+        if(index >= snapshot.spritePixels.size()) {
+            return nullptr;
+        }
+        return &snapshot.spritePixels[index];
+    };
+
+    struct ConditionContext {
+        int nesX = 0;
+        int nesY = 0;
+        const PPU::DebugModBackgroundPixel* backgroundPixel = nullptr;
+        const PPU::DebugModSpriteCandidate* spriteCandidate = nullptr;
     };
 
     auto paletteMatches = [](const ChrOverride& override, const std::array<uint8_t, 3>& palette, bool allowDefaultTileFallback) {
@@ -1669,11 +2031,144 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
         return true;
     };
 
+    auto paletteVectorMatches = [](const std::vector<uint8_t>& expectedPalette, const uint8_t palette[3]) {
+        if(expectedPalette.empty()) {
+            return true;
+        }
+        if(expectedPalette.size() > 3) {
+            return false;
+        }
+        for(size_t i = 0; i < expectedPalette.size(); ++i) {
+            if(expectedPalette[i] != palette[i]) {
+                return false;
+            }
+        }
+        return true;
+    };
+
+    auto tileMatchesCondition = [&](const MemoryCondition& condition, const PPU::DebugModBackgroundPixel& pixel) {
+        if(!pixel.valid) {
+            return false;
+        }
+        if(condition.hasExpectedTile) {
+            if(condition.expectedTileByHash) {
+                if(tileHash(pixel.tileIndex) != condition.expectedTileHash) {
+                    return false;
+                }
+            } else if(condition.expectedTileIndex >= 0 && static_cast<int>(pixel.tileIndex) != condition.expectedTileIndex) {
+                return false;
+            }
+        }
+        return paletteVectorMatches(condition.expectedPalette, pixel.palette);
+    };
+
+    auto spriteCandidateMatchesCondition = [&](const MemoryCondition& condition, const PPU::DebugModSpriteCandidate& candidate) {
+        if(!candidate.valid) {
+            return false;
+        }
+        if(condition.hasExpectedTile) {
+            if(condition.expectedTileByHash) {
+                if(tileHash(candidate.tileIndex) != condition.expectedTileHash) {
+                    return false;
+                }
+            } else if(condition.expectedTileIndex >= 0 && static_cast<int>(candidate.tileIndex) != condition.expectedTileIndex) {
+                return false;
+            }
+        }
+        return paletteVectorMatches(condition.expectedPalette, candidate.palette);
+    };
+
+    auto conditionMatchesAt = [&](const MemoryCondition& condition, const ConditionContext& ctx) {
+        bool match = false;
+        switch(condition.kind) {
+        case MemoryCondition::Kind::MemoryCheck: {
+            const uint64_t key = makeMemoryCacheKey(condition.memoryType, condition.address, condition.word, condition.scale);
+            const auto it = frameConditionState.memoryValues.find(key);
+            const uint32_t actual = it != frameConditionState.memoryValues.end() ? it->second : 0u;
+            uint32_t expected = condition.value;
+            uint32_t maskedActual = actual;
+            if(condition.hasMask) {
+                maskedActual &= condition.mask;
+                expected &= condition.mask;
+            }
+            const std::string op = toLower(condition.op);
+            if(op == "in" || op == "any_of" || op == "anyof") {
+                for(uint32_t value : condition.values) {
+                    if(condition.hasMask) value &= condition.mask;
+                    if(maskedActual == value) {
+                        match = true;
+                        break;
+                    }
+                }
+            } else if(op == "!=" || op == "~=" || op == "not_equal" || op == "not_equals") match = maskedActual != expected;
+            else if(op == ">" || op == "greater_than" || op == "greater") match = maskedActual > expected;
+            else if(op == ">=" || op == "greater_or_equal" || op == "greater_equals") match = maskedActual >= expected;
+            else if(op == "<" || op == "less_than" || op == "less") match = maskedActual < expected;
+            else if(op == "<=" || op == "less_or_equal" || op == "less_equals") match = maskedActual <= expected;
+            else if(op == "bit_set" || op == "bits_set") match = (maskedActual & expected) == expected;
+            else if(op == "bit_clear" || op == "bits_clear") match = (maskedActual & expected) == 0;
+            else match = maskedActual == expected;
+            break;
+        }
+        case MemoryCondition::Kind::FrameRange: {
+            const uint32_t range = std::max(1u, condition.value);
+            match = (frameConditionState.frameCount % range) >= condition.address;
+            break;
+        }
+        case MemoryCondition::Kind::TileAtPosition:
+        case MemoryCondition::Kind::TileNearby: {
+            int xSign = 1;
+            int ySign = 1;
+            if(ctx.spriteCandidate != nullptr) {
+                xSign = ctx.spriteCandidate->horizontalMirror ? -1 : 1;
+                ySign = ctx.spriteCandidate->verticalMirror ? -1 : 1;
+            }
+            const int targetX = condition.kind == MemoryCondition::Kind::TileAtPosition ? condition.x : (ctx.nesX + condition.x * xSign);
+            const int targetY = condition.kind == MemoryCondition::Kind::TileAtPosition ? condition.y : (ctx.nesY + condition.y * ySign);
+            const PPU::DebugModBackgroundPixel* pixel = backgroundPixelAt(targetX, targetY);
+            match = pixel != nullptr && tileMatchesCondition(condition, *pixel);
+            break;
+        }
+        case MemoryCondition::Kind::SpriteAtPosition:
+        case MemoryCondition::Kind::SpriteNearby: {
+            int xSign = 1;
+            int ySign = 1;
+            if(ctx.spriteCandidate != nullptr) {
+                xSign = ctx.spriteCandidate->horizontalMirror ? -1 : 1;
+                ySign = ctx.spriteCandidate->verticalMirror ? -1 : 1;
+            }
+            const int targetX = condition.kind == MemoryCondition::Kind::SpriteAtPosition ? condition.x : (ctx.nesX + condition.x * xSign);
+            const int targetY = condition.kind == MemoryCondition::Kind::SpriteAtPosition ? condition.y : (ctx.nesY + condition.y * ySign);
+            const PPU::DebugModSpritePixel* pixel = spritePixelAt(targetX, targetY);
+            if(pixel != nullptr) {
+                for(uint8_t i = 0; i < pixel->count; ++i) {
+                    if(spriteCandidateMatchesCondition(condition, pixel->candidates[static_cast<size_t>(i)])) {
+                        match = true;
+                        break;
+                    }
+                }
+            }
+            break;
+        }
+        }
+        return condition.inverted ? !match : match;
+    };
+
+    auto conditionsMatchAt = [&](const std::vector<MemoryCondition>& conditions, const ConditionContext& ctx) {
+        for(const MemoryCondition& condition : conditions) {
+            if(!conditionMatchesAt(condition, ctx)) {
+                return false;
+            }
+        }
+        return true;
+    };
+
     auto matchesRequirement = [](int requirement, bool value) {
         return requirement == 0 || (requirement > 0 && value) || (requirement < 0 && !value);
     };
 
-    auto matchesOverride = [&](const ChrOverride& override, ChrOverride::Target target, bool allowDefaultTileFallback, int tileIndex, int fullTileIndex, int currentPatternTable, const std::array<uint8_t, 3>& palette, bool hMirror, bool vMirror, bool bgPriority) {
+    auto matchesOverride = [&](const PreparedOverride& preparedOverride, ChrOverride::Target target, bool allowDefaultTileFallback, int tileIndex, int fullTileIndex, int currentPatternTable, const std::array<uint8_t, 3>& palette, bool hMirror, bool vMirror, bool bgPriority, const ConditionContext& ctx) {
+        const ChrOverride& override = *preparedOverride.override;
         if(override.target != ChrOverride::Target::Both && override.target != target) {
             return false;
         }
@@ -1700,6 +2195,9 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
         if(!paletteMatches(override, palette, allowDefaultTileFallback)) {
             return false;
         }
+        if(!conditionsMatchAt(override.conditions, ctx)) {
+            return false;
+        }
         return true;
     };
 
@@ -1719,15 +2217,17 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
     std::unordered_map<uint64_t, const PreparedOverride*> overrideLookupCache;
     overrideLookupCache.reserve(std::min<size_t>(activeOverrides.size() * 16u, 16384u));
 
-    auto findOverride = [&](ChrOverride::Target target, int tileIndex, int fullTileIndex, int currentPatternTable, const std::array<uint8_t, 3>& palette, bool hMirror, bool vMirror, bool bgPriority) -> const PreparedOverride* {
+    auto findOverride = [&](ChrOverride::Target target, int tileIndex, int fullTileIndex, int currentPatternTable, const std::array<uint8_t, 3>& palette, bool hMirror, bool vMirror, bool bgPriority, const ConditionContext& ctx) -> const PreparedOverride* {
         const uint64_t lookupKey = makeOverrideLookupKey(target, fullTileIndex, currentPatternTable, palette, hMirror, vMirror, bgPriority);
-        if(const auto it = overrideLookupCache.find(lookupKey); it != overrideLookupCache.end()) {
-            return it->second;
+        if(canUseOverrideLookupCache) {
+            if(const auto it = overrideLookupCache.find(lookupKey); it != overrideLookupCache.end()) {
+                return it->second;
+            }
         }
 
         auto scanCandidates = [&](const std::vector<const PreparedOverride*>& candidates, bool allowDefaultTileFallback) -> const PreparedOverride* {
             for(const PreparedOverride* candidate : candidates) {
-                if(matchesOverride(*candidate->override, target, allowDefaultTileFallback, tileIndex, fullTileIndex, currentPatternTable, palette, hMirror, vMirror, bgPriority)) {
+                if(matchesOverride(*candidate, target, allowDefaultTileFallback, tileIndex, fullTileIndex, currentPatternTable, palette, hMirror, vMirror, bgPriority, ctx)) {
                     return candidate;
                 }
             }
@@ -1765,19 +2265,27 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
         };
 
         if(const PreparedOverride* exact = scanAllExact()) {
-            overrideLookupCache.emplace(lookupKey, exact);
+            if(canUseOverrideLookupCache) {
+                overrideLookupCache.emplace(lookupKey, exact);
+            }
             return exact;
         }
         if(const PreparedOverride* defaultMatch = scanFullTile(fullTileIndex, true)) {
-            overrideLookupCache.emplace(lookupKey, defaultMatch);
+            if(canUseOverrideLookupCache) {
+                overrideLookupCache.emplace(lookupKey, defaultMatch);
+            }
             return defaultMatch;
         }
         if(fullTileIndex != tileIndex) {
-            overrideLookupCache.emplace(lookupKey, nullptr);
+            if(canUseOverrideLookupCache) {
+                overrideLookupCache.emplace(lookupKey, nullptr);
+            }
             return nullptr;
         }
         const PreparedOverride* relativeDefaultMatch = scanRelativeTile(tileIndex, true);
-        overrideLookupCache.emplace(lookupKey, relativeDefaultMatch);
+        if(canUseOverrideLookupCache) {
+            overrideLookupCache.emplace(lookupKey, relativeDefaultMatch);
+        }
         return relativeDefaultMatch;
     };
 
@@ -1873,6 +2381,49 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
         return blendPixel(baseColor, mappedColor, 255);
     };
 
+    const ConditionContext backgroundConditionContext = {};
+    std::vector<const PreparedBackground*> activeBackgrounds;
+    activeBackgrounds.reserve(preparedBackgrounds.size());
+    for(const PreparedBackground& prepared : preparedBackgrounds) {
+        if(conditionsMatchAt(prepared.replacement->conditions, backgroundConditionContext)) {
+            activeBackgrounds.push_back(&prepared);
+        }
+    }
+    std::stable_sort(activeBackgrounds.begin(), activeBackgrounds.end(), [](const PreparedBackground* a, const PreparedBackground* b) {
+        return a->replacement->priority < b->replacement->priority;
+    });
+
+    auto sampleBackgroundPixel = [&](uint32_t dstColor, const PreparedBackground& prepared, int nesX, int nesY, int subX, int subY) {
+        const BackgroundReplacement& replacement = *prepared.replacement;
+        const DecodedImage& image = *prepared.image;
+        if(image.width <= 0 || image.height <= 0) {
+            return dstColor;
+        }
+
+        const float imageScaleX = static_cast<float>(image.width) / static_cast<float>(std::max(1, PPU::SCREEN_WIDTH * m_resolutionMultiplier));
+        const float imageScaleY = static_cast<float>(image.height) / static_cast<float>(std::max(1, PPU::SCREEN_HEIGHT * m_resolutionMultiplier));
+        const float scaledX = static_cast<float>(nesX * scale + subX + replacement.sourceX) * imageScaleX;
+        const float scaledY = static_cast<float>(nesY * scale + subY + replacement.sourceY) * imageScaleY;
+        int srcX = static_cast<int>(std::floor(scaledX));
+        int srcY = static_cast<int>(std::floor(scaledY));
+
+        auto wrapCoord = [](int value, int size) {
+            if(size <= 0) return 0;
+            value %= size;
+            if(value < 0) value += size;
+            return value;
+        };
+        if(replacement.repeatX) srcX = wrapCoord(srcX, image.width);
+        if(replacement.repeatY) srcY = wrapCoord(srcY, image.height);
+        if(srcX < 0 || srcY < 0 || srcX >= image.width || srcY >= image.height) {
+            return dstColor;
+        }
+
+        const uint32_t src = image.rgba[static_cast<size_t>(srcY) * static_cast<size_t>(image.width) + static_cast<size_t>(srcX)];
+        const int alphaScale = std::clamp(static_cast<int>(std::round(replacement.opacity * 255.0f)), 0, 255);
+        return blendPixel(dstColor, src, alphaScale);
+    };
+
     const bool onlyWholeChrOverrides = std::all_of(activeOverrides.begin(), activeOverrides.end(), [](const ChrOverride* override) {
         return override->wholeChr() && !override->hasChrHash && override->paletteIndices.empty() &&
                override->patternTable < 0 && !override->defaultTile && !override->absoluteTile;
@@ -1882,10 +2433,14 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
     if(onlyWholeChrOverrides) {
         for(const PreparedOverride& prepared : preparedOverrides) {
             const ChrOverride* override = prepared.override;
-            if((override->target == ChrOverride::Target::Both || override->target == ChrOverride::Target::Background) && fastBackgroundOverride == nullptr) {
+            if(!prepared.hasDynamicConditions &&
+               (override->target == ChrOverride::Target::Both || override->target == ChrOverride::Target::Background) &&
+               fastBackgroundOverride == nullptr) {
                 fastBackgroundOverride = &prepared;
             }
-            if((override->target == ChrOverride::Target::Both || override->target == ChrOverride::Target::Sprite) && fastSpriteOverride == nullptr) {
+            if(!prepared.hasDynamicConditions &&
+               (override->target == ChrOverride::Target::Both || override->target == ChrOverride::Target::Sprite) &&
+               fastSpriteOverride == nullptr) {
                 fastSpriteOverride = &prepared;
             }
         }
@@ -1922,12 +2477,13 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
                 const int bgFullTileIndex = bgPixel->tileIndex != 0xFFFF ? static_cast<int>(bgPixel->tileIndex) : -1;
                 const std::array<uint8_t, 3> bgPalette = { bgPixel->palette[0], bgPixel->palette[1], bgPixel->palette[2] };
                 if(bgFullTileIndex >= 0) {
+                    const ConditionContext context = { nesX, nesY, bgPixel, nullptr };
                     backgroundOverride =
-                        onlyWholeChrOverrides
+                        onlyWholeChrOverrides && fastBackgroundOverride != nullptr
                             ? fastBackgroundOverride
-                            : findOverride(ChrOverride::Target::Background, bgFullTileIndex & 0xFF, bgFullTileIndex, bgFullTileIndex / 256, bgPalette, false, false, false);
+                            : findOverride(ChrOverride::Target::Background, bgFullTileIndex & 0xFF, bgFullTileIndex, bgFullTileIndex / 256, bgPalette, false, false, false, context);
                 }
-                backgroundFallbackColor = snapshot.paletteColors[bgPixel->paletteIndex & 0x3F];
+                backgroundFallbackColor = m_disableOriginalTiles ? 0x00000000u : snapshot.paletteColors[bgPixel->paletteIndex & 0x3F];
             }
             const bool backgroundOpaque = bgPixel != nullptr && bgPixel->valid && bgPixel->colorLowBits != 0;
             int lowestBgSpriteCandidate = std::numeric_limits<int>::max();
@@ -1950,10 +2506,21 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
                 for(int subX = 0; subX < scale; ++subX) {
                     const int outX = blockX0 + subX;
                     if(outX < 0 || outX >= width) continue;
-                    uint32_t color = baseColor;
+                    uint32_t color = m_disableOriginalTiles ? 0x00000000u : baseColor;
+
+                    for(const PreparedBackground* preparedBackground : activeBackgrounds) {
+                        if(preparedBackground->replacement->priority < 10) {
+                            color = sampleBackgroundPixel(color, *preparedBackground, nesX, nesY, subX, subY);
+                        }
+                    }
 
                     if(bgPixel != nullptr && bgPixel->valid) {
-                        color = backgroundFallbackColor;
+                        for(const PreparedBackground* preparedBackground : activeBackgrounds) {
+                            if(preparedBackground->replacement->priority >= 10 && preparedBackground->replacement->priority < 20) {
+                                color = sampleBackgroundPixel(color, *preparedBackground, nesX, nesY, subX, subY);
+                            }
+                        }
+                        color = backgroundOverride != nullptr ? color : backgroundFallbackColor;
                         if(backgroundOverride != nullptr) {
                             const std::array<uint8_t, 3> bgPalette = { bgPixel->palette[0], bgPixel->palette[1], bgPixel->palette[2] };
                             color = sampleOverridePixel(
@@ -1973,14 +2540,21 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
                         }
                     }
 
+                    for(const PreparedBackground* preparedBackground : activeBackgrounds) {
+                        if(preparedBackground->replacement->priority >= 20 && preparedBackground->replacement->priority < 30) {
+                            color = sampleBackgroundPixel(color, *preparedBackground, nesX, nesY, subX, subY);
+                        }
+                    }
+
                     if(spritePixel != nullptr && spritePixel->count > 0) {
                         auto applySpriteCandidate = [&](const PPU::DebugModSpriteCandidate& candidate) {
-                            const uint32_t spriteFallbackColor = spriteFallbackColorFor(candidate);
+                            const uint32_t spriteFallbackColor = m_disableOriginalTiles ? color : spriteFallbackColorFor(candidate);
                             const int spriteFullTileIndex = candidate.tileIndex != 0xFFFF ? static_cast<int>(candidate.tileIndex) : -1;
                             const std::array<uint8_t, 3> spritePalette = { candidate.palette[0], candidate.palette[1], candidate.palette[2] };
+                            const ConditionContext context = { nesX, nesY, bgPixel, &candidate };
                             const PreparedOverride* spriteOverride =
                                 spriteFullTileIndex >= 0
-                                    ? (onlyWholeChrOverrides
+                                    ? ((onlyWholeChrOverrides && fastSpriteOverride != nullptr)
                                         ? fastSpriteOverride
                                         : findOverride(
                                             ChrOverride::Target::Sprite,
@@ -1990,7 +2564,8 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
                                             spritePalette,
                                             candidate.horizontalMirror,
                                             candidate.verticalMirror,
-                                            candidate.behindBackground))
+                                            candidate.behindBackground,
+                                            context))
                                     : nullptr;
                             if(spriteOverride != nullptr) {
                                 color = sampleOverridePixel(
@@ -2008,7 +2583,7 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
                                     candidate.verticalMirror,
                                     true
                                 );
-                            } else {
+                            } else if(!m_disableOriginalTiles) {
                                 color = spriteFallbackColor;
                             }
                         };
@@ -2033,6 +2608,12 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
                                 continue;
                             }
                             applySpriteCandidate(candidate);
+                        }
+                    }
+
+                    for(const PreparedBackground* preparedBackground : activeBackgrounds) {
+                        if(preparedBackground->replacement->priority >= 30) {
+                            color = sampleBackgroundPixel(color, *preparedBackground, nesX, nesY, subX, subY);
                         }
                     }
                     dstRow[outX] = color;

@@ -5,6 +5,7 @@
 #include <filesystem>
 #include <optional>
 #include <string>
+#include <mutex>
 #include <unordered_map>
 #include <vector>
 
@@ -15,6 +16,17 @@
 class ModManager {
 public:
     struct MemoryCondition {
+        enum class Kind {
+            MemoryCheck,
+            FrameRange,
+            TileAtPosition,
+            TileNearby,
+            SpriteAtPosition,
+            SpriteNearby
+        };
+
+        Kind kind = Kind::MemoryCheck;
+        bool inverted = false;
         std::string memoryType = "cpu";
         uint32_t address = 0;
         bool word = false;
@@ -24,6 +36,13 @@ public:
         bool hasMask = false;
         uint32_t mask = 0;
         std::vector<uint32_t> values;
+        int x = 0;
+        int y = 0;
+        bool hasExpectedTile = false;
+        bool expectedTileByHash = false;
+        int expectedTileIndex = -1;
+        uint32_t expectedTileHash = 0;
+        std::vector<uint8_t> expectedPalette;
     };
 
     struct ChrOverride {
@@ -128,6 +147,12 @@ public:
         std::vector<PPU::DebugModBackgroundPixel> backgroundPixels;
         std::vector<PPU::DebugModSpritePixel> spritePixels;
     };
+
+    struct FrameConditionState {
+        uint32_t frameCount = 0;
+        std::unordered_map<uint64_t, uint32_t> memoryValues;
+    };
+
     struct DebugDecodedImage {
         int width = 0;
         int height = 0;
@@ -161,9 +186,16 @@ private:
     bool m_active = false;
     bool m_scriptLoaded = false;
     int m_resolutionMultiplier = 1;
+    bool m_disableOriginalTiles = false;
+    bool m_disableContours = false;
     std::optional<std::array<uint32_t, 64>> m_customPalette;
     std::vector<ChrOverride> m_chrOverrides;
     std::vector<BackgroundReplacement> m_backgroundReplacements;
+    std::vector<std::string> m_supportedRomHashes;
+    std::string m_patchAssetPath;
+    std::string m_patchExpectedRomHash;
+    FrameConditionState m_frameConditionState;
+    mutable std::mutex m_frameConditionStateMutex;
     struct DecodedImage {
         int width = 0;
         int height = 0;
@@ -189,6 +221,8 @@ private:
         const std::vector<uint8_t>& romData,
         const std::vector<uint8_t>& patchData,
         std::string& error);
+    static std::string sha1Hex(const std::vector<uint8_t>& data);
+    static uint64_t makeMemoryCacheKey(const std::string& type, uint32_t address, bool word, int scale);
 
     uint8_t readMemory(GeraNESEmu* emu, const std::string& type, uint32_t address) const;
     uint32_t readCameraValue(const BackgroundReplacement::CameraSource& source, GeraNESEmu& emu) const;
