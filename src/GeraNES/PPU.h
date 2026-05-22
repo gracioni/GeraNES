@@ -1275,6 +1275,17 @@ yyy NN YYYYY XXXXX
         return m_spritesEnabled;
     }
 
+    uint32_t debugHashChrTile(int tileIndex)
+    {
+        const int baseAddress = (tileIndex & 0x01FF) * 16;
+        uint32_t hash = 2166136261u;
+        for(int offset = 0; offset < 16; ++offset) {
+            hash ^= static_cast<uint32_t>(debugPeekPpuMemory(static_cast<uint16_t>(baseAddress + offset)));
+            hash *= 16777619u;
+        }
+        return hash;
+    }
+
     void debugSetModRenderCaptureEnabled(bool enabled)
     {
         m_debugModRenderCaptureEnabled = enabled;

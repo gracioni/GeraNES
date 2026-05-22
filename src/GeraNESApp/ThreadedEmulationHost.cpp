@@ -277,6 +277,9 @@ void ThreadedEmulationHost::refreshModRenderSnapshotLocked(uint32_t frameCount)
         for(size_t i = 0; i < snapshot.paletteColors.size(); ++i) {
             snapshot.paletteColors[i] = ppu.NESToRGBAColor(static_cast<uint8_t>(i));
         }
+        for(size_t i = 0; i < snapshot.tileHashes.size(); ++i) {
+            snapshot.tileHashes[i] = ppu.debugHashChrTile(static_cast<int>(i));
+        }
     }
     std::scoped_lock modRenderLock(m_modRenderSnapshotMutex);
     m_modRenderSnapshot = std::move(snapshot);

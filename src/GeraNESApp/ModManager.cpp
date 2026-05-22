@@ -1,10 +1,12 @@
 #include "GeraNESApp/ModManager.h"
 
 #include <algorithm>
+#include <cctype>
 #include <cmath>
 #include <cstring>
 #include <cstdlib>
 #include <fstream>
+#include <sstream>
 
 #include "GeraNES/RomFile.h"
 #include "GeraNESApp/AppSettings.h"
@@ -203,6 +205,86 @@ std::string toLower(std::string value)
     return value;
 }
 
+std::string trimMesenToken(std::string value)
+{
+    auto isSpace = [](unsigned char ch) { return std::isspace(ch) != 0; };
+    value.erase(value.begin(), std::find_if(value.begin(), value.end(), [&](char ch) { return !isSpace(static_cast<unsigned char>(ch)); }));
+    value.erase(std::find_if(value.rbegin(), value.rend(), [&](char ch) { return !isSpace(static_cast<unsigned char>(ch)); }).base(), value.end());
+    return value;
+}
+
+std::vector<std::string> splitComma(const std::string& value)
+{
+    std::vector<std::string> result;
+    std::string token;
+    std::stringstream stream(value);
+    while(std::getline(stream, token, ',')) {
+        result.push_back(trimMesenToken(token));
+    }
+    return result;
+}
+
+uint32_t parseHexValue(const std::string& text, uint32_t fallback = 0)
+{
+    if(text.empty()) return fallback;
+    try {
+        size_t index = 0;
+        uint32_t value = static_cast<uint32_t>(std::stoul(text, &index, 16));
+        return index == text.size() ? value : fallback;
+    } catch(...) {
+        return fallback;
+    }
+}
+
+bool parseMesenBool(const std::string& text)
+{
+    const std::string value = toLower(trimMesenToken(text));
+    return value == "y" || value == "yes" || value == "true" || value == "1";
+}
+
+uint32_t hashTileBytes(const std::string& tileData)
+{
+    uint32_t hash = 2166136261u;
+    for(size_t i = 0; i + 1 < tileData.size() && i < 32; i += 2) {
+        hash ^= parseHexValue(tileData.substr(i, 2));
+        hash *= 16777619u;
+    }
+    return hash;
+}
+
+std::vector<uint8_t> parseMesenPalette(const std::string& paletteText)
+{
+    std::vector<uint8_t> palette;
+    for(size_t i = 0; i + 1 < paletteText.size() && i < 8; i += 2) {
+        const uint32_t value = parseHexValue(paletteText.substr(i, 2), 0xFF);
+        if(value != 0xFF) {
+            palette.push_back(static_cast<uint8_t>(value & 0x3F));
+        }
+    }
+    if(palette.size() > 3) {
+        palette.erase(palette.begin());
+    }
+    return palette;
+}
+
+std::optional<int> parseDecimalIntStrict(const std::string& text)
+{
+    if(text.empty()) {
+        return std::nullopt;
+    }
+
+    try {
+        size_t index = 0;
+        const int value = std::stoi(text, &index, 10);
+        if(index != text.size()) {
+            return std::nullopt;
+        }
+        return value;
+    } catch(...) {
+        return std::nullopt;
+    }
+}
+
 std::string safeCacheStem(const std::filesystem::path& path)
 {
     std::string stem = path.stem().string();
@@ -298,7 +380,6 @@ void ModManager::clear()
     m_chrOverrides.clear();
     m_backgroundReplacements.clear();
     m_imageCache.clear();
-    m_lua = sol::state();
 }
 
 bool ModManager::selectModSource(const std::filesystem::path& modSourcePath, std::string& error)
@@ -405,7 +486,7 @@ ModManager::LoadRequest ModManager::prepareRomLoad(const std::filesystem::path& 
     return request;
 }
 
-bool ModManager::loadScriptForCurrentMod()
+bool ModManager::loadDefinitionForCurrentMod()
 {
     if(!m_active || m_modPath.empty()) return false;
     m_scriptLoaded = false;
@@ -413,21 +494,8 @@ bool ModManager::loadScriptForCurrentMod()
     m_chrOverrides.clear();
     m_backgroundReplacements.clear();
     m_imageCache.clear();
-    const auto script = readSourceEntry("script.lua");
-    if(!script.has_value()) {
-        Logger::instance().log("Mod loaded without script.lua.", Logger::Type::INFO);
-        return true;
-    }
 
-    m_lua = sol::state();
-    m_lua.open_libraries(sol::lib::base, sol::lib::math, sol::lib::string, sol::lib::table);
-    bindApi(nullptr);
-
-    const std::string scriptText(reinterpret_cast<const char*>(script->data()), script->size());
-    sol::protected_function_result result = m_lua.safe_script(scriptText, sol::script_pass_on_error);
-    if(!result.valid()) {
-        sol::error err = result;
-        Logger::instance().log(std::string("Mod script.lua error: ") + err.what(), Logger::Type::ERROR);
+    if(!loadMesenHiresFile()) {
         return false;
     }
 
@@ -463,7 +531,225 @@ bool ModManager::loadScriptForCurrentMod()
     }
 
     m_scriptLoaded = true;
-    Logger::instance().log("Mod script.lua loaded.", Logger::Type::INFO);
+    Logger::instance().log("Mesen hires.txt loaded.", Logger::Type::INFO);
+    return true;
+}
+
+bool ModManager::loadMesenHiresFile()
+{
+    const auto hiresData = readSourceEntry("hires.txt");
+    if(!hiresData.has_value()) {
+        Logger::instance().log("Selected mod does not contain hires.txt.", Logger::Type::ERROR);
+        return false;
+    }
+
+    const std::string text(reinterpret_cast<const char*>(hiresData->data()), hiresData->size());
+    std::vector<std::string> images;
+    std::unordered_map<std::string, std::vector<MemoryCondition>> namedConditions;
+    int nextPriority = 1000000;
+    int lineNumber = 0;
+
+    auto makeConditions = [&](const std::string& conditionText) {
+        std::vector<MemoryCondition> conditions;
+        std::stringstream stream(conditionText);
+        std::string name;
+        while(std::getline(stream, name, '&')) {
+            name = trimMesenToken(name);
+            if(name.empty()) continue;
+            const auto it = namedConditions.find(name);
+            if(it != namedConditions.end()) {
+                conditions.insert(conditions.end(), it->second.begin(), it->second.end());
+            }
+        }
+        return conditions;
+    };
+
+    std::stringstream lines(text);
+    std::string line;
+    while(std::getline(lines, line)) {
+        ++lineNumber;
+        line = trimMesenToken(line);
+        if(line.empty() || line[0] == '#') continue;
+
+        std::vector<MemoryCondition> ruleConditions;
+        std::vector<std::string> ruleConditionNames;
+        if(line.front() == '[') {
+            const size_t end = line.find(']');
+            if(end == std::string::npos) {
+                Logger::instance().log("Invalid Mesen condition prefix on line " + std::to_string(lineNumber), Logger::Type::ERROR);
+                continue;
+            }
+            std::stringstream conditionNames(line.substr(1, end - 1));
+            std::string conditionName;
+            while(std::getline(conditionNames, conditionName, '&')) {
+                ruleConditionNames.push_back(trimMesenToken(conditionName));
+            }
+            ruleConditions = makeConditions(line.substr(1, end - 1));
+            line = trimMesenToken(line.substr(end + 1));
+        }
+
+        if(line.rfind("<ver>", 0) == 0) {
+            continue;
+        }
+        if(line.rfind("<scale>", 0) == 0) {
+            try {
+                m_resolutionMultiplier = std::clamp(std::stoi(trimMesenToken(line.substr(7))), 1, 8);
+            } catch(...) {
+                Logger::instance().log("Invalid Mesen <scale> on line " + std::to_string(lineNumber), Logger::Type::ERROR);
+            }
+            continue;
+        }
+        if(line.rfind("<img>", 0) == 0) {
+            const std::string imagePath = normalizeZipPath(trimMesenToken(line.substr(5)));
+            if(!sourceHasEntry(imagePath)) {
+                Logger::instance().log("Mesen image not found: " + imagePath, Logger::Type::ERROR);
+            }
+            images.push_back(imagePath);
+            continue;
+        }
+        if(line.rfind("<condition>", 0) == 0) {
+            const std::vector<std::string> tokens = splitComma(line.substr(11));
+            if(tokens.size() < 5) continue;
+            const std::string type = tokens[1];
+            const bool ppuMemory = type == "ppuMemoryCheckConstant";
+            const bool cpuMemory = type == "memoryCheckConstant";
+            if((cpuMemory || ppuMemory) && tokens.size() >= 5) {
+                MemoryCondition condition;
+                condition.memoryType = ppuMemory ? "ppu" : "cpu";
+                condition.address = parseHexValue(tokens[2]);
+                condition.op = tokens[3];
+                condition.value = parseHexValue(tokens[4]);
+                if(tokens.size() >= 6) {
+                    condition.hasMask = true;
+                    condition.mask = parseHexValue(tokens[5]);
+                }
+                namedConditions[tokens[0]].push_back(condition);
+
+                MemoryCondition inverted = condition;
+                if(inverted.op == "==") inverted.op = "!=";
+                else if(inverted.op == "!=") inverted.op = "==";
+                else if(inverted.op == ">") inverted.op = "<=";
+                else if(inverted.op == "<") inverted.op = ">=";
+                else if(inverted.op == ">=") inverted.op = "<";
+                else if(inverted.op == "<=") inverted.op = ">";
+                namedConditions["!" + tokens[0]].push_back(inverted);
+            }
+            continue;
+        }
+        if(line.rfind("<tile>", 0) == 0) {
+            const std::vector<std::string> tokens = splitComma(line.substr(6));
+            if(tokens.size() < 7) {
+                Logger::instance().log("Invalid Mesen <tile> on line " + std::to_string(lineNumber), Logger::Type::ERROR);
+                continue;
+            }
+
+            ChrOverride override;
+            override.ignorePalette = true;
+            override.priority = nextPriority--;
+            override.conditions = ruleConditions;
+            for(const std::string& conditionName : ruleConditionNames) {
+                const bool inverted = !conditionName.empty() && conditionName.front() == '!';
+                const std::string normalizedName = inverted ? conditionName.substr(1) : conditionName;
+                if(normalizedName == "hmirror") override.hMirrorRequirement = inverted ? -1 : 1;
+                else if(normalizedName == "vmirror") override.vMirrorRequirement = inverted ? -1 : 1;
+                else if(normalizedName == "bgpriority") override.bgPriorityRequirement = inverted ? -1 : 1;
+            }
+
+            bool parsed = false;
+            int imageIndex = -1;
+            try {
+                imageIndex = std::stoi(tokens[0]);
+            } catch(...) {
+                imageIndex = -1;
+            }
+
+            if(imageIndex >= 0 && imageIndex < static_cast<int>(images.size())) {
+                override.assetPath = images[static_cast<size_t>(imageIndex)];
+                override.sourceX = std::max(0, static_cast<int>(std::strtol(tokens[3].c_str(), nullptr, 10)));
+                override.sourceY = std::max(0, static_cast<int>(std::strtol(tokens[4].c_str(), nullptr, 10)));
+                override.defaultTile = parseMesenBool(tokens[6]);
+                override.paletteIndices = override.defaultTile ? std::vector<uint8_t>() : parseMesenPalette(tokens[2]);
+                override.exactPaletteOrder = false;
+                override.target = tokens[2].size() >= 2 && toLower(tokens[2].substr(0, 2)) == "ff"
+                    ? ChrOverride::Target::Sprite
+                    : ChrOverride::Target::Background;
+
+                const std::string tileData = tokens[1];
+                if(tileData.size() >= 32) {
+                    override.tile = -1;
+                    override.hasChrHash = true;
+                    override.chrHash = hashTileBytes(tileData);
+                } else {
+                    override.tile = static_cast<int>(parseHexValue(tileData));
+                    override.absoluteTile = true;
+                }
+                parsed = true;
+            } else if(tokens.size() >= 8) {
+                const std::optional<int> legacyTile = parseDecimalIntStrict(tokens[0]);
+                const std::optional<int> legacyImageIndex = parseDecimalIntStrict(tokens[1]);
+                const std::optional<int> legacyPalette0 = parseDecimalIntStrict(tokens[2]);
+                const std::optional<int> legacyPalette1 = parseDecimalIntStrict(tokens[3]);
+                const std::optional<int> legacyPalette2 = parseDecimalIntStrict(tokens[4]);
+                const std::optional<int> legacySourceX = parseDecimalIntStrict(tokens[5]);
+                const std::optional<int> legacySourceY = parseDecimalIntStrict(tokens[6]);
+
+                if(legacyTile.has_value() &&
+                   legacyImageIndex.has_value() &&
+                   legacyPalette0.has_value() &&
+                   legacyPalette1.has_value() &&
+                   legacyPalette2.has_value() &&
+                   legacySourceX.has_value() &&
+                   legacySourceY.has_value() &&
+                   *legacyImageIndex >= 0 &&
+                   *legacyImageIndex < static_cast<int>(images.size())) {
+                    override.assetPath = images[static_cast<size_t>(*legacyImageIndex)];
+                    override.tile = *legacyTile;
+                    override.absoluteTile = true;
+                    override.sourceX = std::max(0, *legacySourceX);
+                    override.sourceY = std::max(0, *legacySourceY);
+                    override.defaultTile = parseMesenBool(tokens[7]);
+                    override.target = ChrOverride::Target::Both;
+                    override.exactPaletteOrder = false;
+                    if(!override.defaultTile) {
+                        override.paletteIndices = {
+                            static_cast<uint8_t>(std::clamp(*legacyPalette0, 0, 255)),
+                            static_cast<uint8_t>(std::clamp(*legacyPalette1, 0, 255)),
+                            static_cast<uint8_t>(std::clamp(*legacyPalette2, 0, 255))
+                        };
+                    }
+                    parsed = true;
+                }
+            }
+
+            if(!parsed) {
+                Logger::instance().log("Mesen <tile> references invalid image index on line " + std::to_string(lineNumber), Logger::Type::ERROR);
+                continue;
+            }
+            m_chrOverrides.push_back(std::move(override));
+            continue;
+        }
+        if(line.rfind("<background>", 0) == 0) {
+            const std::vector<std::string> tokens = splitComma(line.substr(12));
+            if(tokens.empty()) continue;
+            BackgroundReplacement replacement;
+            replacement.id = tokens[0] + "#" + std::to_string(lineNumber);
+            replacement.assetPath = normalizeZipPath(tokens[0]);
+            replacement.opacity = 1.0f;
+            replacement.parallaxX = tokens.size() >= 3 ? std::strtof(tokens[2].c_str(), nullptr) : 0.0f;
+            replacement.parallaxY = tokens.size() >= 4 ? std::strtof(tokens[3].c_str(), nullptr) : 0.0f;
+            replacement.priority = tokens.size() >= 5 ? std::atoi(tokens[4].c_str()) : 10;
+            replacement.sourceX = tokens.size() >= 6 ? std::atoi(tokens[5].c_str()) : 0;
+            replacement.sourceY = tokens.size() >= 7 ? std::atoi(tokens[6].c_str()) : 0;
+            replacement.conditions = ruleConditions;
+            m_backgroundReplacements.push_back(std::move(replacement));
+            continue;
+        }
+    }
+
+    if(m_chrOverrides.empty() && m_backgroundReplacements.empty()) {
+        Logger::instance().log("Mesen hires.txt did not define any supported graphics replacements.", Logger::Type::ERROR);
+        return false;
+    }
     return true;
 }
 
@@ -474,15 +760,11 @@ void ModManager::onFrame(GeraNESEmu& emu)
     if(m_customPalette.has_value()) {
         emu.getConsole().ppu().setColorPalette(*m_customPalette);
     }
-    bindApi(&emu);
-    sol::object callback = m_lua["on_frame"];
-    if(callback.get_type() != sol::type::function) return;
-
-    sol::protected_function onFrame = callback;
-    sol::protected_function_result result = onFrame();
-    if(!result.valid()) {
-        sol::error err = result;
-        Logger::instance().log(std::string("Mod on_frame error: ") + err.what(), Logger::Type::ERROR);
+    for(ChrOverride& override : m_chrOverrides) {
+        override.enabled = conditionsMatch(override.conditions, emu);
+    }
+    for(BackgroundReplacement& replacement : m_backgroundReplacements) {
+        replacement.enabled = conditionsMatch(replacement.conditions, emu);
     }
 }
 
@@ -683,124 +965,6 @@ std::optional<std::vector<uint8_t>> ModManager::applyIpsPatch(
     std::vector<uint8_t> patched(out.ptr, out.ptr + out.len);
     ips_free(out);
     return patched;
-}
-
-void ModManager::bindApi(GeraNESEmu* emu)
-{
-    sol::table api = m_lua["mod"].get_or_create<sol::table>();
-    api.set_function("set_resolution_multiplier", [this](int multiplier) {
-        m_resolutionMultiplier = std::clamp(multiplier, 1, 8);
-    });
-    api.set_function("set_palette", [this](const std::string& assetPath) {
-        const std::string normalizedPath = normalizeZipPath(assetPath);
-        const auto data = readAsset(normalizedPath);
-        if(!data.has_value()) {
-            Logger::instance().log("Failed to load mod palette asset: " + normalizedPath, Logger::Type::ERROR);
-            return;
-        }
-        if(data->size() < 64u * 3u) {
-            Logger::instance().log("Invalid mod palette asset: " + normalizedPath, Logger::Type::ERROR);
-            return;
-        }
-
-        std::array<uint32_t, 64> palette = {};
-        for(size_t i = 0; i < palette.size(); ++i) {
-            const size_t offset = i * 3u;
-            const uint32_t r = (*data)[offset + 0u];
-            const uint32_t g = (*data)[offset + 1u];
-            const uint32_t b = (*data)[offset + 2u];
-            palette[i] = 0xFF000000u | r | (g << 8) | (b << 16);
-        }
-        m_customPalette = palette;
-    });
-    api.set_function("add_chr_override", [this](int tile, const std::string& assetPath, sol::optional<bool> ignorePalette) {
-        ChrOverride override;
-        override.tile = std::max(0, tile);
-        override.assetPath = normalizeZipPath(assetPath);
-        override.ignorePalette = ignorePalette.value_or(false);
-        m_chrOverrides.push_back(std::move(override));
-    });
-    api.set_function("add_chr", [this](const sol::table& table) {
-        m_chrOverrides.push_back(parseChrOverrideTable(table));
-    });
-    api.set_function("add_chr_sheet", [this](const std::string& assetPath, sol::optional<sol::table> options) {
-        ChrOverride override;
-        override.tile = -1;
-        override.assetPath = normalizeZipPath(assetPath);
-        if(options) {
-            ChrOverride parsed = parseChrOverrideTable(*options);
-            parsed.tile = -1;
-            if(parsed.assetPath.empty()) parsed.assetPath = override.assetPath;
-            override = std::move(parsed);
-        }
-        m_chrOverrides.push_back(std::move(override));
-    });
-    api.set_function("clear_chr_overrides", [this]() {
-        m_chrOverrides.clear();
-    });
-    api.set_function(
-        "set_background_replacement",
-        [this](const std::string& id, const std::string& assetPath, sol::optional<int> x, sol::optional<int> y, sol::optional<int> width, sol::optional<int> height) {
-            BackgroundReplacement replacement;
-            replacement.id = id;
-            replacement.assetPath = normalizeZipPath(assetPath);
-            replacement.x = x.value_or(0);
-            replacement.y = y.value_or(0);
-            replacement.width = width.value_or(256);
-            replacement.height = height.value_or(240);
-            auto it = std::find_if(m_backgroundReplacements.begin(), m_backgroundReplacements.end(), [&](const BackgroundReplacement& item) {
-                return item.id == replacement.id;
-            });
-            if(it == m_backgroundReplacements.end()) {
-                m_backgroundReplacements.push_back(std::move(replacement));
-            } else {
-                *it = std::move(replacement);
-            }
-        });
-    api.set_function("add_background_layer", [this](const std::string& id, const sol::table& table) {
-        BackgroundReplacement replacement = parseBackgroundReplacementTable(id, table);
-        auto it = std::find_if(m_backgroundReplacements.begin(), m_backgroundReplacements.end(), [&](const BackgroundReplacement& item) {
-            return item.id == replacement.id;
-        });
-        if(it == m_backgroundReplacements.end()) {
-            m_backgroundReplacements.push_back(std::move(replacement));
-        } else {
-            *it = std::move(replacement);
-        }
-    });
-    api.set_function("clear_background_layers", [this]() {
-        m_backgroundReplacements.clear();
-    });
-    api.set_function("set_layer_enabled", [this](const std::string& id, bool enabled) {
-        auto it = std::find_if(m_backgroundReplacements.begin(), m_backgroundReplacements.end(), [&](const BackgroundReplacement& item) {
-            return item.id == id;
-        });
-        if(it != m_backgroundReplacements.end()) {
-            it->enabled = enabled;
-        }
-    });
-    api.set_function("asset_exists", [this](const std::string& assetPath) {
-        return sourceHasEntry(normalizeZipPath(assetPath));
-    });
-    api.set_function("read_memory", [this, emu](const std::string& type, uint32_t address) {
-        return static_cast<int>(readMemory(emu, type, address));
-    });
-    api.set_function("read_cpu", [this, emu](uint32_t address) {
-        return static_cast<int>(readMemory(emu, "cpu", address));
-    });
-    api.set_function("read_ppu", [this, emu](uint32_t address) {
-        return static_cast<int>(readMemory(emu, "ppu", address));
-    });
-    api.set_function("read_oam", [this, emu](uint32_t address) {
-        return static_cast<int>(readMemory(emu, "oam", address));
-    });
-    api.set_function("chr_tile_hash", [emu](int tile, sol::optional<int> patternTable) {
-        if(emu == nullptr) return 0;
-        PPU& ppu = emu->getConsole().ppu();
-        const int table = std::clamp(patternTable.value_or(tile >= 256 ? 1 : ppu.debugBackgroundPatternTableAddress() / 0x1000), 0, 1);
-        const int tileInTable = std::clamp(tile & 0xFF, 0, 255);
-        return static_cast<int>(hashChrTile(ppu, table * 256 + tileInTable));
-    });
 }
 
 uint8_t ModManager::readMemory(GeraNESEmu* emu, const std::string& type, uint32_t address) const
@@ -1492,8 +1656,17 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
         return true;
     };
 
-    auto matchesOverride = [&](const ChrOverride& override, ChrOverride::Target target, bool allowDefaultTileFallback, int tileIndex, int fullTileIndex, int currentPatternTable, const std::array<uint8_t, 3>& palette) {
+    auto matchesRequirement = [](int requirement, bool value) {
+        return requirement == 0 || (requirement > 0 && value) || (requirement < 0 && !value);
+    };
+
+    auto matchesOverride = [&](const ChrOverride& override, ChrOverride::Target target, bool allowDefaultTileFallback, int tileIndex, int fullTileIndex, int currentPatternTable, const std::array<uint8_t, 3>& palette, bool hMirror, bool vMirror, bool bgPriority) {
         if(override.target != ChrOverride::Target::Both && override.target != target) {
+            return false;
+        }
+        if(!matchesRequirement(override.hMirrorRequirement, hMirror) ||
+           !matchesRequirement(override.vMirrorRequirement, vMirror) ||
+           !matchesRequirement(override.bgPriorityRequirement, bgPriority)) {
             return false;
         }
         if(override.patternTable >= 0 && override.patternTable != currentPatternTable) {
@@ -1517,10 +1690,10 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
         return true;
     };
 
-    auto findOverride = [&](ChrOverride::Target target, int tileIndex, int fullTileIndex, int currentPatternTable, const std::array<uint8_t, 3>& palette) -> const ChrOverride* {
+    auto findOverride = [&](ChrOverride::Target target, int tileIndex, int fullTileIndex, int currentPatternTable, const std::array<uint8_t, 3>& palette, bool hMirror, bool vMirror, bool bgPriority) -> const ChrOverride* {
         auto scanCandidates = [&](const std::vector<const ChrOverride*>& candidates, bool allowDefaultTileFallback) -> const ChrOverride* {
             for(const ChrOverride* candidate : candidates) {
-                if(matchesOverride(*candidate, target, allowDefaultTileFallback, tileIndex, fullTileIndex, currentPatternTable, palette)) {
+                if(matchesOverride(*candidate, target, allowDefaultTileFallback, tileIndex, fullTileIndex, currentPatternTable, palette, hMirror, vMirror, bgPriority)) {
                     return candidate;
                 }
             }
@@ -1706,7 +1879,7 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
                     backgroundOverride =
                         onlyWholeChrOverrides
                             ? fastBackgroundOverride
-                            : findOverride(ChrOverride::Target::Background, bgFullTileIndex & 0xFF, bgFullTileIndex, bgFullTileIndex / 256, bgPalette);
+                            : findOverride(ChrOverride::Target::Background, bgFullTileIndex & 0xFF, bgFullTileIndex, bgFullTileIndex / 256, bgPalette, false, false, false);
                 }
                 backgroundFallbackColor = snapshot.paletteColors[bgPixel->paletteIndex & 0x3F];
             }
@@ -1718,7 +1891,7 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
                     spriteOverride =
                         onlyWholeChrOverrides
                             ? fastSpriteOverride
-                            : findOverride(ChrOverride::Target::Sprite, spriteFullTileIndex & 0xFF, spriteFullTileIndex, spriteFullTileIndex / 256, spritePalette);
+                            : findOverride(ChrOverride::Target::Sprite, spriteFullTileIndex & 0xFF, spriteFullTileIndex, spriteFullTileIndex / 256, spritePalette, spritePixel->horizontalMirror, spritePixel->verticalMirror, spritePixel->behindBackground);
                 }
                 const int spritePaletteIndex = std::clamp(static_cast<int>(spritePixel->colorLowBits), 1, 3) - 1;
                 if(spritePaletteIndex >= 0 && spritePaletteIndex < static_cast<int>(spritePalette.size())) {

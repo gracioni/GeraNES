@@ -56,6 +56,9 @@ public:
         std::vector<uint8_t> paletteIndices;
         bool exactPaletteOrder = false;
         bool absoluteTile = false;
+        int hMirrorRequirement = 0;
+        int vMirrorRequirement = 0;
+        int bgPriorityRequirement = 0;
         std::vector<MemoryCondition> conditions;
 
         bool wholeChr() const { return tile < 0; }
@@ -135,7 +138,7 @@ public:
     bool selectModSource(const std::filesystem::path& modSourcePath, std::string& error);
     void clearModSource();
     LoadRequest prepareRomLoad(const std::filesystem::path& romPath);
-    bool loadScriptForCurrentMod();
+    bool loadDefinitionForCurrentMod();
     void onFrame(GeraNESEmu& emu);
     void composeChrFrame(std::vector<uint32_t>& framebuffer, int width, int height, int activeTop, int activeBottom, int scale, const uint32_t* sourceFramebuffer, const ChrRenderSnapshot& snapshot, const std::vector<const ChrOverride*>* activeOverrideFilter = nullptr);
 
@@ -161,8 +164,6 @@ private:
     std::optional<std::array<uint32_t, 64>> m_customPalette;
     std::vector<ChrOverride> m_chrOverrides;
     std::vector<BackgroundReplacement> m_backgroundReplacements;
-    sol::state m_lua;
-
     struct DecodedImage {
         int width = 0;
         int height = 0;
@@ -189,7 +190,6 @@ private:
         const std::vector<uint8_t>& patchData,
         std::string& error);
 
-    void bindApi(GeraNESEmu* emu);
     uint8_t readMemory(GeraNESEmu* emu, const std::string& type, uint32_t address) const;
     uint32_t readCameraValue(const BackgroundReplacement::CameraSource& source, GeraNESEmu& emu) const;
     uint32_t readMemoryValue(const MemoryCondition& source, GeraNESEmu& emu) const;
@@ -202,6 +202,7 @@ private:
     static std::optional<MemoryCondition> parseMemoryConditionObject(const sol::object& object);
     static ChrOverride parseChrOverrideTable(const sol::table& table);
     static BackgroundReplacement parseBackgroundReplacementTable(const std::string& id, const sol::table& table);
+    bool loadMesenHiresFile();
     static uint32_t blendPixel(uint32_t dst, uint32_t src, int alphaScale);
     static uint32_t hashChrTile(PPU& ppu, int tileIndex);
     static uint8_t readBackgroundPaletteIndexAt(PPU& ppu, int screenX, int screenY);

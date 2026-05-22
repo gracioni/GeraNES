@@ -334,6 +334,9 @@ void SingleThreadEmulationHost::refreshModRenderSnapshot()
     for(size_t i = 0; i < m_modRenderSnapshot.paletteColors.size(); ++i) {
         m_modRenderSnapshot.paletteColors[i] = ppu.NESToRGBAColor(static_cast<uint8_t>(i));
     }
+    for(size_t i = 0; i < m_modRenderSnapshot.tileHashes.size(); ++i) {
+        m_modRenderSnapshot.tileHashes[i] = ppu.debugHashChrTile(static_cast<int>(i));
+    }
 }
 
 SingleThreadEmulationHost::SingleThreadEmulationHost(IAudioOutput& audioOutput)

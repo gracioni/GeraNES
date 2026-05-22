@@ -1509,7 +1509,7 @@ bool GeraNESApp::openRomPath(const fs::path& path, bool updateRecentFiles)
     }
     if(m_emu.open(effectivePath)) {
         if(modLoad.modLoaded) {
-            m_modManager.loadScriptForCurrentMod();
+            m_modManager.loadDefinitionForCurrentMod();
             Logger::instance().log(modLoad.message + " " + modLoad.modPath.string(), Logger::Type::USER);
         }
         normalizeTouchControlsTargetForCurrentTopology();
