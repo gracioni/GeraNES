@@ -436,6 +436,15 @@ bool ModManager::loadScriptForCurrentMod()
         if(!override.enabled || override.assetPath.empty()) {
             continue;
         }
+        if(override.ignorePalette) {
+            if(decodedImage(override.assetPath) == nullptr) {
+                Logger::instance().log(
+                    "Failed to load CHR image asset: " + override.assetPath,
+                    Logger::Type::ERROR);
+                override.enabled = false;
+            }
+            continue;
+        }
         const std::string normalizedPath = normalizeZipPath(override.assetPath);
         auto it = chrAssetValidity.find(normalizedPath);
         if(it == chrAssetValidity.end()) {
