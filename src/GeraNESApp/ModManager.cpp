@@ -260,10 +260,17 @@ bool parseMesenBool(const std::string& text)
 
 uint32_t hashTileBytes(const std::string& tileData)
 {
-    uint32_t hash = 2166136261u;
+    uint8_t bytes[16] = {};
     for(size_t i = 0; i + 1 < tileData.size() && i < 32; i += 2) {
-        hash ^= parseHexValue(tileData.substr(i, 2));
-        hash *= 16777619u;
+        bytes[i / 2] = static_cast<uint8_t>(parseHexValue(tileData.substr(i, 2)));
+    }
+
+    uint32_t hash = 0;
+    for(size_t i = 0; i < std::size(bytes); i += sizeof(uint32_t)) {
+        uint32_t chunk = 0;
+        std::memcpy(&chunk, bytes + i, sizeof(uint32_t));
+        hash += chunk;
+        hash = (hash << 2) | (hash >> 30);
     }
     return hash;
 }
@@ -833,6 +840,7 @@ bool ModManager::loadMesenHiresFile()
                     condition.expectedTileIndex = static_cast<int>(parseHexValue(tokens[4]));
                 }
                 condition.expectedPalette = parseMesenPalette(tokens[5]);
+                condition.expectedPaletteKey = parseHexValue(tokens[5]);
                 namedConditions[tokens[0]].push_back(condition);
             }
             continue;
@@ -2091,8 +2099,25 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
         return true;
     };
 
+    auto backgroundPaletteKey = [&](const PPU::DebugModBackgroundPixel& pixel) -> uint32_t {
+        return (static_cast<uint32_t>(snapshot.universalBgColor & 0x3F) << 24u) |
+               (static_cast<uint32_t>(pixel.palette[0] & 0x3F) << 16u) |
+               (static_cast<uint32_t>(pixel.palette[1] & 0x3F) << 8u) |
+               static_cast<uint32_t>(pixel.palette[2] & 0x3F);
+    };
+
+    auto spritePaletteKey = [](const PPU::DebugModSpriteCandidate& candidate) -> uint32_t {
+        return 0xFF000000u |
+               (static_cast<uint32_t>(candidate.palette[0] & 0x3F) << 16u) |
+               (static_cast<uint32_t>(candidate.palette[1] & 0x3F) << 8u) |
+               static_cast<uint32_t>(candidate.palette[2] & 0x3F);
+    };
+
     auto tileMatchesCondition = [&](const MemoryCondition& condition, const PPU::DebugModBackgroundPixel& pixel) {
         if(!pixel.valid) {
+            return false;
+        }
+        if(condition.expectedPaletteKey != 0 && backgroundPaletteKey(pixel) != condition.expectedPaletteKey) {
             return false;
         }
         if(condition.hasExpectedTile) {
@@ -2104,11 +2129,14 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
                 return false;
             }
         }
-        return paletteVectorMatches(condition.expectedPalette, pixel.palette);
+        return condition.expectedPaletteKey != 0 ? true : paletteVectorMatches(condition.expectedPalette, pixel.palette);
     };
 
     auto spriteCandidateMatchesCondition = [&](const MemoryCondition& condition, const PPU::DebugModSpriteCandidate& candidate) {
         if(!candidate.valid) {
+            return false;
+        }
+        if(condition.expectedPaletteKey != 0 && spritePaletteKey(candidate) != condition.expectedPaletteKey) {
             return false;
         }
         if(condition.hasExpectedTile) {
@@ -2120,7 +2148,7 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
                 return false;
             }
         }
-        return paletteVectorMatches(condition.expectedPalette, candidate.palette);
+        return condition.expectedPaletteKey != 0 ? true : paletteVectorMatches(condition.expectedPalette, candidate.palette);
     };
 
     auto conditionMatchesAt = [&](const MemoryCondition& condition, const ConditionContext& ctx) {
@@ -2162,14 +2190,8 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
         }
         case MemoryCondition::Kind::TileAtPosition:
         case MemoryCondition::Kind::TileNearby: {
-            int xSign = 1;
-            int ySign = 1;
-            if(ctx.spriteCandidate != nullptr) {
-                xSign = ctx.spriteCandidate->horizontalMirror ? -1 : 1;
-                ySign = ctx.spriteCandidate->verticalMirror ? -1 : 1;
-            }
-            const int targetX = condition.kind == MemoryCondition::Kind::TileAtPosition ? condition.x : (ctx.nesX + condition.x * xSign);
-            const int targetY = condition.kind == MemoryCondition::Kind::TileAtPosition ? condition.y : (ctx.nesY + condition.y * ySign);
+            const int targetX = condition.kind == MemoryCondition::Kind::TileAtPosition ? condition.x : (ctx.nesX + condition.x);
+            const int targetY = condition.kind == MemoryCondition::Kind::TileAtPosition ? condition.y : (ctx.nesY + condition.y);
             const PPU::DebugModBackgroundPixel* pixel = backgroundPixelAt(targetX, targetY);
             match = pixel != nullptr && tileMatchesCondition(condition, *pixel);
             break;
@@ -2665,7 +2687,6 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
                                 color = sampleBackgroundPixel(color, *preparedBackground, nesX, nesY, subX, subY);
                             }
                         }
-                        color = backgroundOverride != nullptr ? color : backgroundFallbackColor;
                         if(backgroundOverride != nullptr) {
                             const std::array<uint8_t, 3> bgPalette = { bgPixel->palette[0], bgPixel->palette[1], bgPixel->palette[2] };
                             color = sampleOverridePixel(
@@ -2682,6 +2703,8 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
                                 false,
                                 false
                             );
+                        } else if(backgroundOpaque || !m_disableOriginalTiles) {
+                            color = backgroundFallbackColor;
                         }
                     }
 
@@ -2791,10 +2814,17 @@ uint32_t ModManager::blendPixel(uint32_t dst, uint32_t src, int alphaScale)
 uint32_t ModManager::hashChrTile(PPU& ppu, int tileIndex)
 {
     const int baseAddress = (tileIndex & 0x01FF) * 16;
-    uint32_t hash = 2166136261u;
+    uint8_t bytes[16] = {};
     for(int offset = 0; offset < 16; ++offset) {
-        hash ^= static_cast<uint32_t>(ppu.debugPeekPpuMemory(static_cast<uint16_t>(baseAddress + offset)));
-        hash *= 16777619u;
+        bytes[offset] = ppu.debugPeekPpuMemory(static_cast<uint16_t>(baseAddress + offset));
+    }
+
+    uint32_t hash = 0;
+    for(size_t i = 0; i < std::size(bytes); i += sizeof(uint32_t)) {
+        uint32_t chunk = 0;
+        std::memcpy(&chunk, bytes + i, sizeof(uint32_t));
+        hash += chunk;
+        hash = (hash << 2) | (hash >> 30);
     }
     return hash;
 }

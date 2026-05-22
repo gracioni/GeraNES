@@ -43,6 +43,7 @@ public:
         int expectedTileIndex = -1;
         uint32_t expectedTileHash = 0;
         std::vector<uint8_t> expectedPalette;
+        uint32_t expectedPaletteKey = 0;
     };
 
     struct ChrOverride {
@@ -144,6 +145,7 @@ public:
     struct ChrRenderSnapshot {
         int scrollX = 0;
         int scrollY = 0;
+        uint8_t universalBgColor = 0;
         std::array<uint32_t, 64> paletteColors = {};
         std::array<uint32_t, 512> tileHashes = {};
         std::vector<PPU::DebugModBackgroundPixel> backgroundPixels;

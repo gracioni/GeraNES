@@ -1034,7 +1034,7 @@ public:
         }
 
         DebugModBackgroundPixel pixel;
-        if(m_backgroundEnabled && (m_showBackgroundLeftmost8Pixels || m_currentX >= 8)) {
+        if(m_backgroundEnabled) {
             const DebugModBackgroundShiftPixel& source = m_debugModBackgroundShift[m_reg_x & 0x0F];
             if(source.valid) {
                 const uint8_t colorLowBits = static_cast<uint8_t>(m_currentPixelColorIndex & 0x03);
@@ -1278,10 +1278,17 @@ yyy NN YYYYY XXXXX
     uint32_t debugHashChrTile(int tileIndex)
     {
         const int baseAddress = (tileIndex & 0x01FF) * 16;
-        uint32_t hash = 2166136261u;
+        uint8_t bytes[16] = {};
         for(int offset = 0; offset < 16; ++offset) {
-            hash ^= static_cast<uint32_t>(debugPeekPpuMemory(static_cast<uint16_t>(baseAddress + offset)));
-            hash *= 16777619u;
+            bytes[offset] = debugPeekPpuMemory(static_cast<uint16_t>(baseAddress + offset));
+        }
+
+        uint32_t hash = 0;
+        for(size_t i = 0; i < std::size(bytes); i += sizeof(uint32_t)) {
+            uint32_t chunk = 0;
+            std::memcpy(&chunk, bytes + i, sizeof(uint32_t));
+            hash += chunk;
+            hash = (hash << 2) | (hash >> 30);
         }
         return hash;
     }

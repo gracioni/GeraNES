@@ -274,6 +274,7 @@ void ThreadedEmulationHost::refreshModRenderSnapshotLocked(uint32_t frameCount)
         PPU& ppu = m_emu.getConsole().ppu();
         snapshot.scrollX = ppu.getVirtualScrollX();
         snapshot.scrollY = ppu.getVirtualScrollY();
+        snapshot.universalBgColor = static_cast<uint8_t>(ppu.debugPeekPpuMemory(0x3F00) & 0x3F);
         ppu.debugCopyPresentedBackgroundPixels(snapshot.backgroundPixels);
         ppu.debugCopyPresentedSpritePixels(snapshot.spritePixels);
         for(size_t i = 0; i < snapshot.paletteColors.size(); ++i) {

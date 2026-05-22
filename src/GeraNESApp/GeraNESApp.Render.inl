@@ -175,6 +175,7 @@ inline void GeraNESApp::render()
             ModManager::ChrRenderSnapshot chrSnapshot;
             chrSnapshot.scrollX = hostSnapshot.scrollX;
             chrSnapshot.scrollY = hostSnapshot.scrollY;
+            chrSnapshot.universalBgColor = hostSnapshot.universalBgColor;
             chrSnapshot.paletteColors = hostSnapshot.paletteColors;
             chrSnapshot.tileHashes = hostSnapshot.tileHashes;
             chrSnapshot.backgroundPixels = std::move(hostSnapshot.backgroundPixels);

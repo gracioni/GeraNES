@@ -331,6 +331,7 @@ void SingleThreadEmulationHost::refreshModRenderSnapshot()
     PPU& ppu = m_emu.getConsole().ppu();
     m_modRenderSnapshot.scrollX = ppu.getVirtualScrollX();
     m_modRenderSnapshot.scrollY = ppu.getVirtualScrollY();
+    m_modRenderSnapshot.universalBgColor = static_cast<uint8_t>(ppu.debugPeekPpuMemory(0x3F00) & 0x3F);
     ppu.debugCopyPresentedBackgroundPixels(m_modRenderSnapshot.backgroundPixels);
     ppu.debugCopyPresentedSpritePixels(m_modRenderSnapshot.spritePixels);
     for(size_t i = 0; i < m_modRenderSnapshot.paletteColors.size(); ++i) {
