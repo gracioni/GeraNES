@@ -668,8 +668,8 @@ bool ModManager::loadMesenHiresFile()
                 override.sourceX = std::max(0, static_cast<int>(std::strtol(tokens[3].c_str(), nullptr, 10)));
                 override.sourceY = std::max(0, static_cast<int>(std::strtol(tokens[4].c_str(), nullptr, 10)));
                 override.defaultTile = parseMesenBool(tokens[6]);
-                override.paletteIndices = override.defaultTile ? std::vector<uint8_t>() : parseMesenPalette(tokens[2]);
-                override.exactPaletteOrder = false;
+                override.paletteIndices = parseMesenPalette(tokens[2]);
+                override.exactPaletteOrder = true;
                 override.target = tokens[2].size() >= 2 && toLower(tokens[2].substr(0, 2)) == "ff"
                     ? ChrOverride::Target::Sprite
                     : ChrOverride::Target::Background;
@@ -709,14 +709,12 @@ bool ModManager::loadMesenHiresFile()
                     override.sourceY = std::max(0, *legacySourceY);
                     override.defaultTile = parseMesenBool(tokens[7]);
                     override.target = ChrOverride::Target::Both;
-                    override.exactPaletteOrder = false;
-                    if(!override.defaultTile) {
-                        override.paletteIndices = {
-                            static_cast<uint8_t>(std::clamp(*legacyPalette0, 0, 255)),
-                            static_cast<uint8_t>(std::clamp(*legacyPalette1, 0, 255)),
-                            static_cast<uint8_t>(std::clamp(*legacyPalette2, 0, 255))
-                        };
-                    }
+                    override.exactPaletteOrder = true;
+                    override.paletteIndices = {
+                        static_cast<uint8_t>(std::clamp(*legacyPalette0, 0, 255)),
+                        static_cast<uint8_t>(std::clamp(*legacyPalette1, 0, 255)),
+                        static_cast<uint8_t>(std::clamp(*legacyPalette2, 0, 255))
+                    };
                     parsed = true;
                 }
             }
@@ -1644,7 +1642,7 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
         if(override.paletteIndices.empty()) {
             return true;
         }
-        if(allowDefaultTileFallback && override.defaultTile) {
+        if(override.defaultTile && allowDefaultTileFallback) {
             return true;
         }
         if(override.exactPaletteOrder) {
