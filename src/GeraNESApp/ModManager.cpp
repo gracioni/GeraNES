@@ -6,6 +6,7 @@
 #include <cstring>
 #include <cstdlib>
 #include <fstream>
+#include <limits>
 #include <sstream>
 
 #include "GeraNES/RomFile.h"
@@ -656,35 +657,7 @@ bool ModManager::loadMesenHiresFile()
             }
 
             bool parsed = false;
-            int imageIndex = -1;
-            try {
-                imageIndex = std::stoi(tokens[0]);
-            } catch(...) {
-                imageIndex = -1;
-            }
-
-            if(imageIndex >= 0 && imageIndex < static_cast<int>(images.size())) {
-                override.assetPath = images[static_cast<size_t>(imageIndex)];
-                override.sourceX = std::max(0, static_cast<int>(std::strtol(tokens[3].c_str(), nullptr, 10)));
-                override.sourceY = std::max(0, static_cast<int>(std::strtol(tokens[4].c_str(), nullptr, 10)));
-                override.defaultTile = parseMesenBool(tokens[6]);
-                override.paletteIndices = parseMesenPalette(tokens[2]);
-                override.exactPaletteOrder = true;
-                override.target = tokens[2].size() >= 2 && toLower(tokens[2].substr(0, 2)) == "ff"
-                    ? ChrOverride::Target::Sprite
-                    : ChrOverride::Target::Background;
-
-                const std::string tileData = tokens[1];
-                if(tileData.size() >= 32) {
-                    override.tile = -1;
-                    override.hasChrHash = true;
-                    override.chrHash = hashTileBytes(tileData);
-                } else {
-                    override.tile = static_cast<int>(parseHexValue(tileData));
-                    override.absoluteTile = true;
-                }
-                parsed = true;
-            } else if(tokens.size() >= 8) {
+            if(tokens.size() >= 8) {
                 const std::optional<int> legacyTile = parseDecimalIntStrict(tokens[0]);
                 const std::optional<int> legacyImageIndex = parseDecimalIntStrict(tokens[1]);
                 const std::optional<int> legacyPalette0 = parseDecimalIntStrict(tokens[2]);
@@ -715,6 +688,38 @@ bool ModManager::loadMesenHiresFile()
                         static_cast<uint8_t>(std::clamp(*legacyPalette1, 0, 255)),
                         static_cast<uint8_t>(std::clamp(*legacyPalette2, 0, 255))
                     };
+                    parsed = true;
+                }
+            }
+
+            if(!parsed) {
+                int imageIndex = -1;
+                try {
+                    imageIndex = std::stoi(tokens[0]);
+                } catch(...) {
+                    imageIndex = -1;
+                }
+
+                if(imageIndex >= 0 && imageIndex < static_cast<int>(images.size())) {
+                    override.assetPath = images[static_cast<size_t>(imageIndex)];
+                    override.sourceX = std::max(0, static_cast<int>(std::strtol(tokens[3].c_str(), nullptr, 10)));
+                    override.sourceY = std::max(0, static_cast<int>(std::strtol(tokens[4].c_str(), nullptr, 10)));
+                    override.defaultTile = parseMesenBool(tokens[6]);
+                    override.paletteIndices = parseMesenPalette(tokens[2]);
+                    override.exactPaletteOrder = true;
+                    override.target = tokens[2].size() >= 2 && toLower(tokens[2].substr(0, 2)) == "ff"
+                        ? ChrOverride::Target::Sprite
+                        : ChrOverride::Target::Background;
+
+                    const std::string tileData = tokens[1];
+                    if(tileData.size() >= 32) {
+                        override.tile = -1;
+                        override.hasChrHash = true;
+                        override.chrHash = hashTileBytes(tileData);
+                    } else {
+                        override.tile = static_cast<int>(parseHexValue(tileData));
+                        override.absoluteTile = true;
+                    }
                     parsed = true;
                 }
             }
@@ -1903,10 +1908,15 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
                 pixelIndex < snapshot.spritePixels.size() ? &snapshot.spritePixels[pixelIndex] : nullptr;
 
             const PreparedOverride* backgroundOverride = nullptr;
-            const PreparedOverride* spriteOverride = nullptr;
             uint32_t backgroundFallbackColor = baseColor;
-            uint32_t spriteFallbackColor = baseColor;
-            bool spriteVisible = false;
+            const auto spriteFallbackColorFor = [&](const PPU::DebugModSpriteCandidate& candidate) {
+                const std::array<uint8_t, 3> spritePalette = { candidate.palette[0], candidate.palette[1], candidate.palette[2] };
+                const int spritePaletteIndex = std::clamp(static_cast<int>(candidate.colorLowBits), 1, 3) - 1;
+                if(spritePaletteIndex >= 0 && spritePaletteIndex < static_cast<int>(spritePalette.size())) {
+                    return snapshot.paletteColors[spritePalette[static_cast<size_t>(spritePaletteIndex)] & 0x3F];
+                }
+                return baseColor;
+            };
 
             if(bgPixel != nullptr && bgPixel->valid) {
                 const int bgFullTileIndex = bgPixel->tileIndex != 0xFFFF ? static_cast<int>(bgPixel->tileIndex) : -1;
@@ -1919,22 +1929,15 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
                 }
                 backgroundFallbackColor = snapshot.paletteColors[bgPixel->paletteIndex & 0x3F];
             }
-
-            if(spritePixel != nullptr && spritePixel->valid && spritePixel->colorLowBits != 0) {
-                const int spriteFullTileIndex = spritePixel->tileIndex != 0xFFFF ? static_cast<int>(spritePixel->tileIndex) : -1;
-                const std::array<uint8_t, 3> spritePalette = { spritePixel->palette[0], spritePixel->palette[1], spritePixel->palette[2] };
-                if(spriteFullTileIndex >= 0) {
-                    spriteOverride =
-                        onlyWholeChrOverrides
-                            ? fastSpriteOverride
-                            : findOverride(ChrOverride::Target::Sprite, spriteFullTileIndex & 0xFF, spriteFullTileIndex, spriteFullTileIndex / 256, spritePalette, spritePixel->horizontalMirror, spritePixel->verticalMirror, spritePixel->behindBackground);
+            const bool backgroundOpaque = bgPixel != nullptr && bgPixel->valid && bgPixel->colorLowBits != 0;
+            int lowestBgSpriteCandidate = std::numeric_limits<int>::max();
+            if(spritePixel != nullptr) {
+                for(int i = 0; i < static_cast<int>(spritePixel->count); ++i) {
+                    const PPU::DebugModSpriteCandidate& candidate = spritePixel->candidates[static_cast<size_t>(i)];
+                    if(candidate.valid && candidate.colorLowBits != 0 && candidate.behindBackground) {
+                        lowestBgSpriteCandidate = std::min(lowestBgSpriteCandidate, i);
+                    }
                 }
-                const int spritePaletteIndex = std::clamp(static_cast<int>(spritePixel->colorLowBits), 1, 3) - 1;
-                if(spritePaletteIndex >= 0 && spritePaletteIndex < static_cast<int>(spritePalette.size())) {
-                    spriteFallbackColor = snapshot.paletteColors[spritePalette[static_cast<size_t>(spritePaletteIndex)] & 0x3F];
-                }
-                const bool backgroundOpaque = bgPixel != nullptr && bgPixel->valid && bgPixel->colorLowBits != 0;
-                spriteVisible = !spritePixel->behindBackground || !backgroundOpaque;
             }
 
             const int blockX0 = nesX * scale;
@@ -1970,26 +1973,66 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
                         }
                     }
 
-                    if(spriteVisible) {
-                        if(spriteOverride != nullptr) {
-                            const std::array<uint8_t, 3> spritePalette = { spritePixel->palette[0], spritePixel->palette[1], spritePixel->palette[2] };
-                            color = sampleOverridePixel(
-                                color,
-                                spriteFallbackColor,
-                                spriteOverride,
-                                spritePixel->tileIndex,
-                                spritePixel->offsetX,
-                                spritePixel->offsetY,
-                                subX,
-                                subY,
-                                spritePixel->colorLowBits,
-                                spritePalette,
-                                spritePixel->horizontalMirror,
-                                spritePixel->verticalMirror,
-                                true
-                            );
-                        } else {
-                            color = spriteFallbackColor;
+                    if(spritePixel != nullptr && spritePixel->count > 0) {
+                        auto applySpriteCandidate = [&](const PPU::DebugModSpriteCandidate& candidate) {
+                            const uint32_t spriteFallbackColor = spriteFallbackColorFor(candidate);
+                            const int spriteFullTileIndex = candidate.tileIndex != 0xFFFF ? static_cast<int>(candidate.tileIndex) : -1;
+                            const std::array<uint8_t, 3> spritePalette = { candidate.palette[0], candidate.palette[1], candidate.palette[2] };
+                            const PreparedOverride* spriteOverride =
+                                spriteFullTileIndex >= 0
+                                    ? (onlyWholeChrOverrides
+                                        ? fastSpriteOverride
+                                        : findOverride(
+                                            ChrOverride::Target::Sprite,
+                                            spriteFullTileIndex & 0xFF,
+                                            spriteFullTileIndex,
+                                            spriteFullTileIndex / 256,
+                                            spritePalette,
+                                            candidate.horizontalMirror,
+                                            candidate.verticalMirror,
+                                            candidate.behindBackground))
+                                    : nullptr;
+                            if(spriteOverride != nullptr) {
+                                color = sampleOverridePixel(
+                                    color,
+                                    spriteFallbackColor,
+                                    spriteOverride,
+                                    candidate.tileIndex,
+                                    candidate.offsetX,
+                                    candidate.offsetY,
+                                    subX,
+                                    subY,
+                                    candidate.colorLowBits,
+                                    spritePalette,
+                                    candidate.horizontalMirror,
+                                    candidate.verticalMirror,
+                                    true
+                                );
+                            } else {
+                                color = spriteFallbackColor;
+                            }
+                        };
+
+                        for(int i = static_cast<int>(spritePixel->count) - 1; i >= 0; --i) {
+                            const PPU::DebugModSpriteCandidate& candidate = spritePixel->candidates[static_cast<size_t>(i)];
+                            if(!candidate.valid || candidate.colorLowBits == 0 || !candidate.behindBackground) {
+                                continue;
+                            }
+                            if(backgroundOpaque) {
+                                continue;
+                            }
+                            applySpriteCandidate(candidate);
+                        }
+
+                        for(int i = static_cast<int>(spritePixel->count) - 1; i >= 0; --i) {
+                            const PPU::DebugModSpriteCandidate& candidate = spritePixel->candidates[static_cast<size_t>(i)];
+                            if(!candidate.valid || candidate.colorLowBits == 0 || candidate.behindBackground) {
+                                continue;
+                            }
+                            if(lowestBgSpriteCandidate <= i) {
+                                continue;
+                            }
+                            applySpriteCandidate(candidate);
                         }
                     }
                     dstRow[outX] = color;

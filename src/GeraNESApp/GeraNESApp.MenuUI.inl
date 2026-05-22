@@ -910,6 +910,10 @@ inline void GeraNESApp::menuBar() {
                 m_showPpuViewerWindow = !m_showPpuViewerWindow;
             }
 
+            if(ImGui::MenuItem("Mod Pixel Inspector", nullptr, m_showModPixelInspectorWindow, hasLoadedRom)) {
+                m_showModPixelInspectorWindow = !m_showModPixelInspectorWindow;
+            }
+
             if(ImGui::MenuItem("Event Viewer", nullptr, m_showEventViewerWindow, hasLoadedRom)) {
                 m_showEventViewerWindow = !m_showEventViewerWindow;
             }
@@ -2098,6 +2102,159 @@ inline void GeraNESApp::drawPpuViewerWindow()
     }
     ImGui::EndChild();
 
+    ImGui::End();
+}
+
+inline void GeraNESApp::drawModPixelInspectorWindow()
+{
+    if(!ImGui::Begin("Mod Pixel Inspector", &m_showModPixelInspectorWindow)) {
+        ImGui::End();
+        return;
+    }
+
+    const bool hasRomLoaded = m_emu.valid();
+    const bool modActive = hasRomLoaded && m_modManager.active();
+    const int modScale = modActive ? std::clamp(m_modManager.resolutionMultiplier(), 1, 8) : 1;
+    const int activeTop = m_clipHeightValue;
+    const int activeBottom = PPU::SCREEN_HEIGHT - m_clipHeightValue;
+    const int activeHeight = std::max(1, activeBottom - activeTop);
+    m_modPixelInspectorZoom = std::clamp(m_modPixelInspectorZoom, 1.0f, 8.0f);
+
+    ImGui::SetNextItemWidth(160.0f);
+    ImGui::SliderFloat("Zoom", &m_modPixelInspectorZoom, 1.0f, 8.0f, "%.1fx");
+    ImGui::SameLine();
+    ImGui::TextDisabled("Shows the current rendered screen with per-pixel mod debug data.");
+
+    if(!hasRomLoaded) {
+        ImGui::TextDisabled("No ROM loaded.");
+        ImGui::End();
+        return;
+    }
+
+    IEmulationHost::ModRenderSnapshot snapshot;
+    const bool hasSnapshot = m_emu.getModRenderSnapshot(snapshot) && snapshot.valid;
+
+    ImGui::Text(
+        "Frame %u | Mod %s | Scale %dx | Clip top/bottom %d",
+        hasSnapshot ? snapshot.frameCount : 0u,
+        modActive ? "active" : "inactive",
+        modScale,
+        m_clipHeightValue
+    );
+
+    if(!ImGui::BeginChild("ModPixelInspectorScroll", ImVec2(0.0f, 0.0f), false, ImGuiWindowFlags_HorizontalScrollbar)) {
+        ImGui::EndChild();
+        ImGui::End();
+        return;
+    }
+
+    const ImVec2 imageSize(256.0f * m_modPixelInspectorZoom, static_cast<float>(activeHeight) * m_modPixelInspectorZoom);
+    const float textureHeight = static_cast<float>(std::max(1, m_renderTextureHeight));
+    const float uvTop = static_cast<float>(activeTop * modScale) / textureHeight;
+    const float uvBottom = static_cast<float>(activeBottom * modScale) / textureHeight;
+    ImGui::Image(
+        static_cast<ImTextureID>(static_cast<uintptr_t>(m_texture)),
+        imageSize,
+        ImVec2(0.0f, uvTop),
+        ImVec2(1.0f, uvBottom)
+    );
+
+    const ImVec2 imageMin = ImGui::GetItemRectMin();
+    ImDrawList* drawList = ImGui::GetWindowDrawList();
+    if(ImGui::IsItemHovered()) {
+        const ImVec2 mousePos = ImGui::GetIO().MousePos;
+        const int hoveredX = std::clamp(static_cast<int>((mousePos.x - imageMin.x) / m_modPixelInspectorZoom), 0, PPU::SCREEN_WIDTH - 1);
+        const int hoveredLocalY = std::clamp(static_cast<int>((mousePos.y - imageMin.y) / m_modPixelInspectorZoom), 0, activeHeight - 1);
+        const int hoveredY = activeTop + hoveredLocalY;
+        const size_t pixelIndex = static_cast<size_t>(hoveredY) * PPU::SCREEN_WIDTH + static_cast<size_t>(hoveredX);
+        const ImVec2 pixelMin(
+            imageMin.x + static_cast<float>(hoveredX) * m_modPixelInspectorZoom,
+            imageMin.y + static_cast<float>(hoveredLocalY) * m_modPixelInspectorZoom
+        );
+        const ImVec2 pixelMax(pixelMin.x + m_modPixelInspectorZoom, pixelMin.y + m_modPixelInspectorZoom);
+        drawList->AddRect(pixelMin, pixelMax, ImGuiTheme::toU32(ImGuiTheme::eventWrite()), 0.0f, 0, 2.0f);
+
+        uint32_t finalColor = 0;
+        const size_t sampleX = static_cast<size_t>(hoveredX * modScale);
+        const size_t sampleY = static_cast<size_t>(hoveredY * modScale);
+        if(sampleY < static_cast<size_t>(m_renderTextureHeight) &&
+           sampleX < static_cast<size_t>(m_renderTextureWidth) &&
+           m_textureUploadBuffer.size() == static_cast<size_t>(m_renderTextureWidth * m_renderTextureHeight)) {
+            finalColor = m_textureUploadBuffer[sampleY * static_cast<size_t>(m_renderTextureWidth) + sampleX];
+        }
+
+        ImGui::BeginTooltip();
+        ImGui::Text("Screen pixel");
+        ImGui::Text("NES: (%d, %d)", hoveredX, hoveredY);
+        ImGui::Text("Rendered RGBA: #%02X%02X%02X%02X",
+            static_cast<unsigned int>(finalColor & 0xFFu),
+            static_cast<unsigned int>((finalColor >> 8) & 0xFFu),
+            static_cast<unsigned int>((finalColor >> 16) & 0xFFu),
+            static_cast<unsigned int>((finalColor >> 24) & 0xFFu));
+
+        if(hasSnapshot &&
+           pixelIndex < snapshot.backgroundPixels.size() &&
+           pixelIndex < snapshot.spritePixels.size()) {
+            const auto& bg = snapshot.backgroundPixels[pixelIndex];
+            const auto& sprite = snapshot.spritePixels[pixelIndex];
+
+            ImGui::Separator();
+            ImGui::Text("Background");
+            if(bg.valid) {
+                const uint32_t bgHash =
+                    bg.tileIndex < snapshot.tileHashes.size()
+                        ? snapshot.tileHashes[bg.tileIndex]
+                        : 0u;
+                ImGui::Text("Tile index: $%03X", static_cast<unsigned int>(bg.tileIndex));
+                ImGui::Text("Pattern addr: $%04X", static_cast<unsigned int>(bg.tileIndex * 16u));
+                ImGui::Text("Tile hash: %08X", static_cast<unsigned int>(bgHash));
+                ImGui::Text("Palette index: $%02X", static_cast<unsigned int>(bg.paletteIndex));
+                ImGui::Text("Palette colors: %02X %02X %02X", bg.palette[0], bg.palette[1], bg.palette[2]);
+                ImGui::Text("Color bits: %u", static_cast<unsigned int>(bg.colorLowBits));
+                ImGui::Text("Tile offset: (%u, %u)", static_cast<unsigned int>(bg.offsetX), static_cast<unsigned int>(bg.offsetY));
+            } else {
+                ImGui::TextDisabled("No background pixel captured.");
+            }
+
+            ImGui::Separator();
+            ImGui::Text("Sprites");
+            if(sprite.count > 0) {
+                for(int i = 0; i < static_cast<int>(sprite.count); ++i) {
+                    const auto& candidate = sprite.candidates[static_cast<size_t>(i)];
+                    if(!candidate.valid) {
+                        continue;
+                    }
+                    const uint32_t spriteHash =
+                        candidate.tileIndex < snapshot.tileHashes.size()
+                            ? snapshot.tileHashes[candidate.tileIndex]
+                            : 0u;
+                    ImGui::Text(
+                        "#%d tile $%03X hash %08X pal %02X %02X %02X bits %u off (%u,%u) %s%s%s",
+                        i,
+                        static_cast<unsigned int>(candidate.tileIndex),
+                        static_cast<unsigned int>(spriteHash),
+                        static_cast<unsigned int>(candidate.palette[0]),
+                        static_cast<unsigned int>(candidate.palette[1]),
+                        static_cast<unsigned int>(candidate.palette[2]),
+                        static_cast<unsigned int>(candidate.colorLowBits),
+                        static_cast<unsigned int>(candidate.offsetX),
+                        static_cast<unsigned int>(candidate.offsetY),
+                        candidate.behindBackground ? "behind-bg " : "",
+                        candidate.horizontalMirror ? "hflip " : "",
+                        candidate.verticalMirror ? "vflip" : ""
+                    );
+                }
+            } else {
+                ImGui::TextDisabled("No sprite candidates captured.");
+            }
+        } else {
+            ImGui::Separator();
+            ImGui::TextDisabled("Mod debug snapshot unavailable for this frame.");
+        }
+        ImGui::EndTooltip();
+    }
+
+    ImGui::EndChild();
     ImGui::End();
 }
 

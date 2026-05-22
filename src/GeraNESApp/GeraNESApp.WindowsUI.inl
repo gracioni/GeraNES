@@ -89,6 +89,10 @@ inline void GeraNESApp::showGui()
         }
     }
 
+    if(m_showModPixelInspectorWindow) {
+        drawModPixelInspectorWindow();
+    }
+
     if(m_showEventViewerWindow) {
         drawEventViewerWindow();
     } else {
