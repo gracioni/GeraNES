@@ -409,6 +409,11 @@ void sha1ProcessBlock(Sha1State& state, const uint8_t* block)
 
 void ModManager::clear()
 {
+    if(!m_hdAudioRuntime) {
+        m_hdAudioRuntime = std::make_shared<HdPackAudioRuntime>(
+            [this](const std::string& assetPath) { return readSourceEntry(assetPath); });
+    }
+
     m_originalRomPath.clear();
     m_effectiveRomPath.clear();
     m_modPath.clear();
@@ -423,6 +428,8 @@ void ModManager::clear()
     m_supportedRomHashes.clear();
     m_patchAssetPath.clear();
     m_patchExpectedRomHash.clear();
+    m_hdAudioConfig = {};
+    m_hdAudioRuntime->clearConfig();
     m_frameConditionState = {};
     m_imageCache.clear();
 }
@@ -473,6 +480,33 @@ bool ModManager::selectModSource(const std::filesystem::path& modSourcePath, std
 void ModManager::clearModSource()
 {
     clear();
+}
+
+void ModManager::onEmulatorReset()
+{
+    if(m_hdAudioRuntime) {
+        m_hdAudioRuntime->resetRuntime();
+    }
+}
+
+std::shared_ptr<IAudioOutput::ExternalAudioMixer> ModManager::externalAudioMixer() const
+{
+    if(!m_hdAudioRuntime) {
+        auto* self = const_cast<ModManager*>(this);
+        self->m_hdAudioRuntime = std::make_shared<HdPackAudioRuntime>(
+            [self](const std::string& assetPath) { return self->readSourceEntry(assetPath); });
+    }
+    return m_hdAudioRuntime;
+}
+
+bool ModManager::handleHdAudioCpuWrite(uint16_t addr, uint8_t value)
+{
+    return m_hdAudioRuntime ? m_hdAudioRuntime->handleCpuWrite(addr, value) : false;
+}
+
+std::optional<uint8_t> ModManager::handleHdAudioCpuRead(uint16_t addr) const
+{
+    return m_hdAudioRuntime ? m_hdAudioRuntime->handleCpuRead(addr) : std::nullopt;
 }
 
 ModManager::LoadRequest ModManager::prepareRomLoad(const std::filesystem::path& romPath)
@@ -640,6 +674,7 @@ bool ModManager::loadMesenHiresFile()
     m_supportedRomHashes.clear();
     m_patchAssetPath.clear();
     m_patchExpectedRomHash.clear();
+    m_hdAudioConfig = {};
 
     auto makeConditions = [&](const std::string& conditionText) {
         std::vector<MemoryCondition> conditions;
@@ -693,11 +728,16 @@ bool ModManager::loadMesenHiresFile()
             continue;
         }
         if(line.rfind("<options>", 0) == 0) {
-            const std::string option = toLower(trimMesenToken(line.substr(9)));
-            if(option == "disableoriginaltiles") {
-                m_disableOriginalTiles = true;
-            } else if(option == "disablecontours") {
-                m_disableContours = true;
+            const std::vector<std::string> options = splitComma(line.substr(9));
+            for(const std::string& rawOption : options) {
+                const std::string option = toLower(trimMesenToken(rawOption));
+                if(option == "disableoriginaltiles") {
+                    m_disableOriginalTiles = true;
+                } else if(option == "disablecontours") {
+                    m_disableContours = true;
+                } else if(option == "alternateregisterrange") {
+                    m_hdAudioConfig.alternateRegisterRange = true;
+                }
             }
             continue;
         }
@@ -735,6 +775,36 @@ bool ModManager::loadMesenHiresFile()
                 Logger::instance().log("Mesen image not found: " + imagePath, Logger::Type::WARNING);
             }
             images.push_back(imagePath);
+            continue;
+        }
+        if(line.rfind("<bgm>", 0) == 0) {
+            const std::vector<std::string> tokens = splitComma(line.substr(5));
+            if(tokens.size() >= 3) {
+                const int album = static_cast<int>(parseDecOrHexValue(tokens[0], 0) & 0xFFu);
+                const int track = static_cast<int>(parseDecOrHexValue(tokens[1], 0) & 0xFFu);
+                HdPackAudioBgmTrack bgmTrack;
+                bgmTrack.assetPath = normalizeZipPath(tokens[2]);
+                if(!sourceHasEntry(bgmTrack.assetPath)) {
+                    Logger::instance().log("Mesen BGM not found: " + bgmTrack.assetPath, Logger::Type::WARNING);
+                }
+                if(tokens.size() >= 4) {
+                    bgmTrack.loopPosition = parseDecOrHexValue(tokens[3], 0);
+                }
+                m_hdAudioConfig.bgmFilesById[album * 256 + track] = std::move(bgmTrack);
+            }
+            continue;
+        }
+        if(line.rfind("<sfx>", 0) == 0) {
+            const std::vector<std::string> tokens = splitComma(line.substr(5));
+            if(tokens.size() >= 3) {
+                const int album = static_cast<int>(parseDecOrHexValue(tokens[0], 0) & 0xFFu);
+                const int track = static_cast<int>(parseDecOrHexValue(tokens[1], 0) & 0xFFu);
+                const std::string assetPath = normalizeZipPath(tokens[2]);
+                if(!sourceHasEntry(assetPath)) {
+                    Logger::instance().log("Mesen SFX not found: " + assetPath, Logger::Type::WARNING);
+                }
+                m_hdAudioConfig.sfxFilesById[album * 256 + track] = assetPath;
+            }
             continue;
         }
         if(line.rfind("<condition>", 0) == 0) {
@@ -900,9 +970,13 @@ bool ModManager::loadMesenHiresFile()
         }
     }
 
-    if(m_chrOverrides.empty() && m_backgroundReplacements.empty()) {
+    const bool hasAudioEntries = !m_hdAudioConfig.bgmFilesById.empty() || !m_hdAudioConfig.sfxFilesById.empty();
+    if(m_chrOverrides.empty() && m_backgroundReplacements.empty() && !hasAudioEntries) {
         Logger::instance().log("Mesen hires.txt did not define any supported graphics replacements.", Logger::Type::ERROR);
         return false;
+    }
+    if(m_hdAudioRuntime) {
+        m_hdAudioRuntime->setConfig(m_hdAudioConfig);
     }
     return true;
 }

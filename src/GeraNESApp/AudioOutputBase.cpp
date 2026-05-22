@@ -34,6 +34,9 @@ void AudioOutputBase::initChannels(int sampleRate)
     m_hpFilter1.init(sampleRate, 90);
     m_hpFilter2.init(sampleRate, 440);
     m_lpFilter.init(sampleRate, 14000);
+    if(m_externalAudioMixer) {
+        m_externalAudioMixer->onOutputSampleRateChanged(m_outputSampleRate);
+    }
 }
 
 void AudioOutputBase::clearBuffers()
@@ -147,6 +150,19 @@ void AudioOutputBase::setRewinding(bool rewinding)
 void AudioOutputBase::processExpansionAudioSample(float currentSample, float mixWeight)
 {
     m_expansionChannel.add(currentSample, mixWeight);
+}
+
+void AudioOutputBase::setExternalAudioMixer(std::shared_ptr<ExternalAudioMixer> mixer)
+{
+    m_externalAudioMixer = std::move(mixer);
+    if(m_externalAudioMixer) {
+        m_externalAudioMixer->onOutputSampleRateChanged(m_outputSampleRate);
+    }
+}
+
+std::shared_ptr<IAudioOutput::ExternalAudioMixer> AudioOutputBase::getExternalAudioMixer() const
+{
+    return m_externalAudioMixer;
 }
 
 std::string AudioOutputBase::getAudioChannelsJson() const

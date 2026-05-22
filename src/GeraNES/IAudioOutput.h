@@ -1,12 +1,22 @@
 #pragma once
 
 #include <stdint.h>
+#include <memory>
 #include <string>
 #include <vector>
 
 class IAudioOutput
 {
     public:
+
+    class ExternalAudioMixer
+    {
+    public:
+        virtual ~ExternalAudioMixer() = default;
+        virtual void resetRuntime() = 0;
+        virtual void onOutputSampleRateChanged(int sampleRate) = 0;
+        virtual float mixAudioSample(int sampleRate) = 0;
+    };
 
     enum class Channel { Pulse_1, Pulse_2, Triangle, Noise, Sample, Expansion };
     enum class PulseChannel { Pulse_1, Pulse_2 };
@@ -44,6 +54,8 @@ class IAudioOutput
     virtual void restart() {}
     virtual void setVolume(float /*volume*/) {}
     virtual float getVolume() const { return 1.0f; }
+    virtual void setExternalAudioMixer(std::shared_ptr<ExternalAudioMixer> /*mixer*/) {}
+    virtual std::shared_ptr<ExternalAudioMixer> getExternalAudioMixer() const { return {}; }
 
     virtual std::string getAudioChannelsJson() const { return "{\"channels\":[]}"; }
     virtual bool setAudioChannelVolumeById(const std::string& /*id*/, float /*volume*/) { return false; }

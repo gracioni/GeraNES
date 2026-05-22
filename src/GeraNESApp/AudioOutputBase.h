@@ -5,6 +5,7 @@
 #include "GeraNES/IAudioOutput.h"
 #include <array>
 #include <algorithm>
+#include <memory>
 #include <sstream>
 #include <vector>
 
@@ -34,6 +35,7 @@ private:
     float m_userNoiseVolume = 1.0f;
     float m_userSampleVolume = 1.0f;
     float m_userExpansionVolume = 1.0f;
+    std::shared_ptr<ExternalAudioMixer> m_externalAudioMixer;
     bool m_rewinding = false;
     static constexpr size_t VISUALIZER_BUFFER_SIZE = 2048;
     std::array<float, VISUALIZER_BUFFER_SIZE> m_visualizerSamples = {};
@@ -79,6 +81,10 @@ public:
         ret = m_hpFilter2.apply(ret);
         ret = m_lpFilter.apply(ret);
 
+        if(m_externalAudioMixer) {
+            ret += m_externalAudioMixer->mixAudioSample(m_outputSampleRate);
+        }
+
         if(ret > 0.999f) ret = 0.999f;
         else if(ret < -0.999f) ret = -0.999f;
 
@@ -95,6 +101,8 @@ public:
     void setExpansionAudioVolume(float volume) override;
     void setRewinding(bool rewinding) override;
     void processExpansionAudioSample(float currentSample, float mixWeight) override;
+    void setExternalAudioMixer(std::shared_ptr<ExternalAudioMixer> mixer) override;
+    std::shared_ptr<ExternalAudioMixer> getExternalAudioMixer() const override;
     std::string getAudioChannelsJson() const override;
     bool setAudioChannelVolumeById(const std::string& id, float volume) override;
 

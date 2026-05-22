@@ -1493,6 +1493,11 @@ void GeraNESApp::openFile(const char* path)
     openRomPath(fs::path(path), true);
 }
 
+void GeraNESApp::onEmuResetForModAudio(uint32_t)
+{
+    m_modManager.onEmulatorReset();
+}
+
 bool GeraNESApp::openRomPath(const fs::path& path, bool updateRecentFiles)
 {
     if(isNetplayRomChangeRestricted()) {
@@ -1833,6 +1838,15 @@ void GeraNESApp::updateCursor()
 GeraNESApp::GeraNESApp()
     : m_emu(m_audioOutput)
 {
+    m_modManager.clear();
+    m_audioOutput.setExternalAudioMixer(m_modManager.externalAudioMixer());
+    m_emu.withExclusiveAccess([this](GeraNESEmu& emu) {
+        emu.setExternalCpuIoHandlers(
+            [this](uint16_t addr, uint8_t value) { return m_modManager.handleHdAudioCpuWrite(addr, value); },
+            [this](uint16_t addr) { return m_modManager.handleHdAudioCpuRead(addr); });
+        emu.signalResetExecuted.bind_auto(&GeraNESApp::onEmuResetForModAudio, this);
+    });
+
     GeraNESNetplay::attachRuntimeWakeToHost(m_netplayRuntime, m_emu);
     GeraNESNetplay::installProcessGlobalFrontendNetplayLogCallbackOnce();
     m_emu.setPreAdvanceHook([this](GeraNESEmu& emu) {

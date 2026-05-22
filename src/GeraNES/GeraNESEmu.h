@@ -205,6 +205,8 @@ private:
     bool m_ppuEventTraceEnabled = false;
     std::vector<PpuRegisterAccessEvent> m_ppuRegisterAccessEvents;
     static constexpr size_t MAX_PPU_REGISTER_ACCESS_EVENTS = 4096;
+    std::function<bool(uint16_t, uint8_t)> m_externalCpuWriteHandler;
+    std::function<std::optional<uint8_t>(uint16_t)> m_externalCpuReadHandler;
 
     //do not serialize bellow atributtes
     bool m_ppuViewerScanlineTraceEnabled = false;
@@ -670,6 +672,19 @@ private:
     auto accessBus(int addr, uint8_t data = 0) -> std::conditional_t<accessType == AccessType::Write, void, uint8_t>
     {
         if constexpr(accessType == AccessType::Read) data = m_openBus;
+
+        if constexpr(accessType == AccessType::Write) {
+            if(m_externalCpuWriteHandler && m_externalCpuWriteHandler(static_cast<uint16_t>(addr), data)) {
+                return;
+            }
+        } else {
+            if(m_externalCpuReadHandler) {
+                if(const std::optional<uint8_t> customValue = m_externalCpuReadHandler(static_cast<uint16_t>(addr)); customValue.has_value()) {
+                    m_openBus = *customValue;
+                    return *customValue;
+                }
+            }
+        }
 
         bool updateOpenBusOnRead = true;
         switch(addr>>12)
@@ -2560,6 +2575,20 @@ public:
         m_debugBreakpointHit.emulationTick = 0;
         m_debugBreakpointHit.ppuScanline = 0;
         m_debugBreakpointHit.ppuCycle = 0;
+    }
+
+    void setExternalCpuIoHandlers(
+        std::function<bool(uint16_t, uint8_t)> writeHandler,
+        std::function<std::optional<uint8_t>(uint16_t)> readHandler)
+    {
+        m_externalCpuWriteHandler = std::move(writeHandler);
+        m_externalCpuReadHandler = std::move(readHandler);
+    }
+
+    void clearExternalCpuIoHandlers()
+    {
+        m_externalCpuWriteHandler = {};
+        m_externalCpuReadHandler = {};
     }
 
     void togglePaused()

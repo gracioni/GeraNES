@@ -10,6 +10,7 @@
 #include <vector>
 
 #include "GeraNES/GeraNESEmu.h"
+#include "GeraNESApp/HdPackAudio.h"
 
 class ModManager {
 public:
@@ -191,6 +192,7 @@ public:
     LoadRequest prepareRomLoad(const std::filesystem::path& romPath);
     bool loadDefinitionForCurrentMod();
     void onFrame(GeraNESEmu& emu);
+    void onEmulatorReset();
     void composeChrFrame(std::vector<uint32_t>& framebuffer, int width, int height, int activeTop, int activeBottom, int scale, const uint32_t* sourceFramebuffer, const ChrRenderSnapshot& snapshot, const std::vector<const ChrOverride*>* activeOverrideFilter = nullptr);
 
     bool active() const { return m_active; }
@@ -205,6 +207,9 @@ public:
     std::vector<std::string> debugListImageAssets() const;
     std::optional<DebugDecodedImage> debugCopyDecodedImage(const std::string& assetPath);
     std::optional<DebugComposePixel> debugComposePixel(const uint32_t* sourceFramebuffer, const ChrRenderSnapshot& snapshot, int scale, int nesX, int nesY, const std::string& filterText = "");
+    std::shared_ptr<IAudioOutput::ExternalAudioMixer> externalAudioMixer() const;
+    bool handleHdAudioCpuWrite(uint16_t addr, uint8_t value);
+    std::optional<uint8_t> handleHdAudioCpuRead(uint16_t addr) const;
 
 private:
     std::filesystem::path m_originalRomPath;
@@ -221,6 +226,8 @@ private:
     std::vector<std::string> m_supportedRomHashes;
     std::string m_patchAssetPath;
     std::string m_patchExpectedRomHash;
+    HdPackAudioConfig m_hdAudioConfig;
+    std::shared_ptr<HdPackAudioRuntime> m_hdAudioRuntime;
     FrameConditionState m_frameConditionState;
     mutable std::mutex m_frameConditionStateMutex;
     struct DecodedImage {

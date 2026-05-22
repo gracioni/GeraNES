@@ -487,6 +487,7 @@ private:
 
     void updateMVP();
     void onLog(const std::string& msg, Logger::Type type);
+    void onEmuResetForModAudio(uint32_t frame);
 
     std::tuple<int, int> getNesCursor(int screenX, int screenY);
     std::tuple<int, int> getClampedNesCursor(int screenX, int screenY);
