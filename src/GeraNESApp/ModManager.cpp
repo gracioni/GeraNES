@@ -938,11 +938,13 @@ bool ModManager::loadMesenHiresFile()
             replacement.id = tokens[0] + "#" + std::to_string(lineNumber);
             replacement.assetPath = normalizeZipPath(tokens[0]);
             replacement.opacity = tokens.size() >= 2 ? std::strtof(tokens[1].c_str(), nullptr) : 1.0f;
-            replacement.parallaxX = tokens.size() >= 3 ? std::strtof(tokens[2].c_str(), nullptr) : 1.0f;
-            replacement.parallaxY = tokens.size() >= 4 ? std::strtof(tokens[3].c_str(), nullptr) : 1.0f;
+            replacement.parallaxX = tokens.size() >= 3 ? std::strtof(tokens[2].c_str(), nullptr) : 0.0f;
+            replacement.parallaxY = tokens.size() >= 4 ? std::strtof(tokens[3].c_str(), nullptr) : 0.0f;
             replacement.priority = tokens.size() >= 5 ? std::atoi(tokens[4].c_str()) : 10;
             replacement.sourceX = tokens.size() >= 6 ? std::atoi(tokens[5].c_str()) : 0;
             replacement.sourceY = tokens.size() >= 7 ? std::atoi(tokens[6].c_str()) : 0;
+            replacement.repeatX = false;
+            replacement.repeatY = false;
             replacement.conditions = ruleConditions;
             m_backgroundReplacements.push_back(std::move(replacement));
             continue;
@@ -966,6 +968,19 @@ void ModManager::onFrame(GeraNESEmu& emu)
     FrameConditionState frameConditionState;
     frameConditionState.frameCount = emu.frameCount();
 
+    auto globalConditionsMatch = [&](const std::vector<MemoryCondition>& conditions) {
+        for(const MemoryCondition& condition : conditions) {
+            if(condition.kind != MemoryCondition::Kind::MemoryCheck &&
+               condition.kind != MemoryCondition::Kind::FrameRange) {
+                continue;
+            }
+            if(!conditionMatches(condition, emu)) {
+                return false;
+            }
+        }
+        return true;
+    };
+
     auto cacheConditionMemory = [&](const MemoryCondition& condition) {
         if(condition.kind != MemoryCondition::Kind::MemoryCheck) {
             return;
@@ -985,6 +1000,12 @@ void ModManager::onFrame(GeraNESEmu& emu)
         for(const MemoryCondition& condition : replacement.conditions) {
             cacheConditionMemory(condition);
         }
+    }
+    for(ChrOverride& override : m_chrOverrides) {
+        override.enabled = globalConditionsMatch(override.conditions);
+    }
+    for(BackgroundReplacement& replacement : m_backgroundReplacements) {
+        replacement.enabled = globalConditionsMatch(replacement.conditions);
     }
     {
         const std::lock_guard<std::mutex> lock(m_frameConditionStateMutex);
@@ -1885,7 +1906,12 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
     preparedOverrides.reserve(activeOverrides.size());
     std::array<std::vector<const PreparedOverride*>, 512> overridesByFullTile;
     std::array<std::vector<const PreparedOverride*>, 256> overridesByRelativeTile;
+    std::array<std::vector<const PreparedOverride*>, 512> dynamicOverridesByFullTile;
+    std::array<std::vector<const PreparedOverride*>, 256> dynamicOverridesByRelativeTile;
+    std::unordered_map<uint32_t, std::vector<const PreparedOverride*>> overridesByChrHash;
+    std::unordered_map<uint32_t, std::vector<const PreparedOverride*>> dynamicOverridesByChrHash;
     std::vector<const PreparedOverride*> wholeChrOverrides;
+    std::vector<const PreparedOverride*> dynamicWholeChrOverrides;
     for(const ChrOverride* override : activeOverrides) {
         PreparedOverride prepared;
         prepared.override = override;
@@ -1916,25 +1942,44 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
         preparedOverrides.push_back(prepared);
         const PreparedOverride* preparedPtr = &preparedOverrides.back();
         if(override->wholeChr()) {
-            wholeChrOverrides.push_back(preparedPtr);
+            if(override->hasChrHash) {
+                if(preparedPtr->hasDynamicConditions) {
+                    dynamicOverridesByChrHash[override->chrHash].push_back(preparedPtr);
+                } else {
+                    overridesByChrHash[override->chrHash].push_back(preparedPtr);
+                }
+            } else if(preparedPtr->hasDynamicConditions) {
+                dynamicWholeChrOverrides.push_back(preparedPtr);
+            } else {
+                wholeChrOverrides.push_back(preparedPtr);
+            }
         } else {
             if(override->absoluteTile) {
                 if(override->tile >= 0 && override->tile < static_cast<int>(overridesByFullTile.size())) {
-                    overridesByFullTile[static_cast<size_t>(override->tile)].push_back(preparedPtr);
+                    if(preparedPtr->hasDynamicConditions) {
+                        dynamicOverridesByFullTile[static_cast<size_t>(override->tile)].push_back(preparedPtr);
+                    } else {
+                        overridesByFullTile[static_cast<size_t>(override->tile)].push_back(preparedPtr);
+                    }
                 }
             } else if(override->tile >= 0) {
                 if(override->tile < static_cast<int>(overridesByRelativeTile.size())) {
-                    overridesByRelativeTile[static_cast<size_t>(override->tile)].push_back(preparedPtr);
+                    if(preparedPtr->hasDynamicConditions) {
+                        dynamicOverridesByRelativeTile[static_cast<size_t>(override->tile)].push_back(preparedPtr);
+                    } else {
+                        overridesByRelativeTile[static_cast<size_t>(override->tile)].push_back(preparedPtr);
+                    }
                 } else if(override->tile < static_cast<int>(overridesByFullTile.size())) {
-                    overridesByFullTile[static_cast<size_t>(override->tile)].push_back(preparedPtr);
+                    if(preparedPtr->hasDynamicConditions) {
+                        dynamicOverridesByFullTile[static_cast<size_t>(override->tile)].push_back(preparedPtr);
+                    } else {
+                        overridesByFullTile[static_cast<size_t>(override->tile)].push_back(preparedPtr);
+                    }
                 }
             }
         }
     }
-    const bool canUseOverrideLookupCache = std::none_of(
-        preparedOverrides.begin(),
-        preparedOverrides.end(),
-        [](const PreparedOverride& prepared) { return prepared.hasDynamicConditions; });
+    const bool canUseOverrideLookupCache = !preparedOverrides.empty();
     std::vector<PreparedBackground> preparedBackgrounds;
     preparedBackgrounds.reserve(m_backgroundReplacements.size());
     for(const BackgroundReplacement& replacement : m_backgroundReplacements) {
@@ -2219,7 +2264,15 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
 
     auto findOverride = [&](ChrOverride::Target target, int tileIndex, int fullTileIndex, int currentPatternTable, const std::array<uint8_t, 3>& palette, bool hMirror, bool vMirror, bool bgPriority, const ConditionContext& ctx) -> const PreparedOverride* {
         const uint64_t lookupKey = makeOverrideLookupKey(target, fullTileIndex, currentPatternTable, palette, hMirror, vMirror, bgPriority);
-        if(canUseOverrideLookupCache) {
+        const uint32_t lookupHash = tileHash(fullTileIndex);
+        const bool hasDynamicCandidates =
+            !dynamicWholeChrOverrides.empty() ||
+            (lookupHash != 0u && dynamicOverridesByChrHash.find(lookupHash) != dynamicOverridesByChrHash.end()) ||
+            (fullTileIndex >= 0 && fullTileIndex < static_cast<int>(dynamicOverridesByFullTile.size()) &&
+             !dynamicOverridesByFullTile[static_cast<size_t>(fullTileIndex)].empty()) ||
+            (tileIndex >= 0 && tileIndex < static_cast<int>(dynamicOverridesByRelativeTile.size()) &&
+             !dynamicOverridesByRelativeTile[static_cast<size_t>(tileIndex)].empty());
+        if(canUseOverrideLookupCache && !hasDynamicCandidates) {
             if(const auto it = overrideLookupCache.find(lookupKey); it != overrideLookupCache.end()) {
                 return it->second;
             }
@@ -2252,6 +2305,48 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
             return nullptr;
         };
 
+        auto scanHash = [&](bool allowDefaultTileFallback) -> const PreparedOverride* {
+            if(lookupHash == 0u) {
+                return nullptr;
+            }
+            if(const auto it = overridesByChrHash.find(lookupHash); it != overridesByChrHash.end()) {
+                if(const PreparedOverride* found = scanCandidates(it->second, allowDefaultTileFallback)) {
+                    return found;
+                }
+            }
+            return nullptr;
+        };
+
+        auto scanDynamicFullTile = [&](int lookupTile, bool allowDefaultTileFallback) -> const PreparedOverride* {
+            if(lookupTile >= 0 && lookupTile < static_cast<int>(dynamicOverridesByFullTile.size())) {
+                if(const PreparedOverride* found = scanCandidates(dynamicOverridesByFullTile[static_cast<size_t>(lookupTile)], allowDefaultTileFallback)) {
+                    return found;
+                }
+            }
+            return nullptr;
+        };
+
+        auto scanDynamicRelativeTile = [&](int lookupTile, bool allowDefaultTileFallback) -> const PreparedOverride* {
+            if(lookupTile >= 0 && lookupTile < static_cast<int>(dynamicOverridesByRelativeTile.size())) {
+                if(const PreparedOverride* found = scanCandidates(dynamicOverridesByRelativeTile[static_cast<size_t>(lookupTile)], allowDefaultTileFallback)) {
+                    return found;
+                }
+            }
+            return nullptr;
+        };
+
+        auto scanDynamicHash = [&](bool allowDefaultTileFallback) -> const PreparedOverride* {
+            if(lookupHash == 0u) {
+                return nullptr;
+            }
+            if(const auto it = dynamicOverridesByChrHash.find(lookupHash); it != dynamicOverridesByChrHash.end()) {
+                if(const PreparedOverride* found = scanCandidates(it->second, allowDefaultTileFallback)) {
+                    return found;
+                }
+            }
+            return nullptr;
+        };
+
         auto scanAllExact = [&]() -> const PreparedOverride* {
             if(const PreparedOverride* found = scanFullTile(fullTileIndex, false)) {
                 return found;
@@ -2261,29 +2356,82 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
                     return found;
                 }
             }
+            if(const PreparedOverride* found = scanHash(false)) {
+                return found;
+            }
             return scanCandidates(wholeChrOverrides, false);
         };
 
+        auto scanAllDynamicExact = [&]() -> const PreparedOverride* {
+            if(const PreparedOverride* found = scanDynamicFullTile(fullTileIndex, false)) {
+                return found;
+            }
+            if(fullTileIndex != tileIndex) {
+                if(const PreparedOverride* found = scanDynamicRelativeTile(tileIndex, false)) {
+                    return found;
+                }
+            }
+            if(const PreparedOverride* found = scanDynamicHash(false)) {
+                return found;
+            }
+            if(const PreparedOverride* found = scanCandidates(dynamicWholeChrOverrides, false)) {
+                return found;
+            }
+            return nullptr;
+        };
+
+        auto scanAllDynamicDefault = [&]() -> const PreparedOverride* {
+            if(const PreparedOverride* found = scanDynamicHash(true)) {
+                return found;
+            }
+            if(const PreparedOverride* found = scanDynamicFullTile(fullTileIndex, true)) {
+                return found;
+            }
+            if(fullTileIndex == tileIndex) {
+                if(const PreparedOverride* found = scanDynamicRelativeTile(tileIndex, true)) {
+                    return found;
+                }
+            }
+            return scanCandidates(dynamicWholeChrOverrides, true);
+        };
+
         if(const PreparedOverride* exact = scanAllExact()) {
-            if(canUseOverrideLookupCache) {
+            if(canUseOverrideLookupCache && !hasDynamicCandidates) {
                 overrideLookupCache.emplace(lookupKey, exact);
             }
             return exact;
         }
+        if(hasDynamicCandidates) {
+            if(const PreparedOverride* dynamicExact = scanAllDynamicExact()) {
+                return dynamicExact;
+            }
+        }
+
         if(const PreparedOverride* defaultMatch = scanFullTile(fullTileIndex, true)) {
-            if(canUseOverrideLookupCache) {
+            if(canUseOverrideLookupCache && !hasDynamicCandidates) {
                 overrideLookupCache.emplace(lookupKey, defaultMatch);
             }
             return defaultMatch;
         }
+        if(const PreparedOverride* hashDefaultMatch = scanHash(true)) {
+            if(canUseOverrideLookupCache && !hasDynamicCandidates) {
+                overrideLookupCache.emplace(lookupKey, hashDefaultMatch);
+            }
+            return hashDefaultMatch;
+        }
+        if(hasDynamicCandidates) {
+            if(const PreparedOverride* dynamicDefault = scanAllDynamicDefault()) {
+                return dynamicDefault;
+            }
+        }
         if(fullTileIndex != tileIndex) {
-            if(canUseOverrideLookupCache) {
+            if(canUseOverrideLookupCache && !hasDynamicCandidates) {
                 overrideLookupCache.emplace(lookupKey, nullptr);
             }
             return nullptr;
         }
         const PreparedOverride* relativeDefaultMatch = scanRelativeTile(tileIndex, true);
-        if(canUseOverrideLookupCache) {
+        if(canUseOverrideLookupCache && !hasDynamicCandidates) {
             overrideLookupCache.emplace(lookupKey, relativeDefaultMatch);
         }
         return relativeDefaultMatch;
@@ -2400,24 +2548,21 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
             return dstColor;
         }
 
-        const float imageScaleX = static_cast<float>(image.width) / static_cast<float>(std::max(1, PPU::SCREEN_WIDTH * m_resolutionMultiplier));
-        const float imageScaleY = static_cast<float>(image.height) / static_cast<float>(std::max(1, PPU::SCREEN_HEIGHT * m_resolutionMultiplier));
-        const float scaledX = static_cast<float>(nesX * scale + subX + replacement.sourceX) * imageScaleX;
-        const float scaledY = static_cast<float>(nesY * scale + subY + replacement.sourceY) * imageScaleY;
-        int srcX = static_cast<int>(std::floor(scaledX));
-        int srcY = static_cast<int>(std::floor(scaledY));
+        const int backgroundScale = std::max(1, m_resolutionMultiplier);
+        const int bgScrollX = replacement.scrollX;
+        const int bgScrollY = replacement.scrollY;
+        const int srcNesX = replacement.sourceX + nesX + bgScrollX;
+        const int srcNesY = replacement.sourceY + nesY + bgScrollY;
 
-        auto wrapCoord = [](int value, int size) {
-            if(size <= 0) return 0;
-            value %= size;
-            if(value < 0) value += size;
-            return value;
-        };
-        if(replacement.repeatX) srcX = wrapCoord(srcX, image.width);
-        if(replacement.repeatY) srcY = wrapCoord(srcY, image.height);
-        if(srcX < 0 || srcY < 0 || srcX >= image.width || srcY >= image.height) {
+        if(srcNesX < 0 || srcNesY < 0) {
             return dstColor;
         }
+        if((srcNesX + 1) * backgroundScale > image.width || (srcNesY + 1) * backgroundScale > image.height) {
+            return dstColor;
+        }
+
+        const int srcX = srcNesX * backgroundScale + std::clamp(subX, 0, backgroundScale - 1);
+        const int srcY = srcNesY * backgroundScale + std::clamp(subY, 0, backgroundScale - 1);
 
         const uint32_t src = image.rgba[static_cast<size_t>(srcY) * static_cast<size_t>(image.width) + static_cast<size_t>(srcX)];
         const int alphaScale = std::clamp(static_cast<int>(std::round(replacement.opacity * 255.0f)), 0, 255);
