@@ -790,7 +790,7 @@ void ModManager::bindApi(GeraNESEmu* emu)
         PPU& ppu = emu->getConsole().ppu();
         const int table = std::clamp(patternTable.value_or(tile >= 256 ? 1 : ppu.debugBackgroundPatternTableAddress() / 0x1000), 0, 1);
         const int tileInTable = std::clamp(tile & 0xFF, 0, 255);
-        return static_cast<int>(hashChrTile(ppu, table * 0x1000 + tileInTable * 16));
+        return static_cast<int>(hashChrTile(ppu, table * 256 + tileInTable));
     });
 }
 
@@ -1450,19 +1450,11 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
         return;
     }
 
-    auto fullTileIndexFromPatternAddress = [](int patternAddress) {
-        if(patternAddress >= 0 && patternAddress != 0xFFFF) {
-            return (patternAddress >> 4) & 0x01FF;
-        }
-        return -1;
-    };
-
-    auto tileHash = [&](int patternAddress) {
-        if(patternAddress < 0 || patternAddress == 0xFFFF) {
+    auto tileHash = [&](int tileIndex) {
+        if(tileIndex < 0 || tileIndex > 0x01FF) {
             return 0u;
         }
-        const size_t tileIndex = static_cast<size_t>((patternAddress >> 4) & 0x01FF);
-        return snapshot.tileHashes[tileIndex];
+        return snapshot.tileHashes[static_cast<size_t>(tileIndex)];
     };
 
     auto paletteMatches = [](const ChrOverride& override, const std::array<uint8_t, 3>& palette, bool allowDefaultTileFallback) {
@@ -1491,7 +1483,7 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
         return true;
     };
 
-    auto matchesOverride = [&](const ChrOverride& override, ChrOverride::Target target, bool allowDefaultTileFallback, int tileIndex, int fullTileIndex, int patternAddress, int currentPatternTable, const std::array<uint8_t, 3>& palette) {
+    auto matchesOverride = [&](const ChrOverride& override, ChrOverride::Target target, bool allowDefaultTileFallback, int tileIndex, int fullTileIndex, int currentPatternTable, const std::array<uint8_t, 3>& palette) {
         if(override.target != ChrOverride::Target::Both && override.target != target) {
             return false;
         }
@@ -1507,7 +1499,7 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
                 return false;
             }
         }
-        if(override.hasChrHash && tileHash(patternAddress) != override.chrHash) {
+        if(override.hasChrHash && tileHash(fullTileIndex) != override.chrHash) {
             return false;
         }
         if(!paletteMatches(override, palette, allowDefaultTileFallback)) {
@@ -1516,10 +1508,10 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
         return true;
     };
 
-    auto findOverride = [&](ChrOverride::Target target, int tileIndex, int fullTileIndex, int patternAddress, int currentPatternTable, const std::array<uint8_t, 3>& palette) -> const ChrOverride* {
+    auto findOverride = [&](ChrOverride::Target target, int tileIndex, int fullTileIndex, int currentPatternTable, const std::array<uint8_t, 3>& palette) -> const ChrOverride* {
         auto scanCandidates = [&](const std::vector<const ChrOverride*>& candidates, bool allowDefaultTileFallback) -> const ChrOverride* {
             for(const ChrOverride* candidate : candidates) {
-                if(matchesOverride(*candidate, target, allowDefaultTileFallback, tileIndex, fullTileIndex, patternAddress, currentPatternTable, palette)) {
+                if(matchesOverride(*candidate, target, allowDefaultTileFallback, tileIndex, fullTileIndex, currentPatternTable, palette)) {
                     return candidate;
                 }
             }
@@ -1563,7 +1555,7 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
         return scanExactTile(tileIndex, true);
     };
 
-    auto sampleOverridePixel = [&](uint32_t baseColor, uint32_t /*fallbackLayerColor*/, const ChrOverride* override, int patternAddress, int offsetX, int offsetY, int subX, int subY, uint8_t /*colorLowBits*/, const std::array<uint8_t, 3>& palette, bool horizontalMirror, bool verticalMirror, bool preserveSourceAlpha = false) {
+    auto sampleOverridePixel = [&](uint32_t baseColor, uint32_t /*fallbackLayerColor*/, const ChrOverride* override, int tileIndex, int offsetX, int offsetY, int subX, int subY, uint8_t /*colorLowBits*/, const std::array<uint8_t, 3>& palette, bool horizontalMirror, bool verticalMirror, bool preserveSourceAlpha = false) {
         if(override == nullptr) {
             return baseColor;
         }
@@ -1573,7 +1565,6 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
         }
         const PreparedOverride* prepared = preparedIt->second;
         const DecodedImage* image = prepared->image;
-        const int capturedTileIndex = fullTileIndexFromPatternAddress(patternAddress);
         const int localOffsetX = offsetX & 0x07;
         const int localOffsetY = offsetY & 0x07;
         const int sourceScale = prepared->sourceScale;
@@ -1593,10 +1584,10 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
             int sourceColumn = 0;
             int sourceRow = 0;
             if(override->wholeChr()) {
-                if(capturedTileIndex < 0) {
+                if(tileIndex < 0) {
                     return baseColor;
                 }
-                const int sourceTile = capturedTileIndex + override->sourceTileOffset;
+                const int sourceTile = tileIndex + override->sourceTileOffset;
                 if(prepared->wholeChrLayout == ChrOverride::SourceLayout::PatternTables) {
                     const int table = sourceTile / 256;
                     const int tileInTable = sourceTile & 0xFF;
@@ -1700,25 +1691,25 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
             bool spriteVisible = false;
 
             if(bgPixel != nullptr && bgPixel->valid) {
-                const int bgFullTileIndex = fullTileIndexFromPatternAddress(bgPixel->patternAddress);
+                const int bgFullTileIndex = bgPixel->tileIndex != 0xFFFF ? static_cast<int>(bgPixel->tileIndex) : -1;
                 const std::array<uint8_t, 3> bgPalette = { bgPixel->palette[0], bgPixel->palette[1], bgPixel->palette[2] };
                 if(bgFullTileIndex >= 0) {
                     backgroundOverride =
                         onlyWholeChrOverrides
                             ? fastBackgroundOverride
-                            : findOverride(ChrOverride::Target::Background, bgFullTileIndex & 0xFF, bgFullTileIndex, bgPixel->patternAddress, bgFullTileIndex / 256, bgPalette);
+                            : findOverride(ChrOverride::Target::Background, bgFullTileIndex & 0xFF, bgFullTileIndex, bgFullTileIndex / 256, bgPalette);
                 }
                 backgroundFallbackColor = snapshot.paletteColors[bgPixel->paletteIndex & 0x3F];
             }
 
             if(spritePixel != nullptr && spritePixel->valid && spritePixel->colorLowBits != 0) {
-                const int spriteFullTileIndex = fullTileIndexFromPatternAddress(spritePixel->patternAddress);
+                const int spriteFullTileIndex = spritePixel->tileIndex != 0xFFFF ? static_cast<int>(spritePixel->tileIndex) : -1;
                 const std::array<uint8_t, 3> spritePalette = { spritePixel->palette[0], spritePixel->palette[1], spritePixel->palette[2] };
                 if(spriteFullTileIndex >= 0) {
                     spriteOverride =
                         onlyWholeChrOverrides
                             ? fastSpriteOverride
-                            : findOverride(ChrOverride::Target::Sprite, spriteFullTileIndex & 0xFF, spriteFullTileIndex, spritePixel->patternAddress, spriteFullTileIndex / 256, spritePalette);
+                            : findOverride(ChrOverride::Target::Sprite, spriteFullTileIndex & 0xFF, spriteFullTileIndex, spriteFullTileIndex / 256, spritePalette);
                 }
                 const int spritePaletteIndex = std::clamp(static_cast<int>(spritePixel->colorLowBits), 1, 3) - 1;
                 if(spritePaletteIndex >= 0 && spritePaletteIndex < static_cast<int>(spritePalette.size())) {
@@ -1748,7 +1739,7 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
                                 color,
                                 backgroundFallbackColor,
                                 backgroundOverride,
-                                bgPixel->patternAddress,
+                                bgPixel->tileIndex,
                                 bgPixel->offsetX,
                                 bgPixel->offsetY,
                                 subX,
@@ -1768,7 +1759,7 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
                                 color,
                                 spriteFallbackColor,
                                 spriteOverride,
-                                spritePixel->patternAddress,
+                                spritePixel->tileIndex,
                                 spritePixel->offsetX,
                                 spritePixel->offsetY,
                                 subX,
@@ -1810,11 +1801,12 @@ uint32_t ModManager::blendPixel(uint32_t dst, uint32_t src, int alphaScale)
     return 0xFF000000u | outR | (outG << 8) | (outB << 16);
 }
 
-uint32_t ModManager::hashChrTile(PPU& ppu, int patternAddress)
+uint32_t ModManager::hashChrTile(PPU& ppu, int tileIndex)
 {
+    const int baseAddress = (tileIndex & 0x01FF) * 16;
     uint32_t hash = 2166136261u;
     for(int offset = 0; offset < 16; ++offset) {
-        hash ^= static_cast<uint32_t>(ppu.debugPeekPpuMemory(static_cast<uint16_t>(patternAddress + offset)));
+        hash ^= static_cast<uint32_t>(ppu.debugPeekPpuMemory(static_cast<uint16_t>(baseAddress + offset)));
         hash *= 16777619u;
     }
     return hash;

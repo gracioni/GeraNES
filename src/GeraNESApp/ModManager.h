@@ -203,6 +203,6 @@ private:
     static ChrOverride parseChrOverrideTable(const sol::table& table);
     static BackgroundReplacement parseBackgroundReplacementTable(const std::string& id, const sol::table& table);
     static uint32_t blendPixel(uint32_t dst, uint32_t src, int alphaScale);
-    static uint32_t hashChrTile(PPU& ppu, int patternAddress);
+    static uint32_t hashChrTile(PPU& ppu, int tileIndex);
     static uint8_t readBackgroundPaletteIndexAt(PPU& ppu, int screenX, int screenY);
 };

@@ -220,7 +220,7 @@ private:
 
 public:
     struct DebugModBackgroundPixel {
-        uint16_t patternAddress = 0xFFFF;
+        uint16_t tileIndex = 0xFFFF;
         uint8_t palette[3] = {};
         uint8_t paletteIndex = 0;
         uint8_t colorLowBits = 0;
@@ -230,7 +230,7 @@ public:
     };
 
     struct DebugModSpriteCandidate {
-        uint16_t patternAddress = 0xFFFF;
+        uint16_t tileIndex = 0xFFFF;
         uint8_t palette[3] = {};
         uint8_t colorLowBits = 0;
         uint8_t offsetX = 0;
@@ -242,7 +242,7 @@ public:
     };
 
     struct DebugModSpritePixel {
-        uint16_t patternAddress = 0xFFFF;
+        uint16_t tileIndex = 0xFFFF;
         uint8_t palette[3] = {};
         uint8_t colorLowBits = 0;
         uint8_t offsetX = 0;
@@ -257,7 +257,7 @@ public:
 
 private:
     struct DebugModBackgroundShiftPixel {
-        uint16_t patternAddress = 0xFFFF;
+        uint16_t tileIndex = 0xFFFF;
         uint8_t paletteOffset = 0;
         uint8_t offsetX = 0;
         uint8_t offsetY = 0;
@@ -1038,7 +1038,7 @@ public:
             const DebugModBackgroundShiftPixel& source = m_debugModBackgroundShift[m_reg_x & 0x0F];
             if(source.valid) {
                 const uint8_t colorLowBits = static_cast<uint8_t>(m_currentPixelColorIndex & 0x03);
-                pixel.patternAddress = source.patternAddress;
+                pixel.tileIndex = source.tileIndex;
                 pixel.palette[0] = static_cast<uint8_t>(m_palette[(source.paletteOffset + 1) & 0x1F] & 0x3F);
                 pixel.palette[1] = static_cast<uint8_t>(m_palette[(source.paletteOffset + 2) & 0x1F] & 0x3F);
                 pixel.palette[2] = static_cast<uint8_t>(m_palette[(source.paletteOffset + 3) & 0x1F] & 0x3F);
@@ -1630,7 +1630,7 @@ yyy NN YYYYY XXXXX
                 DebugModSpritePixel& captured = m_debugModSpritePixels[static_cast<size_t>(m_currentY) * SCREEN_WIDTH + static_cast<size_t>(m_currentX)];
                 if(sprite.valid && captured.count < captured.candidates.size()) {
                     DebugModSpriteCandidate& candidate = captured.candidates[captured.count++];
-                    candidate.patternAddress = sprite.patternAddress;
+                    candidate.tileIndex = sprite.tileIndex;
                     candidate.palette[0] = static_cast<uint8_t>(m_palette[0x11 + ((sprite.attr & 0x03) << 2)] & 0x3F);
                     candidate.palette[1] = static_cast<uint8_t>(m_palette[0x12 + ((sprite.attr & 0x03) << 2)] & 0x3F);
                     candidate.palette[2] = static_cast<uint8_t>(m_palette[0x13 + ((sprite.attr & 0x03) << 2)] & 0x3F);
@@ -1642,7 +1642,7 @@ yyy NN YYYYY XXXXX
                     candidate.verticalMirror = (sprite.attr & 0x80) != 0;
                     candidate.valid = true;
                     if(!captured.valid) {
-                        captured.patternAddress = candidate.patternAddress;
+                        captured.tileIndex = candidate.tileIndex;
                         captured.palette[0] = candidate.palette[0];
                         captured.palette[1] = candidate.palette[1];
                         captured.palette[2] = candidate.palette[2];
@@ -2749,7 +2749,7 @@ yyy NNYY YYYX XXXX
         const uint8_t offsetY = static_cast<uint8_t>(m_tileAddr & 0x07);
         for(uint8_t x = 0; x < 8; ++x) {
             DebugModBackgroundShiftPixel& pixel = m_debugModBackgroundShift[8 + x];
-            pixel.patternAddress = m_tileAddr;
+            pixel.tileIndex = static_cast<uint16_t>((m_tileAddr >> 4) & 0x01FF);
             pixel.paletteOffset = m_paletteOffset;
             pixel.offsetX = x;
             pixel.offsetY = offsetY;
