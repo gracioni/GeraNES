@@ -509,6 +509,13 @@ bool SingleThreadEmulationHost::getModRenderSnapshot(ModRenderSnapshot& out) con
     return out.valid;
 }
 
+bool SingleThreadEmulationHost::getModRenderFrame(ModRenderSnapshot& snapshot, std::vector<uint32_t>& framebuffer) const
+{
+    snapshot = m_modRenderSnapshot;
+    framebuffer = m_presentedFramebuffer;
+    return snapshot.valid;
+}
+
 void SingleThreadEmulationHost::beginPresentationHoldUntilNextFrameReady()
 {
     m_holdPresentedFramebufferUntilFrameReady = true;

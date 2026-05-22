@@ -44,6 +44,7 @@ public:
         uint32_t expectedTileHash = 0;
         std::vector<uint8_t> expectedPalette;
         uint32_t expectedPaletteKey = 0;
+        std::string debugName;
     };
 
     struct ChrOverride {
@@ -163,6 +164,29 @@ public:
         std::vector<uint32_t> rgba;
     };
 
+    struct DebugComposeStage {
+        bool valid = false;
+        std::string stage;
+        std::string assetPath;
+        int priority = -1;
+        int srcX = -1;
+        int srcY = -1;
+        uint32_t rawRgba = 0;
+        int indexedPaletteIndex = -1;
+        bool returnedBaseColor = false;
+        std::string reason;
+    };
+
+    struct DebugComposePixel {
+        bool valid = false;
+        uint32_t baseColor = 0;
+        uint32_t finalColor = 0;
+        std::vector<DebugComposeStage> backgroundCandidates;
+        std::vector<DebugComposeStage> backgroundStages;
+        std::optional<DebugComposeStage> backgroundOverride;
+        std::vector<DebugComposeStage> spriteStages;
+    };
+
     void clear();
     bool selectModSource(const std::filesystem::path& modSourcePath, std::string& error);
     void clearModSource();
@@ -182,6 +206,7 @@ public:
     std::optional<uint32_t> debugReadAssetPixelDirect(const std::string& assetPath, int x, int y);
     std::vector<std::string> debugListImageAssets() const;
     std::optional<DebugDecodedImage> debugCopyDecodedImage(const std::string& assetPath);
+    std::optional<DebugComposePixel> debugComposePixel(const uint32_t* sourceFramebuffer, const ChrRenderSnapshot& snapshot, int scale, int nesX, int nesY, const std::string& filterText = "");
 
 private:
     std::filesystem::path m_originalRomPath;

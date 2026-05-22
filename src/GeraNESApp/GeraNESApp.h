@@ -217,6 +217,9 @@ private:
     bool m_showPpuViewerWindow = false;
     bool m_showModPixelInspectorWindow = false;
     float m_modPixelInspectorZoom = 1.0f;
+    std::string m_modPixelInspectorLastDebugText;
+    std::string m_modPixelInspectorFilter;
+    bool m_modPixelInspectorVerboseCandidates = false;
     bool m_showEventViewerWindow = false;
     bool m_ppuEventViewerEnabled = false;
     bool m_showArkanoidNesConfigWindow = false;

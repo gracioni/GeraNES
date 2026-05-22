@@ -245,6 +245,7 @@ public:
     virtual const uint32_t* getFramebuffer() const = 0;
     virtual void copyFramebuffer(std::vector<uint32_t>& out) const = 0;
     virtual bool getModRenderSnapshot(ModRenderSnapshot& out) const = 0;
+    virtual bool getModRenderFrame(ModRenderSnapshot& snapshot, std::vector<uint32_t>& framebuffer) const = 0;
     virtual void beginPresentationHoldUntilNextFrameReady() = 0;
     virtual void setPresenterLockActive(bool active) = 0;
     virtual void setSimulationSuspended(bool suspended) = 0;

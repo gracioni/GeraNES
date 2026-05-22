@@ -167,11 +167,12 @@ inline void GeraNESApp::render()
     };
 
     if(canUseSnapshotChrRenderPath) {
-        const uint32_t* presentedFramebuffer = m_emu.getFramebuffer();
         IEmulationHost::ModRenderSnapshot hostSnapshot;
-        if(!m_emu.getModRenderSnapshot(hostSnapshot)) {
-            copyScaledFramebuffer(presentedFramebuffer);
+        std::vector<uint32_t> presentedFramebufferCopy;
+        if(!m_emu.getModRenderFrame(hostSnapshot, presentedFramebufferCopy) || presentedFramebufferCopy.empty()) {
+            copyScaledFramebuffer(m_emu.getFramebuffer());
         } else {
+            const uint32_t* presentedFramebuffer = presentedFramebufferCopy.data();
             ModManager::ChrRenderSnapshot chrSnapshot;
             chrSnapshot.scrollX = hostSnapshot.scrollX;
             chrSnapshot.scrollY = hostSnapshot.scrollY;

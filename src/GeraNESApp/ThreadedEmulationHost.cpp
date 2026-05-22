@@ -321,7 +321,6 @@ void ThreadedEmulationHost::refreshSnapshotLocked()
 
     refreshPpuViewerSnapshotLocked(frameCount);
     refreshPpuEventViewerSnapshotLocked(frameCount);
-    refreshModRenderSnapshotLocked(frameCount);
 
     constexpr auto kSlowSnapshotRefreshInterval = std::chrono::milliseconds(250);
     const auto now = std::chrono::steady_clock::now();
@@ -371,6 +370,8 @@ void ThreadedEmulationHost::refreshSnapshotLocked()
         }
         m_framebufferDirty = false;
     }
+
+    refreshModRenderSnapshotLocked(frameCount);
 
     {
         std::scoped_lock snapshotLock(m_snapshotMutex);
@@ -718,6 +719,15 @@ bool ThreadedEmulationHost::getModRenderSnapshot(ModRenderSnapshot& out) const
     std::scoped_lock modRenderLock(m_modRenderSnapshotMutex);
     out = m_modRenderSnapshot;
     return out.valid;
+}
+
+bool ThreadedEmulationHost::getModRenderFrame(ModRenderSnapshot& snapshot, std::vector<uint32_t>& framebuffer) const
+{
+    std::scoped_lock lock(m_framebufferMutex, m_modRenderSnapshotMutex);
+    snapshot = m_modRenderSnapshot;
+    const auto& front = m_framebuffers[m_frontFramebufferIndex.load(std::memory_order_acquire)];
+    framebuffer.assign(front.begin(), front.end());
+    return snapshot.valid;
 }
 
 void ThreadedEmulationHost::beginPresentationHoldUntilNextFrameReady()

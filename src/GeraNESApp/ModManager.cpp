@@ -720,6 +720,9 @@ bool ModManager::loadMesenHiresFile()
                 for(const MemoryCondition& source : it->second) {
                     MemoryCondition condition = source;
                     condition.inverted = condition.inverted ^ inverted;
+                    if(condition.debugName.empty()) {
+                        condition.debugName = lookupName;
+                    }
                     conditions.push_back(std::move(condition));
                 }
             }
@@ -811,6 +814,7 @@ bool ModManager::loadMesenHiresFile()
                 condition.address = parseHexValue(tokens[2]);
                 condition.op = tokens[3];
                 condition.value = parseHexValue(tokens[4]);
+                condition.debugName = tokens[0];
                 if(tokens.size() >= 6) {
                     condition.hasMask = true;
                     condition.mask = parseHexValue(tokens[5]);
@@ -821,6 +825,7 @@ bool ModManager::loadMesenHiresFile()
                 condition.kind = MemoryCondition::Kind::FrameRange;
                 condition.value = parseDecOrHexValue(tokens[2], 1);
                 condition.address = parseDecOrHexValue(tokens[3], 0);
+                condition.debugName = tokens[0];
                 namedConditions[tokens[0]].push_back(condition);
             } else if((normalizedType == "tileatposition" || normalizedType == "tilenearby" ||
                         normalizedType == "spriteatposition" || normalizedType == "spritenearby") && tokens.size() >= 6) {
@@ -832,6 +837,7 @@ bool ModManager::loadMesenHiresFile()
                     MemoryCondition::Kind::SpriteNearby;
                 condition.x = parseSignedDecimalIntStrict(tokens[2]).value_or(0);
                 condition.y = parseSignedDecimalIntStrict(tokens[3]).value_or(0);
+                condition.debugName = tokens[0];
                 condition.hasExpectedTile = true;
                 if(tokens[4].size() >= 32) {
                     condition.expectedTileByHash = true;
@@ -1633,6 +1639,1042 @@ std::optional<ModManager::DebugDecodedImage> ModManager::debugCopyDecodedImage(c
     return copy;
 }
 
+std::optional<ModManager::DebugComposePixel> ModManager::debugComposePixel(const uint32_t* sourceFramebuffer, const ChrRenderSnapshot& snapshot, int scale, int nesX, int nesY, const std::string& filterText)
+{
+    if(sourceFramebuffer == nullptr || scale <= 0 ||
+       nesX < 0 || nesX >= PPU::SCREEN_WIDTH ||
+       nesY < 0 || nesY >= PPU::SCREEN_HEIGHT) {
+        return std::nullopt;
+    }
+
+    FrameConditionState frameConditionState;
+    {
+        const std::lock_guard<std::mutex> lock(m_frameConditionStateMutex);
+        frameConditionState = m_frameConditionState;
+    }
+
+    struct PreparedOverride {
+        const ChrOverride* override = nullptr;
+        const DecodedImage* image = nullptr;
+        int sourceScale = 1;
+        ChrOverride::SourceLayout wholeChrLayout = ChrOverride::SourceLayout::PatternTables;
+        bool hasDynamicConditions = false;
+        size_t sequence = 0;
+    };
+
+    struct PreparedBackground {
+        const BackgroundReplacement* replacement = nullptr;
+        const DecodedImage* image = nullptr;
+    };
+
+    std::vector<const ChrOverride*> activeOverrides;
+    activeOverrides.reserve(m_chrOverrides.size());
+    for(const ChrOverride& override : m_chrOverrides) {
+        if(override.enabled && !override.assetPath.empty()) {
+            activeOverrides.push_back(&override);
+        }
+    }
+    if(!activeOverrides.empty()) {
+        std::stable_sort(activeOverrides.begin(), activeOverrides.end(), [](const ChrOverride* a, const ChrOverride* b) {
+            return a->priority > b->priority;
+        });
+    }
+
+    std::vector<PreparedOverride> preparedOverrides;
+    preparedOverrides.reserve(activeOverrides.size());
+    std::array<std::vector<const PreparedOverride*>, 512> overridesByFullTile;
+    std::array<std::vector<const PreparedOverride*>, 256> overridesByRelativeTile;
+    std::array<std::vector<const PreparedOverride*>, 512> dynamicOverridesByFullTile;
+    std::array<std::vector<const PreparedOverride*>, 256> dynamicOverridesByRelativeTile;
+    std::unordered_map<uint32_t, std::vector<const PreparedOverride*>> overridesByChrHash;
+    std::unordered_map<uint32_t, std::vector<const PreparedOverride*>> dynamicOverridesByChrHash;
+    std::vector<const PreparedOverride*> wholeChrOverrides;
+    std::vector<const PreparedOverride*> dynamicWholeChrOverrides;
+    for(const ChrOverride* override : activeOverrides) {
+        PreparedOverride prepared;
+        prepared.override = override;
+        prepared.sequence = preparedOverrides.size();
+        prepared.image = decodedImage(override->assetPath);
+        if(prepared.image == nullptr || prepared.image->rgba.empty()) {
+            continue;
+        }
+        prepared.sourceScale = std::max(1, m_resolutionMultiplier);
+        if(!override->wholeChr() && !override->hasSourcePosition() && override->sourceLayout != ChrOverride::SourceLayout::PatternTables) {
+            const int scaleX = prepared.image->width / std::max(1, override->columns * 8);
+            if(scaleX > 0) {
+                prepared.sourceScale = scaleX;
+            }
+        }
+        prepared.wholeChrLayout =
+            override->sourceLayout == ChrOverride::SourceLayout::Auto
+                ? ChrOverride::SourceLayout::PatternTables
+                : override->sourceLayout;
+        prepared.hasDynamicConditions = std::any_of(
+            override->conditions.begin(),
+            override->conditions.end(),
+            [](const MemoryCondition& condition) {
+                return condition.kind == MemoryCondition::Kind::TileAtPosition ||
+                       condition.kind == MemoryCondition::Kind::TileNearby ||
+                       condition.kind == MemoryCondition::Kind::SpriteAtPosition ||
+                       condition.kind == MemoryCondition::Kind::SpriteNearby;
+            });
+        preparedOverrides.push_back(prepared);
+        const PreparedOverride* preparedPtr = &preparedOverrides.back();
+        if(override->wholeChr()) {
+            if(override->hasChrHash) {
+                if(preparedPtr->hasDynamicConditions) {
+                    dynamicOverridesByChrHash[override->chrHash].push_back(preparedPtr);
+                } else {
+                    overridesByChrHash[override->chrHash].push_back(preparedPtr);
+                }
+            } else if(preparedPtr->hasDynamicConditions) {
+                dynamicWholeChrOverrides.push_back(preparedPtr);
+            } else {
+                wholeChrOverrides.push_back(preparedPtr);
+            }
+        } else {
+            if(override->absoluteTile) {
+                if(override->tile >= 0 && override->tile < static_cast<int>(overridesByFullTile.size())) {
+                    if(preparedPtr->hasDynamicConditions) {
+                        dynamicOverridesByFullTile[static_cast<size_t>(override->tile)].push_back(preparedPtr);
+                    } else {
+                        overridesByFullTile[static_cast<size_t>(override->tile)].push_back(preparedPtr);
+                    }
+                }
+            } else if(override->tile >= 0) {
+                if(override->tile < static_cast<int>(overridesByRelativeTile.size())) {
+                    if(preparedPtr->hasDynamicConditions) {
+                        dynamicOverridesByRelativeTile[static_cast<size_t>(override->tile)].push_back(preparedPtr);
+                    } else {
+                        overridesByRelativeTile[static_cast<size_t>(override->tile)].push_back(preparedPtr);
+                    }
+                } else if(override->tile < static_cast<int>(overridesByFullTile.size())) {
+                    if(preparedPtr->hasDynamicConditions) {
+                        dynamicOverridesByFullTile[static_cast<size_t>(override->tile)].push_back(preparedPtr);
+                    } else {
+                        overridesByFullTile[static_cast<size_t>(override->tile)].push_back(preparedPtr);
+                    }
+                }
+            }
+        }
+    }
+
+    std::vector<PreparedBackground> preparedBackgrounds;
+    preparedBackgrounds.reserve(m_backgroundReplacements.size());
+    for(const BackgroundReplacement& replacement : m_backgroundReplacements) {
+        if(!replacement.enabled || replacement.assetPath.empty()) {
+            continue;
+        }
+        const DecodedImage* image = decodedImage(replacement.assetPath);
+        if(image == nullptr || image->rgba.empty()) {
+            continue;
+        }
+        preparedBackgrounds.push_back({ &replacement, image });
+    }
+
+    auto tileHash = [&](int tileIndex) {
+        if(tileIndex < 0 || tileIndex > 0x01FF) {
+            return 0u;
+        }
+        return snapshot.tileHashes[static_cast<size_t>(tileIndex)];
+    };
+    const std::string normalizedFilter = toLower(filterText);
+    auto debugAssetMatchesFilter = [&](const std::string& assetPath) {
+        return normalizedFilter.empty() || toLower(assetPath).find(normalizedFilter) != std::string::npos;
+    };
+
+    auto backgroundPixelAt = [&](int x, int y) -> const PPU::DebugModBackgroundPixel* {
+        if(x < 0 || x >= PPU::SCREEN_WIDTH || y < 0 || y >= PPU::SCREEN_HEIGHT) {
+            return nullptr;
+        }
+        const size_t index = static_cast<size_t>(y) * PPU::SCREEN_WIDTH + static_cast<size_t>(x);
+        if(index >= snapshot.backgroundPixels.size()) {
+            return nullptr;
+        }
+        return &snapshot.backgroundPixels[index];
+    };
+
+    auto spritePixelAt = [&](int x, int y) -> const PPU::DebugModSpritePixel* {
+        if(x < 0 || x >= PPU::SCREEN_WIDTH || y < 0 || y >= PPU::SCREEN_HEIGHT) {
+            return nullptr;
+        }
+        const size_t index = static_cast<size_t>(y) * PPU::SCREEN_WIDTH + static_cast<size_t>(x);
+        if(index >= snapshot.spritePixels.size()) {
+            return nullptr;
+        }
+        return &snapshot.spritePixels[index];
+    };
+
+    struct ConditionContext {
+        int nesX = 0;
+        int nesY = 0;
+        const PPU::DebugModBackgroundPixel* backgroundPixel = nullptr;
+        const PPU::DebugModSpriteCandidate* spriteCandidate = nullptr;
+    };
+
+    auto paletteMatches = [](const ChrOverride& override, const std::array<uint8_t, 3>& palette, bool allowDefaultTileFallback) {
+        if(override.paletteIndices.empty()) {
+            return true;
+        }
+        if(override.defaultTile && allowDefaultTileFallback) {
+            return true;
+        }
+        if(override.exactPaletteOrder) {
+            if(palette.size() < override.paletteIndices.size()) {
+                return false;
+            }
+            for(size_t i = 0; i < override.paletteIndices.size(); ++i) {
+                if(palette[i] != override.paletteIndices[i]) {
+                    return false;
+                }
+            }
+            return true;
+        }
+        for(uint8_t expected : override.paletteIndices) {
+            if(std::find(palette.begin(), palette.end(), expected) == palette.end()) {
+                return false;
+            }
+        }
+        return true;
+    };
+
+    auto paletteVectorMatches = [](const std::vector<uint8_t>& expectedPalette, const uint8_t palette[3]) {
+        if(expectedPalette.empty()) {
+            return true;
+        }
+        if(expectedPalette.size() > 3) {
+            return false;
+        }
+        for(size_t i = 0; i < expectedPalette.size(); ++i) {
+            if(expectedPalette[i] != palette[i]) {
+                return false;
+            }
+        }
+        return true;
+    };
+
+    auto backgroundPaletteKey = [&](const PPU::DebugModBackgroundPixel& pixel) -> uint32_t {
+        return (static_cast<uint32_t>(snapshot.universalBgColor & 0x3F) << 24u) |
+               (static_cast<uint32_t>(pixel.palette[0] & 0x3F) << 16u) |
+               (static_cast<uint32_t>(pixel.palette[1] & 0x3F) << 8u) |
+               static_cast<uint32_t>(pixel.palette[2] & 0x3F);
+    };
+
+    auto spritePaletteKey = [](const PPU::DebugModSpriteCandidate& candidate) -> uint32_t {
+        return 0xFF000000u |
+               (static_cast<uint32_t>(candidate.palette[0] & 0x3F) << 16u) |
+               (static_cast<uint32_t>(candidate.palette[1] & 0x3F) << 8u) |
+               static_cast<uint32_t>(candidate.palette[2] & 0x3F);
+    };
+
+    auto tileMatchesCondition = [&](const MemoryCondition& condition, const PPU::DebugModBackgroundPixel& pixel) {
+        if(!pixel.valid) {
+            return false;
+        }
+        if(condition.expectedPaletteKey != 0 && backgroundPaletteKey(pixel) != condition.expectedPaletteKey) {
+            return false;
+        }
+        if(condition.hasExpectedTile) {
+            if(condition.expectedTileByHash) {
+                const uint32_t pixelHash = pixel.tileHash != 0 ? pixel.tileHash : tileHash(pixel.tileIndex);
+                if(pixelHash != condition.expectedTileHash) {
+                    return false;
+                }
+            } else if(condition.expectedTileIndex >= 0 && static_cast<int>(pixel.tileIndex) != condition.expectedTileIndex) {
+                return false;
+            }
+        }
+        return condition.expectedPaletteKey != 0 ? true : paletteVectorMatches(condition.expectedPalette, pixel.palette);
+    };
+
+    auto spriteCandidateMatchesCondition = [&](const MemoryCondition& condition, const PPU::DebugModSpriteCandidate& candidate) {
+        if(!candidate.valid) {
+            return false;
+        }
+        if(condition.expectedPaletteKey != 0 && spritePaletteKey(candidate) != condition.expectedPaletteKey) {
+            return false;
+        }
+        if(condition.hasExpectedTile) {
+            if(condition.expectedTileByHash) {
+                const uint32_t candidateHash = candidate.tileHash != 0 ? candidate.tileHash : tileHash(candidate.tileIndex);
+                if(candidateHash != condition.expectedTileHash) {
+                    return false;
+                }
+            } else if(condition.expectedTileIndex >= 0 && static_cast<int>(candidate.tileIndex) != condition.expectedTileIndex) {
+                return false;
+            }
+        }
+        return condition.expectedPaletteKey != 0 ? true : paletteVectorMatches(condition.expectedPalette, candidate.palette);
+    };
+
+    auto conditionMatchesAt = [&](const MemoryCondition& condition, const ConditionContext& ctx) {
+        bool match = false;
+        switch(condition.kind) {
+        case MemoryCondition::Kind::MemoryCheck: {
+            const uint64_t key = makeMemoryCacheKey(condition.memoryType, condition.address, condition.word, condition.scale);
+            const auto it = frameConditionState.memoryValues.find(key);
+            const uint32_t actual = it != frameConditionState.memoryValues.end() ? it->second : 0u;
+            uint32_t expected = condition.value;
+            uint32_t maskedActual = actual;
+            if(condition.hasMask) {
+                maskedActual &= condition.mask;
+                expected &= condition.mask;
+            }
+            const std::string op = toLower(condition.op);
+            if(op == "in" || op == "any_of" || op == "anyof") {
+                for(uint32_t value : condition.values) {
+                    if(condition.hasMask) {
+                        value &= condition.mask;
+                    }
+                    if(maskedActual == value) {
+                        match = true;
+                        break;
+                    }
+                }
+            } else if(op == "!=" || op == "~=" || op == "not_equal" || op == "not_equals") {
+                match = maskedActual != expected;
+            } else if(op == ">" || op == "greater_than" || op == "greater") {
+                match = maskedActual > expected;
+            } else if(op == ">=" || op == "greater_or_equal" || op == "greater_equals") {
+                match = maskedActual >= expected;
+            } else if(op == "<" || op == "less_than" || op == "less") {
+                match = maskedActual < expected;
+            } else if(op == "<=" || op == "less_or_equal" || op == "less_equals") {
+                match = maskedActual <= expected;
+            } else if(op == "bit_set" || op == "bits_set") {
+                match = (maskedActual & expected) == expected;
+            } else if(op == "bit_clear" || op == "bits_clear") {
+                match = (maskedActual & expected) == 0;
+            } else {
+                match = maskedActual == expected;
+            }
+            break;
+        }
+        case MemoryCondition::Kind::FrameRange: {
+            const uint32_t range = std::max(1u, condition.value);
+            match = (frameConditionState.frameCount % range) >= condition.address;
+            break;
+        }
+        case MemoryCondition::Kind::TileAtPosition:
+        case MemoryCondition::Kind::TileNearby: {
+            const int targetX = condition.kind == MemoryCondition::Kind::TileAtPosition ? condition.x : (ctx.nesX + condition.x);
+            const int targetY = condition.kind == MemoryCondition::Kind::TileAtPosition ? condition.y : (ctx.nesY + condition.y);
+            const PPU::DebugModBackgroundPixel* pixel = backgroundPixelAt(targetX, targetY);
+            match = pixel != nullptr && tileMatchesCondition(condition, *pixel);
+            break;
+        }
+        case MemoryCondition::Kind::SpriteAtPosition:
+        case MemoryCondition::Kind::SpriteNearby: {
+            int xSign = 1;
+            int ySign = 1;
+            if(ctx.spriteCandidate != nullptr) {
+                xSign = ctx.spriteCandidate->horizontalMirror ? -1 : 1;
+                ySign = ctx.spriteCandidate->verticalMirror ? -1 : 1;
+            }
+            const int targetX = condition.kind == MemoryCondition::Kind::SpriteAtPosition ? condition.x : (ctx.nesX + condition.x * xSign);
+            const int targetY = condition.kind == MemoryCondition::Kind::SpriteAtPosition ? condition.y : (ctx.nesY + condition.y * ySign);
+            const PPU::DebugModSpritePixel* pixel = spritePixelAt(targetX, targetY);
+            if(pixel != nullptr) {
+                for(uint8_t i = 0; i < pixel->count; ++i) {
+                    if(spriteCandidateMatchesCondition(condition, pixel->candidates[static_cast<size_t>(i)])) {
+                        match = true;
+                        break;
+                    }
+                }
+            }
+            break;
+        }
+        }
+        return condition.inverted ? !match : match;
+    };
+
+    auto conditionsMatchAt = [&](const std::vector<MemoryCondition>& conditions, const ConditionContext& ctx) {
+        for(const MemoryCondition& condition : conditions) {
+            if(!conditionMatchesAt(condition, ctx)) {
+                return false;
+            }
+        }
+        return true;
+    };
+
+    auto describeCondition = [&](const MemoryCondition& condition, bool match, const ConditionContext& ctx) -> std::string {
+        std::ostringstream out;
+        const std::string name = condition.debugName.empty() ? "unnamed condition" : condition.debugName;
+        out << name;
+
+        switch(condition.kind) {
+        case MemoryCondition::Kind::MemoryCheck: {
+            const uint64_t key = makeMemoryCacheKey(condition.memoryType, condition.address, condition.word, condition.scale);
+            const auto it = frameConditionState.memoryValues.find(key);
+            const uint32_t actual = it != frameConditionState.memoryValues.end() ? it->second : 0u;
+            out << " (" << condition.memoryType << "[$"
+                << std::uppercase << std::hex << condition.address
+                << "]=" << actual
+                << " " << condition.op << " " << condition.value;
+            if(condition.hasMask) {
+                out << " mask " << condition.mask;
+            }
+            out << std::dec << ")";
+            break;
+        }
+        case MemoryCondition::Kind::FrameRange:
+            out << " (frame " << frameConditionState.frameCount
+                << " in range " << condition.address << ".." << std::max(1u, condition.value) << ")";
+            break;
+        case MemoryCondition::Kind::TileAtPosition:
+        case MemoryCondition::Kind::TileNearby: {
+            const int targetX = condition.kind == MemoryCondition::Kind::TileAtPosition ? condition.x : (ctx.nesX + condition.x);
+            const int targetY = condition.kind == MemoryCondition::Kind::TileAtPosition ? condition.y : (ctx.nesY + condition.y);
+            out << " (tile @" << targetX << "," << targetY << ")";
+            break;
+        }
+        case MemoryCondition::Kind::SpriteAtPosition:
+        case MemoryCondition::Kind::SpriteNearby: {
+            int xSign = 1;
+            int ySign = 1;
+            if(ctx.spriteCandidate != nullptr) {
+                xSign = ctx.spriteCandidate->horizontalMirror ? -1 : 1;
+                ySign = ctx.spriteCandidate->verticalMirror ? -1 : 1;
+            }
+            const int targetX = condition.kind == MemoryCondition::Kind::SpriteAtPosition ? condition.x : (ctx.nesX + condition.x * xSign);
+            const int targetY = condition.kind == MemoryCondition::Kind::SpriteAtPosition ? condition.y : (ctx.nesY + condition.y * ySign);
+            out << " (sprite @" << targetX << "," << targetY << ")";
+            break;
+        }
+        }
+
+        out << (match ? " matched" : " failed");
+        return out.str();
+    };
+
+    auto firstFailedGlobalCondition = [&](const std::vector<MemoryCondition>& conditions) -> std::optional<std::string> {
+        const ConditionContext emptyContext = {};
+        for(const MemoryCondition& condition : conditions) {
+            if(condition.kind != MemoryCondition::Kind::MemoryCheck &&
+               condition.kind != MemoryCondition::Kind::FrameRange) {
+                continue;
+            }
+            const bool match = conditionMatchesAt(condition, emptyContext);
+            if(!match) {
+                return describeCondition(condition, false, emptyContext);
+            }
+        }
+        return std::nullopt;
+    };
+
+    auto firstFailedConditionName = [&](const std::vector<MemoryCondition>& conditions, const ConditionContext& ctx) -> std::optional<std::string> {
+        for(const MemoryCondition& condition : conditions) {
+            const bool match = conditionMatchesAt(condition, ctx);
+            if(!match) {
+                return describeCondition(condition, false, ctx);
+            }
+        }
+        return std::nullopt;
+    };
+
+    auto matchesRequirement = [](int requirement, bool value) {
+        return requirement == 0 || (requirement > 0 && value) || (requirement < 0 && !value);
+    };
+
+    auto matchesOverride = [&](const PreparedOverride& preparedOverride, ChrOverride::Target target, bool allowDefaultTileFallback, int tileIndex, int fullTileIndex, int currentPatternTable, const std::array<uint8_t, 3>& palette, bool hMirror, bool vMirror, bool bgPriority, const ConditionContext& ctx) {
+        const ChrOverride& override = *preparedOverride.override;
+        if(override.target != ChrOverride::Target::Both && override.target != target) {
+            return false;
+        }
+        if(!matchesRequirement(override.hMirrorRequirement, hMirror) ||
+           !matchesRequirement(override.vMirrorRequirement, vMirror) ||
+           !matchesRequirement(override.bgPriorityRequirement, bgPriority)) {
+            return false;
+        }
+        if(override.patternTable >= 0 && override.patternTable != currentPatternTable) {
+            return false;
+        }
+        if(!override.wholeChr()) {
+            if(override.absoluteTile) {
+                if(override.tile != fullTileIndex) {
+                    return false;
+                }
+            } else if(override.tile != tileIndex && override.tile != fullTileIndex) {
+                return false;
+            }
+        }
+        const uint32_t currentTileHash =
+            target == ChrOverride::Target::Sprite
+                ? ((ctx.spriteCandidate != nullptr && ctx.spriteCandidate->tileHash != 0) ? ctx.spriteCandidate->tileHash : tileHash(fullTileIndex))
+                : ((ctx.backgroundPixel != nullptr && ctx.backgroundPixel->tileHash != 0) ? ctx.backgroundPixel->tileHash : tileHash(fullTileIndex));
+        if(override.hasChrHash && currentTileHash != override.chrHash) {
+            return false;
+        }
+        if(!paletteMatches(override, palette, allowDefaultTileFallback)) {
+            return false;
+        }
+        if(!conditionsMatchAt(override.conditions, ctx)) {
+            return false;
+        }
+        return true;
+    };
+
+    auto scanCandidates = [&](const std::vector<const PreparedOverride*>& candidates, ChrOverride::Target target, bool allowDefaultTileFallback, int tileIndex, int fullTileIndex, int currentPatternTable, const std::array<uint8_t, 3>& palette, bool hMirror, bool vMirror, bool bgPriority, const ConditionContext& ctx) -> const PreparedOverride* {
+        for(const PreparedOverride* candidate : candidates) {
+            if(matchesOverride(*candidate, target, allowDefaultTileFallback, tileIndex, fullTileIndex, currentPatternTable, palette, hMirror, vMirror, bgPriority, ctx)) {
+                return candidate;
+            }
+        }
+        return nullptr;
+    };
+
+    auto scanMergedCandidates = [&](const std::vector<const PreparedOverride*>& staticCandidates, const std::vector<const PreparedOverride*>& dynamicCandidates, ChrOverride::Target target, bool allowDefaultTileFallback, int tileIndex, int fullTileIndex, int currentPatternTable, const std::array<uint8_t, 3>& palette, bool hMirror, bool vMirror, bool bgPriority, const ConditionContext& ctx) -> const PreparedOverride* {
+        size_t staticIndex = 0;
+        size_t dynamicIndex = 0;
+        while(staticIndex < staticCandidates.size() || dynamicIndex < dynamicCandidates.size()) {
+            const PreparedOverride* candidate = nullptr;
+            if(dynamicIndex >= dynamicCandidates.size()) {
+                candidate = staticCandidates[staticIndex++];
+            } else if(staticIndex >= staticCandidates.size()) {
+                candidate = dynamicCandidates[dynamicIndex++];
+            } else if(staticCandidates[staticIndex]->sequence <= dynamicCandidates[dynamicIndex]->sequence) {
+                candidate = staticCandidates[staticIndex++];
+            } else {
+                candidate = dynamicCandidates[dynamicIndex++];
+            }
+
+            if(matchesOverride(*candidate, target, allowDefaultTileFallback, tileIndex, fullTileIndex, currentPatternTable, palette, hMirror, vMirror, bgPriority, ctx)) {
+                return candidate;
+            }
+        }
+        return nullptr;
+    };
+
+    auto findOverride = [&](ChrOverride::Target target, int tileIndex, int fullTileIndex, int currentPatternTable, const std::array<uint8_t, 3>& palette, bool hMirror, bool vMirror, bool bgPriority, const ConditionContext& ctx) -> const PreparedOverride* {
+        const uint32_t lookupHash = tileHash(fullTileIndex);
+
+        auto scanFullTile = [&](int lookupTile, bool allowDefaultTileFallback) -> const PreparedOverride* {
+            if(lookupTile >= 0 && lookupTile < static_cast<int>(overridesByFullTile.size())) {
+                return scanMergedCandidates(
+                    overridesByFullTile[static_cast<size_t>(lookupTile)],
+                    dynamicOverridesByFullTile[static_cast<size_t>(lookupTile)],
+                    target, allowDefaultTileFallback, tileIndex, fullTileIndex, currentPatternTable, palette, hMirror, vMirror, bgPriority, ctx);
+            }
+            return nullptr;
+        };
+
+        auto scanRelativeTile = [&](int lookupTile, bool allowDefaultTileFallback) -> const PreparedOverride* {
+            if(lookupTile >= 0 && lookupTile < static_cast<int>(overridesByRelativeTile.size())) {
+                return scanMergedCandidates(
+                    overridesByRelativeTile[static_cast<size_t>(lookupTile)],
+                    dynamicOverridesByRelativeTile[static_cast<size_t>(lookupTile)],
+                    target, allowDefaultTileFallback, tileIndex, fullTileIndex, currentPatternTable, palette, hMirror, vMirror, bgPriority, ctx);
+            }
+            return nullptr;
+        };
+
+        auto scanHash = [&](bool allowDefaultTileFallback) -> const PreparedOverride* {
+            static const std::vector<const PreparedOverride*> emptyCandidates;
+            const auto staticIt = overridesByChrHash.find(lookupHash);
+            const auto dynamicIt = dynamicOverridesByChrHash.find(lookupHash);
+            const auto& staticCandidates = staticIt != overridesByChrHash.end() ? staticIt->second : emptyCandidates;
+            const auto& dynamicCandidates = dynamicIt != dynamicOverridesByChrHash.end() ? dynamicIt->second : emptyCandidates;
+            return scanMergedCandidates(staticCandidates, dynamicCandidates, target, allowDefaultTileFallback, tileIndex, fullTileIndex, currentPatternTable, palette, hMirror, vMirror, bgPriority, ctx);
+        };
+
+        auto scanWhole = [&](bool allowDefaultTileFallback) -> const PreparedOverride* {
+            return scanMergedCandidates(wholeChrOverrides, dynamicWholeChrOverrides, target, allowDefaultTileFallback, tileIndex, fullTileIndex, currentPatternTable, palette, hMirror, vMirror, bgPriority, ctx);
+        };
+
+        if(const PreparedOverride* found = scanFullTile(fullTileIndex, false)) return found;
+        if(fullTileIndex != tileIndex) {
+            if(const PreparedOverride* found = scanRelativeTile(tileIndex, false)) return found;
+        }
+        if(const PreparedOverride* found = scanHash(false)) return found;
+        if(const PreparedOverride* found = scanWhole(false)) return found;
+
+        if(const PreparedOverride* found = scanFullTile(fullTileIndex, true)) return found;
+        if(const PreparedOverride* found = scanHash(true)) return found;
+        if(fullTileIndex == tileIndex) {
+            if(const PreparedOverride* found = scanRelativeTile(tileIndex, true)) return found;
+        }
+        return scanWhole(true);
+    };
+
+    auto explainOverrideMismatch = [&](const PreparedOverride& preparedOverride, ChrOverride::Target target, bool allowDefaultTileFallback, int tileIndex, int fullTileIndex, int currentPatternTable, const std::array<uint8_t, 3>& palette, bool hMirror, bool vMirror, bool bgPriority, const ConditionContext& ctx) -> std::string {
+        const ChrOverride& override = *preparedOverride.override;
+        if(override.target != ChrOverride::Target::Both && override.target != target) {
+            return "target mismatch";
+        }
+        if(!matchesRequirement(override.hMirrorRequirement, hMirror)) {
+            return "hmirror mismatch";
+        }
+        if(!matchesRequirement(override.vMirrorRequirement, vMirror)) {
+            return "vmirror mismatch";
+        }
+        if(!matchesRequirement(override.bgPriorityRequirement, bgPriority)) {
+            return "bgpriority mismatch";
+        }
+        if(override.patternTable >= 0 && override.patternTable != currentPatternTable) {
+            return "pattern table mismatch";
+        }
+        if(!override.wholeChr()) {
+            if(override.absoluteTile) {
+                if(override.tile != fullTileIndex) {
+                    return "absolute tile mismatch";
+                }
+            } else if(override.tile != tileIndex && override.tile != fullTileIndex) {
+                return "relative tile mismatch";
+            }
+        }
+        const uint32_t currentTileHash =
+            target == ChrOverride::Target::Sprite
+                ? ((ctx.spriteCandidate != nullptr && ctx.spriteCandidate->tileHash != 0) ? ctx.spriteCandidate->tileHash : tileHash(fullTileIndex))
+                : ((ctx.backgroundPixel != nullptr && ctx.backgroundPixel->tileHash != 0) ? ctx.backgroundPixel->tileHash : tileHash(fullTileIndex));
+        if(override.hasChrHash && currentTileHash != override.chrHash) {
+            return "tile hash mismatch";
+        }
+        if(!paletteMatches(override, palette, allowDefaultTileFallback)) {
+            return "palette mismatch";
+        }
+        if(const auto failed = firstFailedConditionName(override.conditions, ctx); failed.has_value()) {
+            return "condition failed: " + *failed;
+        }
+        return {};
+    };
+
+    DebugComposePixel result;
+    result.valid = true;
+    result.baseColor = sourceFramebuffer[static_cast<size_t>(nesY) * PPU::SCREEN_WIDTH + static_cast<size_t>(nesX)];
+    uint32_t color = m_disableOriginalTiles ? 0x00000000u : result.baseColor;
+    result.finalColor = color;
+
+    std::array<int, 40> backgroundPrunedCounts = {};
+    for(const BackgroundReplacement& replacement : m_backgroundReplacements) {
+        if(replacement.assetPath.empty()) {
+            continue;
+        }
+        const int priority = std::clamp(replacement.priority, 0, 39);
+        if(const auto failed = firstFailedGlobalCondition(replacement.conditions); failed.has_value()) {
+            if(backgroundPrunedCounts[static_cast<size_t>(priority)] >= 12 && !debugAssetMatchesFilter(replacement.assetPath)) {
+                continue;
+            }
+            DebugComposeStage stage;
+            stage.valid = true;
+            stage.stage = "bg pruned";
+            stage.assetPath = replacement.assetPath;
+            stage.priority = priority;
+            stage.returnedBaseColor = true;
+            stage.reason = "pruned in onFrame: " + *failed;
+            result.backgroundCandidates.push_back(std::move(stage));
+            backgroundPrunedCounts[static_cast<size_t>(priority)]++;
+        }
+    }
+
+    std::array<const PreparedBackground*, 40> activeBackgroundsByPriority = {};
+    std::array<int, 40> backgroundDebugCounts = {};
+    const ConditionContext backgroundConditionContext = {};
+    for(const PreparedBackground& prepared : preparedBackgrounds) {
+        const int priority = std::clamp(prepared.replacement->priority, 0, 39);
+        DebugComposeStage debugStage;
+        debugStage.valid = true;
+        debugStage.stage = "bg select";
+        debugStage.assetPath = prepared.replacement->assetPath;
+        debugStage.priority = priority;
+
+        if(activeBackgroundsByPriority[static_cast<size_t>(priority)] != nullptr) {
+            debugStage.returnedBaseColor = true;
+            debugStage.reason = "skipped after earlier selected background";
+            if(backgroundDebugCounts[static_cast<size_t>(priority)] < 6 || debugAssetMatchesFilter(prepared.replacement->assetPath)) {
+                result.backgroundCandidates.push_back(std::move(debugStage));
+                if(backgroundDebugCounts[static_cast<size_t>(priority)] < 6) {
+                    backgroundDebugCounts[static_cast<size_t>(priority)]++;
+                }
+            }
+            continue;
+        }
+
+        if(const auto failed = firstFailedConditionName(prepared.replacement->conditions, backgroundConditionContext); failed.has_value()) {
+            debugStage.returnedBaseColor = true;
+            debugStage.reason = "condition failed: " + *failed;
+            if(backgroundDebugCounts[static_cast<size_t>(priority)] < 6 || debugAssetMatchesFilter(prepared.replacement->assetPath)) {
+                result.backgroundCandidates.push_back(std::move(debugStage));
+                if(backgroundDebugCounts[static_cast<size_t>(priority)] < 6) {
+                    backgroundDebugCounts[static_cast<size_t>(priority)]++;
+                }
+            }
+        } else {
+            debugStage.returnedBaseColor = false;
+            debugStage.reason = "selected for priority";
+            result.backgroundCandidates.push_back(debugStage);
+            backgroundDebugCounts[static_cast<size_t>(priority)]++;
+            activeBackgroundsByPriority[static_cast<size_t>(priority)] = &prepared;
+        }
+    }
+
+    const size_t pixelIndex = static_cast<size_t>(nesY) * PPU::SCREEN_WIDTH + static_cast<size_t>(nesX);
+    const PPU::DebugModBackgroundPixel* bgPixel =
+        pixelIndex < snapshot.backgroundPixels.size() ? &snapshot.backgroundPixels[pixelIndex] : nullptr;
+    const PPU::DebugModSpritePixel* spritePixel =
+        pixelIndex < snapshot.spritePixels.size() ? &snapshot.spritePixels[pixelIndex] : nullptr;
+
+    const int subX = 0;
+    const int subY = 0;
+
+    auto sampleBackgroundStage = [&](const PreparedBackground& prepared) -> DebugComposeStage {
+        DebugComposeStage stage;
+        stage.valid = true;
+        stage.stage = "background";
+        stage.assetPath = prepared.replacement->assetPath;
+        stage.priority = prepared.replacement->priority;
+
+        const BackgroundReplacement& replacement = *prepared.replacement;
+        const DecodedImage& image = *prepared.image;
+        if(image.width <= 0 || image.height <= 0) {
+            stage.returnedBaseColor = true;
+            stage.reason = "image empty";
+            return stage;
+        }
+
+        const int backgroundScale = std::max(1, m_resolutionMultiplier);
+        const int bgScrollX = static_cast<int>(snapshot.scrollX * replacement.parallaxX) + replacement.scrollX;
+        const int bgScrollY = static_cast<int>(snapshot.scrollY * replacement.parallaxY) + replacement.scrollY;
+        const int srcNesX = replacement.sourceX + nesX + bgScrollX;
+        const int srcNesY = replacement.sourceY + nesY + bgScrollY;
+        if(srcNesX < 0 || srcNesY < 0) {
+            stage.returnedBaseColor = true;
+            stage.reason = "out of bounds: negative source";
+            return stage;
+        }
+        if((srcNesX + 1) * backgroundScale > image.width || (srcNesY + 1) * backgroundScale > image.height) {
+            stage.returnedBaseColor = true;
+            stage.reason = "out of bounds: exceeds image";
+            return stage;
+        }
+
+        stage.srcX = srcNesX * backgroundScale + std::clamp(subX, 0, backgroundScale - 1);
+        stage.srcY = srcNesY * backgroundScale + std::clamp(subY, 0, backgroundScale - 1);
+        const size_t srcIndex = static_cast<size_t>(stage.srcY) * static_cast<size_t>(image.width) + static_cast<size_t>(stage.srcX);
+        stage.rawRgba = image.rgba[srcIndex];
+        const uint8_t srcAlpha = static_cast<uint8_t>((stage.rawRgba >> 24u) & 0xFFu);
+        stage.returnedBaseColor = srcAlpha == 0;
+        stage.reason = srcAlpha == 0 ? "alpha zero" : "blended background";
+        return stage;
+    };
+
+    auto sampleOverrideStage = [&](uint32_t baseColor, const PreparedOverride* prepared, int tileIndex, int offsetX, int offsetY, const std::array<uint8_t, 3>& palette, bool horizontalMirror, bool verticalMirror, bool preserveSourceAlpha, const char* stageName) -> std::pair<uint32_t, DebugComposeStage> {
+        DebugComposeStage stage;
+        stage.valid = true;
+        stage.stage = stageName;
+        if(prepared == nullptr) {
+            stage.returnedBaseColor = true;
+            stage.reason = "no matching override";
+            return { baseColor, stage };
+        }
+
+        const ChrOverride* override = prepared->override;
+        const DecodedImage* image = prepared->image;
+        stage.assetPath = override->assetPath;
+        stage.priority = override->priority;
+
+        const int localOffsetX = offsetX & 0x07;
+        const int localOffsetY = offsetY & 0x07;
+        const int sourceScale = prepared->sourceScale;
+        const int sourceSubX = std::clamp((subX * sourceScale) / scale, 0, sourceScale - 1);
+        const int sourceSubY = std::clamp((subY * sourceScale) / scale, 0, sourceScale - 1);
+        const int tileSubX = horizontalMirror ? (7 - localOffsetX) * sourceScale + (sourceScale - 1 - sourceSubX) : localOffsetX * sourceScale + sourceSubX;
+        const int tileSubY = verticalMirror ? (7 - localOffsetY) * sourceScale + (sourceScale - 1 - sourceSubY) : localOffsetY * sourceScale + sourceSubY;
+        int srcX = override->hasSourcePosition() ? override->sourceX + tileSubX : tileSubX;
+        int srcY = override->hasSourcePosition() ? override->sourceY + tileSubY : tileSubY;
+        const int tilePixelSize = 8 * sourceScale;
+        const bool atlasImage =
+            !override->hasSourcePosition() &&
+            (override->wholeChr() ||
+             override->sourceTileOffset > 0 ||
+             (image->width >= override->columns * tilePixelSize && image->height > tilePixelSize));
+        if(atlasImage) {
+            int sourceColumn = 0;
+            int sourceRow = 0;
+            if(override->wholeChr()) {
+                if(tileIndex < 0) {
+                    stage.returnedBaseColor = true;
+                    stage.reason = "whole-chr source but tile index invalid";
+                    return { baseColor, stage };
+                }
+                const int sourceTile = tileIndex + override->sourceTileOffset;
+                if(prepared->wholeChrLayout == ChrOverride::SourceLayout::PatternTables) {
+                    const int table = sourceTile / 256;
+                    const int tileInTable = sourceTile & 0xFF;
+                    sourceColumn = (table * 16) + (tileInTable & 0x0F);
+                    sourceRow = tileInTable >> 4;
+                } else {
+                    sourceColumn = sourceTile % override->columns;
+                    sourceRow = sourceTile / override->columns;
+                }
+            } else if(override->sourceLayout == ChrOverride::SourceLayout::PatternTables) {
+                const int sourceTile = override->sourceTileOffset;
+                const int table = sourceTile / 256;
+                const int tileInTable = sourceTile & 0xFF;
+                sourceColumn = (table * 16) + (tileInTable & 0x0F);
+                sourceRow = tileInTable >> 4;
+            } else {
+                const int sourceTile = override->sourceTileOffset;
+                sourceColumn = sourceTile % override->columns;
+                sourceRow = sourceTile / override->columns;
+            }
+            srcX += sourceColumn * tilePixelSize;
+            srcY += sourceRow * tilePixelSize;
+        }
+
+        stage.srcX = srcX;
+        stage.srcY = srcY;
+        if(srcX < 0 || srcY < 0 || srcX >= image->width || srcY >= image->height) {
+            stage.returnedBaseColor = true;
+            stage.reason = "source coordinate out of bounds";
+            return { baseColor, stage };
+        }
+
+        const size_t sourcePixelIndex = static_cast<size_t>(srcY) * static_cast<size_t>(image->width) + static_cast<size_t>(srcX);
+        stage.rawRgba = image->rgba[sourcePixelIndex];
+        const uint8_t sourceAlpha = static_cast<uint8_t>((stage.rawRgba >> 24u) & 0xFFu);
+        if(override->ignorePalette) {
+            if(sourceAlpha == 0) {
+                stage.returnedBaseColor = true;
+                stage.reason = "raw rgba alpha zero";
+                return { baseColor, stage };
+            }
+            const uint32_t opaqueSource = (stage.rawRgba & 0x00FFFFFFu) | 0xFF000000u;
+            if(!preserveSourceAlpha) {
+                stage.reason = "raw rgba opaque replace";
+                return { opaqueSource, stage };
+            }
+            if(sourceAlpha == 0xFF) {
+                stage.reason = "raw rgba opaque replace";
+                return { opaqueSource, stage };
+            }
+            stage.reason = "raw rgba alpha blend";
+            return { blendPixel(baseColor, opaqueSource, sourceAlpha), stage };
+        }
+
+        if(sourceAlpha == 0) {
+            stage.returnedBaseColor = true;
+            stage.reason = "indexed source alpha zero";
+            return { baseColor, stage };
+        }
+        if(!image->indexedFourColor || image->indexedPixels.size() != image->rgba.size()) {
+            stage.returnedBaseColor = true;
+            stage.reason = "not indexed four-color png";
+            return { baseColor, stage };
+        }
+
+        const uint8_t sourcePaletteIndex = image->indexedPixels[sourcePixelIndex];
+        stage.indexedPaletteIndex = static_cast<int>(sourcePaletteIndex);
+        if(sourcePaletteIndex == 0) {
+            if(preserveSourceAlpha) {
+                stage.returnedBaseColor = true;
+                stage.reason = "indexed color 0 -> baseColor";
+                return { baseColor, stage };
+            }
+            const uint32_t mappedColor =
+                (snapshot.paletteColors[snapshot.universalBgColor & 0x3F] & 0x00FFFFFFu) |
+                (static_cast<uint32_t>(sourceAlpha) << 24u);
+            stage.reason = "indexed color 0 -> universal background";
+            return { blendPixel(baseColor, mappedColor, 255), stage };
+        }
+
+        const int paletteIndex = static_cast<int>(sourcePaletteIndex) - 1;
+        if(paletteIndex < 0 || paletteIndex >= static_cast<int>(palette.size())) {
+            stage.returnedBaseColor = true;
+            stage.reason = "indexed color outside palette mapping";
+            return { baseColor, stage };
+        }
+
+        const uint32_t mappedColor =
+            (snapshot.paletteColors[palette[static_cast<size_t>(paletteIndex)] & 0x3F] & 0x00FFFFFFu) |
+            (static_cast<uint32_t>(sourceAlpha) << 24u);
+        stage.reason = "indexed color mapped to NES palette";
+        return { blendPixel(baseColor, mappedColor, 255), stage };
+    };
+
+    for(int priority = 0; priority < 10; ++priority) {
+        if(const PreparedBackground* preparedBackground = activeBackgroundsByPriority[static_cast<size_t>(priority)]; preparedBackground != nullptr) {
+            DebugComposeStage stage = sampleBackgroundStage(*preparedBackground);
+            if(!stage.returnedBaseColor && stage.srcX >= 0 && stage.srcY >= 0) {
+                color = blendPixel(color, stage.rawRgba, std::clamp(static_cast<int>(std::round(preparedBackground->replacement->opacity * 255.0f)), 0, 255));
+            }
+            result.backgroundStages.push_back(stage);
+        }
+    }
+
+    const PreparedOverride* backgroundOverride = nullptr;
+    uint32_t backgroundFallbackColor = result.baseColor;
+    if(bgPixel != nullptr && bgPixel->valid) {
+        const int bgFullTileIndex = bgPixel->tileIndex != 0xFFFF ? static_cast<int>(bgPixel->tileIndex) : -1;
+        const std::array<uint8_t, 3> bgPalette = { bgPixel->palette[0], bgPixel->palette[1], bgPixel->palette[2] };
+        if(bgFullTileIndex >= 0) {
+            const ConditionContext context = { nesX, nesY, bgPixel, nullptr };
+            if(!normalizedFilter.empty()) {
+                for(const PreparedOverride& prepared : preparedOverrides) {
+                    if(!debugAssetMatchesFilter(prepared.override->assetPath)) {
+                        continue;
+                    }
+                    DebugComposeStage candidateStage;
+                    candidateStage.valid = true;
+                    candidateStage.stage = "override candidate";
+                    candidateStage.assetPath = prepared.override->assetPath;
+                    candidateStage.priority = prepared.override->priority;
+                    if(prepared.override->hasSourcePosition()) {
+                        candidateStage.srcX = prepared.override->sourceX;
+                        candidateStage.srcY = prepared.override->sourceY;
+                    }
+                    const std::string mismatch = explainOverrideMismatch(
+                        prepared,
+                        ChrOverride::Target::Background,
+                        false,
+                        bgFullTileIndex & 0xFF,
+                        bgFullTileIndex,
+                        bgFullTileIndex / 256,
+                        bgPalette,
+                        false,
+                        false,
+                        false,
+                        context);
+                    candidateStage.returnedBaseColor = !mismatch.empty();
+                    candidateStage.reason = mismatch.empty() ? "matched exact rule" : mismatch;
+                    result.backgroundStages.push_back(std::move(candidateStage));
+                }
+            }
+            backgroundOverride = findOverride(ChrOverride::Target::Background, bgFullTileIndex & 0xFF, bgFullTileIndex, bgFullTileIndex / 256, bgPalette, false, false, false, context);
+        }
+        backgroundFallbackColor = m_disableOriginalTiles ? 0x00000000u : snapshot.paletteColors[bgPixel->paletteIndex & 0x3F];
+    }
+    const bool backgroundOpaque = bgPixel != nullptr && bgPixel->valid && bgPixel->colorLowBits != 0;
+
+    if(bgPixel != nullptr && bgPixel->valid) {
+        for(int priority = 10; priority < 20; ++priority) {
+            if(const PreparedBackground* preparedBackground = activeBackgroundsByPriority[static_cast<size_t>(priority)]; preparedBackground != nullptr) {
+                DebugComposeStage stage = sampleBackgroundStage(*preparedBackground);
+                if(!stage.returnedBaseColor) {
+                    color = blendPixel(color, stage.rawRgba, std::clamp(static_cast<int>(std::round(preparedBackground->replacement->opacity * 255.0f)), 0, 255));
+                }
+                result.backgroundStages.push_back(stage);
+            }
+        }
+
+        const std::array<uint8_t, 3> bgPalette = { bgPixel->palette[0], bgPixel->palette[1], bgPixel->palette[2] };
+        if(backgroundOverride != nullptr) {
+            auto [newColor, stage] = sampleOverrideStage(color, backgroundOverride, bgPixel->tileIndex, bgPixel->offsetX, bgPixel->offsetY, bgPalette, false, false, false, "bg override");
+            result.backgroundOverride = stage;
+            color = newColor;
+        } else {
+            DebugComposeStage stage;
+            stage.valid = true;
+            stage.stage = "bg override";
+            stage.returnedBaseColor = true;
+            stage.reason = "no matching override";
+            result.backgroundOverride = stage;
+            if(backgroundOpaque || !m_disableOriginalTiles) {
+                color = backgroundFallbackColor;
+            }
+        }
+    }
+
+    for(int priority = 20; priority < 30; ++priority) {
+        if(const PreparedBackground* preparedBackground = activeBackgroundsByPriority[static_cast<size_t>(priority)]; preparedBackground != nullptr) {
+            DebugComposeStage stage = sampleBackgroundStage(*preparedBackground);
+            if(!stage.returnedBaseColor) {
+                color = blendPixel(color, stage.rawRgba, std::clamp(static_cast<int>(std::round(preparedBackground->replacement->opacity * 255.0f)), 0, 255));
+            }
+            result.backgroundStages.push_back(stage);
+        }
+    }
+
+    int lowestBgSpriteCandidate = std::numeric_limits<int>::max();
+    if(spritePixel != nullptr) {
+        for(int i = 0; i < static_cast<int>(spritePixel->count); ++i) {
+            const PPU::DebugModSpriteCandidate& candidate = spritePixel->candidates[static_cast<size_t>(i)];
+            if(candidate.valid && candidate.colorLowBits != 0 && candidate.behindBackground) {
+                lowestBgSpriteCandidate = std::min(lowestBgSpriteCandidate, i);
+            }
+        }
+    }
+
+    const auto spriteFallbackColorFor = [&](const PPU::DebugModSpriteCandidate& candidate) {
+        const std::array<uint8_t, 3> spritePalette = { candidate.palette[0], candidate.palette[1], candidate.palette[2] };
+        const int spritePaletteIndex = std::clamp(static_cast<int>(candidate.colorLowBits), 1, 3) - 1;
+        if(spritePaletteIndex >= 0 && spritePaletteIndex < static_cast<int>(spritePalette.size())) {
+            return snapshot.paletteColors[spritePalette[static_cast<size_t>(spritePaletteIndex)] & 0x3F];
+        }
+        return result.baseColor;
+    };
+
+    if(spritePixel != nullptr && spritePixel->count > 0) {
+        auto applySpriteCandidate = [&](const PPU::DebugModSpriteCandidate& candidate, int candidateIndex, const char* bucket) {
+            DebugComposeStage header;
+            header.valid = true;
+            header.stage = bucket;
+            header.priority = candidateIndex;
+
+            const uint32_t spriteFallbackColor = m_disableOriginalTiles ? color : spriteFallbackColorFor(candidate);
+            const int spriteFullTileIndex = candidate.tileIndex != 0xFFFF ? static_cast<int>(candidate.tileIndex) : -1;
+            const std::array<uint8_t, 3> spritePalette = { candidate.palette[0], candidate.palette[1], candidate.palette[2] };
+            const ConditionContext context = { nesX, nesY, bgPixel, &candidate };
+            const PreparedOverride* spriteOverride =
+                spriteFullTileIndex >= 0
+                    ? findOverride(
+                        ChrOverride::Target::Sprite,
+                        spriteFullTileIndex & 0xFF,
+                        spriteFullTileIndex,
+                        spriteFullTileIndex / 256,
+                        spritePalette,
+                        candidate.horizontalMirror,
+                        candidate.verticalMirror,
+                        candidate.behindBackground,
+                        context)
+                    : nullptr;
+            auto [newColor, stage] = sampleOverrideStage(color, spriteOverride, candidate.tileIndex, candidate.offsetX, candidate.offsetY, spritePalette, candidate.horizontalMirror, candidate.verticalMirror, true, "sprite override");
+            stage.priority = candidateIndex;
+            if(spriteOverride == nullptr && !m_disableOriginalTiles) {
+                newColor = spriteFallbackColor;
+                stage.reason = "no override, using NES sprite fallback";
+                stage.returnedBaseColor = false;
+            }
+            color = newColor;
+            result.spriteStages.push_back(stage);
+        };
+
+        for(int i = static_cast<int>(spritePixel->count) - 1; i >= 0; --i) {
+            const PPU::DebugModSpriteCandidate& candidate = spritePixel->candidates[static_cast<size_t>(i)];
+            if(!candidate.valid || candidate.colorLowBits == 0 || !candidate.behindBackground) {
+                continue;
+            }
+            if(backgroundOpaque) {
+                continue;
+            }
+            applySpriteCandidate(candidate, i, "sprite behind-bg");
+        }
+
+        for(int i = static_cast<int>(spritePixel->count) - 1; i >= 0; --i) {
+            const PPU::DebugModSpriteCandidate& candidate = spritePixel->candidates[static_cast<size_t>(i)];
+            if(!candidate.valid || candidate.colorLowBits == 0 || candidate.behindBackground) {
+                continue;
+            }
+            if(lowestBgSpriteCandidate <= i) {
+                continue;
+            }
+            applySpriteCandidate(candidate, i, "sprite front");
+        }
+    }
+
+    for(int priority = 30; priority < 40; ++priority) {
+        if(const PreparedBackground* preparedBackground = activeBackgroundsByPriority[static_cast<size_t>(priority)]; preparedBackground != nullptr) {
+            DebugComposeStage stage = sampleBackgroundStage(*preparedBackground);
+            if(!stage.returnedBaseColor) {
+                color = blendPixel(color, stage.rawRgba, std::clamp(static_cast<int>(std::round(preparedBackground->replacement->opacity * 255.0f)), 0, 255));
+            }
+            result.backgroundStages.push_back(stage);
+        }
+    }
+
+    result.finalColor = color;
+    return result;
+}
+
 std::optional<ModManager::DecodedImage> ModManager::decodeImage(const std::vector<uint8_t>& data)
 {
     stbi_set_flip_vertically_on_load_thread(0);
@@ -1886,6 +2928,7 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
         int sourceScale = 1;
         ChrOverride::SourceLayout wholeChrLayout = ChrOverride::SourceLayout::PatternTables;
         bool hasDynamicConditions = false;
+        size_t sequence = 0;
     };
 
     struct PreparedBackground {
@@ -1923,6 +2966,7 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
     for(const ChrOverride* override : activeOverrides) {
         PreparedOverride prepared;
         prepared.override = override;
+        prepared.sequence = preparedOverrides.size();
         prepared.image = decodedImage(override->assetPath);
         if(prepared.image == nullptr || prepared.image->rgba.empty()) {
             continue;
@@ -2122,7 +3166,8 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
         }
         if(condition.hasExpectedTile) {
             if(condition.expectedTileByHash) {
-                if(tileHash(pixel.tileIndex) != condition.expectedTileHash) {
+                const uint32_t pixelHash = pixel.tileHash != 0 ? pixel.tileHash : tileHash(pixel.tileIndex);
+                if(pixelHash != condition.expectedTileHash) {
                     return false;
                 }
             } else if(condition.expectedTileIndex >= 0 && static_cast<int>(pixel.tileIndex) != condition.expectedTileIndex) {
@@ -2141,7 +3186,8 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
         }
         if(condition.hasExpectedTile) {
             if(condition.expectedTileByHash) {
-                if(tileHash(candidate.tileIndex) != condition.expectedTileHash) {
+                const uint32_t candidateHash = candidate.tileHash != 0 ? candidate.tileHash : tileHash(candidate.tileIndex);
+                if(candidateHash != condition.expectedTileHash) {
                     return false;
                 }
             } else if(condition.expectedTileIndex >= 0 && static_cast<int>(candidate.tileIndex) != condition.expectedTileIndex) {
@@ -2256,7 +3302,11 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
                 return false;
             }
         }
-        if(override.hasChrHash && tileHash(fullTileIndex) != override.chrHash) {
+        const uint32_t currentTileHash =
+            target == ChrOverride::Target::Sprite
+                ? ((ctx.spriteCandidate != nullptr && ctx.spriteCandidate->tileHash != 0) ? ctx.spriteCandidate->tileHash : tileHash(fullTileIndex))
+                : ((ctx.backgroundPixel != nullptr && ctx.backgroundPixel->tileHash != 0) ? ctx.backgroundPixel->tileHash : tileHash(fullTileIndex));
+        if(override.hasChrHash && currentTileHash != override.chrHash) {
             return false;
         }
         if(!paletteMatches(override, palette, allowDefaultTileFallback)) {
@@ -2268,7 +3318,38 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
         return true;
     };
 
-    auto makeOverrideLookupKey = [](ChrOverride::Target target, int fullTileIndex, int currentPatternTable, const std::array<uint8_t, 3>& palette, bool hMirror, bool vMirror, bool bgPriority) {
+    auto scanCandidates = [&](const std::vector<const PreparedOverride*>& candidates, bool allowDefaultTileFallback, ChrOverride::Target target, int tileIndex, int fullTileIndex, int currentPatternTable, const std::array<uint8_t, 3>& palette, bool hMirror, bool vMirror, bool bgPriority, const ConditionContext& ctx) -> const PreparedOverride* {
+        for(const PreparedOverride* candidate : candidates) {
+            if(matchesOverride(*candidate, target, allowDefaultTileFallback, tileIndex, fullTileIndex, currentPatternTable, palette, hMirror, vMirror, bgPriority, ctx)) {
+                return candidate;
+            }
+        }
+        return nullptr;
+    };
+
+    auto scanMergedCandidates = [&](const std::vector<const PreparedOverride*>& staticCandidates, const std::vector<const PreparedOverride*>& dynamicCandidates, bool allowDefaultTileFallback, ChrOverride::Target target, int tileIndex, int fullTileIndex, int currentPatternTable, const std::array<uint8_t, 3>& palette, bool hMirror, bool vMirror, bool bgPriority, const ConditionContext& ctx) -> const PreparedOverride* {
+        size_t staticIndex = 0;
+        size_t dynamicIndex = 0;
+        while(staticIndex < staticCandidates.size() || dynamicIndex < dynamicCandidates.size()) {
+            const PreparedOverride* candidate = nullptr;
+            if(dynamicIndex >= dynamicCandidates.size()) {
+                candidate = staticCandidates[staticIndex++];
+            } else if(staticIndex >= staticCandidates.size()) {
+                candidate = dynamicCandidates[dynamicIndex++];
+            } else if(staticCandidates[staticIndex]->sequence <= dynamicCandidates[dynamicIndex]->sequence) {
+                candidate = staticCandidates[staticIndex++];
+            } else {
+                candidate = dynamicCandidates[dynamicIndex++];
+            }
+
+            if(matchesOverride(*candidate, target, allowDefaultTileFallback, tileIndex, fullTileIndex, currentPatternTable, palette, hMirror, vMirror, bgPriority, ctx)) {
+                return candidate;
+            }
+        }
+        return nullptr;
+    };
+
+    auto makeOverrideLookupKey = [](ChrOverride::Target target, int fullTileIndex, int currentPatternTable, uint32_t currentTileHash, const std::array<uint8_t, 3>& palette, bool hMirror, bool vMirror, bool bgPriority) {
         uint64_t key = static_cast<uint64_t>(fullTileIndex & 0x01FF);
         key |= static_cast<uint64_t>(currentPatternTable & 0x03) << 9;
         key |= static_cast<uint64_t>(target == ChrOverride::Target::Sprite ? 1 : 0) << 11;
@@ -2278,6 +3359,7 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
         key |= static_cast<uint64_t>(hMirror ? 1 : 0) << 30;
         key |= static_cast<uint64_t>(vMirror ? 1 : 0) << 31;
         key |= static_cast<uint64_t>(bgPriority ? 1 : 0) << 32;
+        key ^= static_cast<uint64_t>(currentTileHash) << 33;
         return key;
     };
 
@@ -2285,11 +3367,15 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
     overrideLookupCache.reserve(std::min<size_t>(activeOverrides.size() * 16u, 16384u));
 
     auto findOverride = [&](ChrOverride::Target target, int tileIndex, int fullTileIndex, int currentPatternTable, const std::array<uint8_t, 3>& palette, bool hMirror, bool vMirror, bool bgPriority, const ConditionContext& ctx) -> const PreparedOverride* {
-        const uint64_t lookupKey = makeOverrideLookupKey(target, fullTileIndex, currentPatternTable, palette, hMirror, vMirror, bgPriority);
         const uint32_t lookupHash = tileHash(fullTileIndex);
+        const uint32_t currentTileHash =
+            target == ChrOverride::Target::Sprite
+                ? ((ctx.spriteCandidate != nullptr && ctx.spriteCandidate->tileHash != 0) ? ctx.spriteCandidate->tileHash : lookupHash)
+                : ((ctx.backgroundPixel != nullptr && ctx.backgroundPixel->tileHash != 0) ? ctx.backgroundPixel->tileHash : lookupHash);
+        const uint64_t lookupKey = makeOverrideLookupKey(target, fullTileIndex, currentPatternTable, currentTileHash, palette, hMirror, vMirror, bgPriority);
         const bool hasDynamicCandidates =
             !dynamicWholeChrOverrides.empty() ||
-            (lookupHash != 0u && dynamicOverridesByChrHash.find(lookupHash) != dynamicOverridesByChrHash.end()) ||
+            (dynamicOverridesByChrHash.find(lookupHash) != dynamicOverridesByChrHash.end()) ||
             (fullTileIndex >= 0 && fullTileIndex < static_cast<int>(dynamicOverridesByFullTile.size()) &&
              !dynamicOverridesByFullTile[static_cast<size_t>(fullTileIndex)].empty()) ||
             (tileIndex >= 0 && tileIndex < static_cast<int>(dynamicOverridesByRelativeTile.size()) &&
@@ -2300,18 +3386,9 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
             }
         }
 
-        auto scanCandidates = [&](const std::vector<const PreparedOverride*>& candidates, bool allowDefaultTileFallback) -> const PreparedOverride* {
-            for(const PreparedOverride* candidate : candidates) {
-                if(matchesOverride(*candidate, target, allowDefaultTileFallback, tileIndex, fullTileIndex, currentPatternTable, palette, hMirror, vMirror, bgPriority, ctx)) {
-                    return candidate;
-                }
-            }
-            return nullptr;
-        };
-
         auto scanFullTile = [&](int lookupTile, bool allowDefaultTileFallback) -> const PreparedOverride* {
             if(lookupTile >= 0 && lookupTile < static_cast<int>(overridesByFullTile.size())) {
-                if(const PreparedOverride* found = scanCandidates(overridesByFullTile[static_cast<size_t>(lookupTile)], allowDefaultTileFallback)) {
+                if(const PreparedOverride* found = scanCandidates(overridesByFullTile[static_cast<size_t>(lookupTile)], allowDefaultTileFallback, target, tileIndex, fullTileIndex, currentPatternTable, palette, hMirror, vMirror, bgPriority, ctx)) {
                     return found;
                 }
             }
@@ -2320,7 +3397,7 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
 
         auto scanRelativeTile = [&](int lookupTile, bool allowDefaultTileFallback) -> const PreparedOverride* {
             if(lookupTile >= 0 && lookupTile < static_cast<int>(overridesByRelativeTile.size())) {
-                if(const PreparedOverride* found = scanCandidates(overridesByRelativeTile[static_cast<size_t>(lookupTile)], allowDefaultTileFallback)) {
+                if(const PreparedOverride* found = scanCandidates(overridesByRelativeTile[static_cast<size_t>(lookupTile)], allowDefaultTileFallback, target, tileIndex, fullTileIndex, currentPatternTable, palette, hMirror, vMirror, bgPriority, ctx)) {
                     return found;
                 }
             }
@@ -2328,11 +3405,8 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
         };
 
         auto scanHash = [&](bool allowDefaultTileFallback) -> const PreparedOverride* {
-            if(lookupHash == 0u) {
-                return nullptr;
-            }
             if(const auto it = overridesByChrHash.find(lookupHash); it != overridesByChrHash.end()) {
-                if(const PreparedOverride* found = scanCandidates(it->second, allowDefaultTileFallback)) {
+                if(const PreparedOverride* found = scanCandidates(it->second, allowDefaultTileFallback, target, tileIndex, fullTileIndex, currentPatternTable, palette, hMirror, vMirror, bgPriority, ctx)) {
                     return found;
                 }
             }
@@ -2341,7 +3415,7 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
 
         auto scanDynamicFullTile = [&](int lookupTile, bool allowDefaultTileFallback) -> const PreparedOverride* {
             if(lookupTile >= 0 && lookupTile < static_cast<int>(dynamicOverridesByFullTile.size())) {
-                if(const PreparedOverride* found = scanCandidates(dynamicOverridesByFullTile[static_cast<size_t>(lookupTile)], allowDefaultTileFallback)) {
+                if(const PreparedOverride* found = scanCandidates(dynamicOverridesByFullTile[static_cast<size_t>(lookupTile)], allowDefaultTileFallback, target, tileIndex, fullTileIndex, currentPatternTable, palette, hMirror, vMirror, bgPriority, ctx)) {
                     return found;
                 }
             }
@@ -2350,7 +3424,7 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
 
         auto scanDynamicRelativeTile = [&](int lookupTile, bool allowDefaultTileFallback) -> const PreparedOverride* {
             if(lookupTile >= 0 && lookupTile < static_cast<int>(dynamicOverridesByRelativeTile.size())) {
-                if(const PreparedOverride* found = scanCandidates(dynamicOverridesByRelativeTile[static_cast<size_t>(lookupTile)], allowDefaultTileFallback)) {
+                if(const PreparedOverride* found = scanCandidates(dynamicOverridesByRelativeTile[static_cast<size_t>(lookupTile)], allowDefaultTileFallback, target, tileIndex, fullTileIndex, currentPatternTable, palette, hMirror, vMirror, bgPriority, ctx)) {
                     return found;
                 }
             }
@@ -2358,15 +3432,45 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
         };
 
         auto scanDynamicHash = [&](bool allowDefaultTileFallback) -> const PreparedOverride* {
-            if(lookupHash == 0u) {
-                return nullptr;
-            }
             if(const auto it = dynamicOverridesByChrHash.find(lookupHash); it != dynamicOverridesByChrHash.end()) {
-                if(const PreparedOverride* found = scanCandidates(it->second, allowDefaultTileFallback)) {
+                if(const PreparedOverride* found = scanCandidates(it->second, allowDefaultTileFallback, target, tileIndex, fullTileIndex, currentPatternTable, palette, hMirror, vMirror, bgPriority, ctx)) {
                     return found;
                 }
             }
             return nullptr;
+        };
+
+        auto scanMergedFullTile = [&](int lookupTile, bool allowDefaultTileFallback) -> const PreparedOverride* {
+            if(lookupTile < 0 || lookupTile >= static_cast<int>(overridesByFullTile.size())) {
+                return nullptr;
+            }
+            return scanMergedCandidates(
+                overridesByFullTile[static_cast<size_t>(lookupTile)],
+                dynamicOverridesByFullTile[static_cast<size_t>(lookupTile)],
+                allowDefaultTileFallback, target, tileIndex, fullTileIndex, currentPatternTable, palette, hMirror, vMirror, bgPriority, ctx);
+        };
+
+        auto scanMergedRelativeTile = [&](int lookupTile, bool allowDefaultTileFallback) -> const PreparedOverride* {
+            if(lookupTile < 0 || lookupTile >= static_cast<int>(overridesByRelativeTile.size())) {
+                return nullptr;
+            }
+            return scanMergedCandidates(
+                overridesByRelativeTile[static_cast<size_t>(lookupTile)],
+                dynamicOverridesByRelativeTile[static_cast<size_t>(lookupTile)],
+                allowDefaultTileFallback, target, tileIndex, fullTileIndex, currentPatternTable, palette, hMirror, vMirror, bgPriority, ctx);
+        };
+
+        auto scanMergedHash = [&](bool allowDefaultTileFallback) -> const PreparedOverride* {
+            static const std::vector<const PreparedOverride*> emptyCandidates;
+            const auto staticIt = overridesByChrHash.find(lookupHash);
+            const auto dynamicIt = dynamicOverridesByChrHash.find(lookupHash);
+            const auto& staticCandidates = staticIt != overridesByChrHash.end() ? staticIt->second : emptyCandidates;
+            const auto& dynamicCandidates = dynamicIt != dynamicOverridesByChrHash.end() ? dynamicIt->second : emptyCandidates;
+            return scanMergedCandidates(staticCandidates, dynamicCandidates, allowDefaultTileFallback, target, tileIndex, fullTileIndex, currentPatternTable, palette, hMirror, vMirror, bgPriority, ctx);
+        };
+
+        auto scanMergedWhole = [&](bool allowDefaultTileFallback) -> const PreparedOverride* {
+            return scanMergedCandidates(wholeChrOverrides, dynamicWholeChrOverrides, allowDefaultTileFallback, target, tileIndex, fullTileIndex, currentPatternTable, palette, hMirror, vMirror, bgPriority, ctx);
         };
 
         auto scanAllExact = [&]() -> const PreparedOverride* {
@@ -2381,69 +3485,65 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
             if(const PreparedOverride* found = scanHash(false)) {
                 return found;
             }
-            return scanCandidates(wholeChrOverrides, false);
+            return scanCandidates(wholeChrOverrides, false, target, tileIndex, fullTileIndex, currentPatternTable, palette, hMirror, vMirror, bgPriority, ctx);
         };
 
         auto scanAllDynamicExact = [&]() -> const PreparedOverride* {
-            if(const PreparedOverride* found = scanDynamicFullTile(fullTileIndex, false)) {
+            if(const PreparedOverride* found = scanMergedFullTile(fullTileIndex, false)) {
                 return found;
             }
             if(fullTileIndex != tileIndex) {
-                if(const PreparedOverride* found = scanDynamicRelativeTile(tileIndex, false)) {
+                if(const PreparedOverride* found = scanMergedRelativeTile(tileIndex, false)) {
                     return found;
                 }
             }
-            if(const PreparedOverride* found = scanDynamicHash(false)) {
+            if(const PreparedOverride* found = scanMergedHash(false)) {
                 return found;
             }
-            if(const PreparedOverride* found = scanCandidates(dynamicWholeChrOverrides, false)) {
-                return found;
-            }
-            return nullptr;
+            return scanMergedWhole(false);
         };
 
         auto scanAllDynamicDefault = [&]() -> const PreparedOverride* {
-            if(const PreparedOverride* found = scanDynamicHash(true)) {
+            if(const PreparedOverride* found = scanMergedHash(true)) {
                 return found;
             }
-            if(const PreparedOverride* found = scanDynamicFullTile(fullTileIndex, true)) {
+            if(const PreparedOverride* found = scanMergedFullTile(fullTileIndex, true)) {
                 return found;
             }
             if(fullTileIndex == tileIndex) {
-                if(const PreparedOverride* found = scanDynamicRelativeTile(tileIndex, true)) {
+                if(const PreparedOverride* found = scanMergedRelativeTile(tileIndex, true)) {
                     return found;
                 }
             }
-            return scanCandidates(dynamicWholeChrOverrides, true);
+            return scanMergedWhole(true);
         };
 
-        if(const PreparedOverride* exact = scanAllExact()) {
-            if(canUseOverrideLookupCache && !hasDynamicCandidates) {
-                overrideLookupCache.emplace(lookupKey, exact);
-            }
-            return exact;
-        }
         if(hasDynamicCandidates) {
-            if(const PreparedOverride* dynamicExact = scanAllDynamicExact()) {
-                return dynamicExact;
+            if(const PreparedOverride* exact = scanAllDynamicExact()) {
+                return exact;
             }
-        }
-
-        if(const PreparedOverride* defaultMatch = scanFullTile(fullTileIndex, true)) {
-            if(canUseOverrideLookupCache && !hasDynamicCandidates) {
-                overrideLookupCache.emplace(lookupKey, defaultMatch);
-            }
-            return defaultMatch;
-        }
-        if(const PreparedOverride* hashDefaultMatch = scanHash(true)) {
-            if(canUseOverrideLookupCache && !hasDynamicCandidates) {
-                overrideLookupCache.emplace(lookupKey, hashDefaultMatch);
-            }
-            return hashDefaultMatch;
-        }
-        if(hasDynamicCandidates) {
             if(const PreparedOverride* dynamicDefault = scanAllDynamicDefault()) {
                 return dynamicDefault;
+            }
+        } else {
+            if(const PreparedOverride* exact = scanAllExact()) {
+                if(canUseOverrideLookupCache) {
+                    overrideLookupCache.emplace(lookupKey, exact);
+                }
+                return exact;
+            }
+
+            if(const PreparedOverride* defaultMatch = scanFullTile(fullTileIndex, true)) {
+                if(canUseOverrideLookupCache) {
+                    overrideLookupCache.emplace(lookupKey, defaultMatch);
+                }
+                return defaultMatch;
+            }
+            if(const PreparedOverride* hashDefaultMatch = scanHash(true)) {
+                if(canUseOverrideLookupCache) {
+                    overrideLookupCache.emplace(lookupKey, hashDefaultMatch);
+                }
+                return hashDefaultMatch;
             }
         }
         if(fullTileIndex != tileIndex) {
@@ -2539,7 +3639,13 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
         }
         const uint8_t sourcePaletteIndex = image->indexedPixels[sourcePixelIndex];
         if(sourcePaletteIndex == 0) {
-            return baseColor;
+            if(preserveSourceAlpha) {
+                return baseColor;
+            }
+            const uint32_t mappedColor =
+                (snapshot.paletteColors[snapshot.universalBgColor & 0x3F] & 0x00FFFFFFu) |
+                (static_cast<uint32_t>(sourceAlpha) << 24u);
+            return blendPixel(baseColor, mappedColor, 255);
         }
         const int paletteIndex = static_cast<int>(sourcePaletteIndex) - 1;
         if(paletteIndex < 0 || paletteIndex >= static_cast<int>(palette.size())) {

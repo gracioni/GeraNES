@@ -562,6 +562,7 @@ public:
     const uint32_t* getFramebuffer() const override;
     void copyFramebuffer(std::vector<uint32_t>& out) const override;
     bool getModRenderSnapshot(ModRenderSnapshot& out) const override;
+    bool getModRenderFrame(ModRenderSnapshot& snapshot, std::vector<uint32_t>& framebuffer) const override;
     void beginPresentationHoldUntilNextFrameReady() override;
     void setPresenterLockActive(bool active) override;
     void setSimulationSuspended(bool suspended) override;

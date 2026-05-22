@@ -2107,6 +2107,66 @@ inline void GeraNESApp::drawPpuViewerWindow()
 
 inline void GeraNESApp::drawModPixelInspectorWindow()
 {
+    auto lowerCopy = [](std::string value) {
+        std::transform(value.begin(), value.end(), value.begin(), [](unsigned char ch) {
+            return static_cast<char>(std::tolower(ch));
+        });
+        return value;
+    };
+    auto appendColorLine = [](std::ostringstream& out, const char* label, uint32_t color) {
+        out << label << ": #"
+            << std::uppercase << std::hex << std::setfill('0')
+            << std::setw(2) << static_cast<unsigned int>(color & 0xFFu)
+            << std::setw(2) << static_cast<unsigned int>((color >> 8) & 0xFFu)
+            << std::setw(2) << static_cast<unsigned int>((color >> 16) & 0xFFu)
+            << std::setw(2) << static_cast<unsigned int>((color >> 24) & 0xFFu)
+            << std::dec << "\n";
+    };
+    auto appendStageText = [&](std::ostringstream& out, const ModManager::DebugComposeStage& stage) {
+        if(!stage.valid) {
+            return;
+        }
+        out << stage.stage << "\n";
+        if(!stage.assetPath.empty()) {
+            out << "  asset: " << stage.assetPath << "\n";
+        }
+        if(stage.priority >= 0) {
+            out << "  prio: " << stage.priority << "\n";
+        }
+        if(stage.srcX >= 0 && stage.srcY >= 0) {
+            out << "  src: (" << stage.srcX << ", " << stage.srcY << ")\n";
+        }
+        if(stage.rawRgba != 0 || stage.srcX >= 0 || stage.srcY >= 0) {
+            appendColorLine(out, "  rgba", stage.rawRgba);
+        }
+        if(stage.indexedPaletteIndex >= 0) {
+            out << "  index: " << stage.indexedPaletteIndex << "\n";
+        }
+        out << "  result: " << (stage.returnedBaseColor ? "baseColor" : "applied") << "\n";
+        if(!stage.reason.empty()) {
+            out << "  why: " << stage.reason << "\n";
+        }
+    };
+    const bool hasStageFilter = !m_modPixelInspectorFilter.empty();
+    auto stageMatchesFilter = [&](const ModManager::DebugComposeStage& stage) {
+        if(!hasStageFilter) {
+            return false;
+        }
+        const std::string filter = lowerCopy(m_modPixelInspectorFilter);
+        return lowerCopy(stage.stage).find(filter) != std::string::npos ||
+               lowerCopy(stage.assetPath).find(filter) != std::string::npos ||
+               lowerCopy(stage.reason).find(filter) != std::string::npos;
+    };
+    auto stageVisibleInCompactMode = [&](const ModManager::DebugComposeStage& stage) {
+        if(stageMatchesFilter(stage)) {
+            return true;
+        }
+        if(stage.stage == "override candidate") {
+            return !stage.returnedBaseColor;
+        }
+        return !stage.returnedBaseColor || stage.stage == "bg override" || stage.stage == "sprite override";
+    };
+
     ImGui::SetNextWindowSize(ImVec2(340.0f, 320.0f), ImGuiCond_FirstUseEver);
     if(!ImGui::Begin("Screen Pixel Inspector", &m_showModPixelInspectorWindow)) {
         ImGui::End();
@@ -2125,6 +2185,23 @@ inline void GeraNESApp::drawModPixelInspectorWindow()
     ImGui::SliderFloat("Zoom", &m_modPixelInspectorZoom, 1.0f, 8.0f, "%.1fx");
     ImGui::SameLine();
     ImGui::TextDisabled("Shows the current rendered screen with per-pixel mod debug data.");
+    ImGui::SetNextItemWidth(180.0f);
+    ImGui::InputTextWithHint("##ModPixelInspectorFilter", "Filter stages, e.g. overworld2", &m_modPixelInspectorFilter);
+    ImGui::SameLine();
+    ImGui::Checkbox("Verbose candidates", &m_modPixelInspectorVerboseCandidates);
+    if(!m_modPixelInspectorLastDebugText.empty()) {
+        if(ImGui::Button("Copy Selected Debug")) {
+            ImGui::SetClipboardText(m_modPixelInspectorLastDebugText.c_str());
+        }
+        ImGui::SameLine();
+        if(ImGui::Button("Clear Selected Debug")) {
+            m_modPixelInspectorLastDebugText.clear();
+        }
+        ImGui::SameLine();
+        ImGui::TextDisabled("Click a pixel to pin its report below.");
+    } else {
+        ImGui::TextDisabled("Click a pixel to pin its report below.");
+    }
 
     if(!hasRomLoaded) {
         ImGui::TextDisabled("No ROM loaded.");
@@ -2133,7 +2210,9 @@ inline void GeraNESApp::drawModPixelInspectorWindow()
     }
 
     IEmulationHost::ModRenderSnapshot snapshot;
-    const bool hasSnapshot = m_emu.getModRenderSnapshot(snapshot) && snapshot.valid;
+    std::vector<uint32_t> inspectorFramebuffer;
+    const bool hasSnapshot = m_emu.getModRenderFrame(snapshot, inspectorFramebuffer) && snapshot.valid;
+    const uint32_t* sourceFramebuffer = inspectorFramebuffer.empty() ? m_emu.getFramebuffer() : inspectorFramebuffer.data();
 
     ImGui::Text(
         "Frame %u | Mod %s | Scale %dx | Clip top/bottom %d",
@@ -2143,7 +2222,7 @@ inline void GeraNESApp::drawModPixelInspectorWindow()
         m_clipHeightValue
     );
 
-    if(!ImGui::BeginChild("ModPixelInspectorScroll", ImVec2(0.0f, 0.0f), false, ImGuiWindowFlags_HorizontalScrollbar)) {
+    if(!ImGui::BeginChild("ModPixelInspectorScroll", ImVec2(0.0f, -180.0f), false, ImGuiWindowFlags_HorizontalScrollbar)) {
         ImGui::EndChild();
         ImGui::End();
         return;
@@ -2162,6 +2241,7 @@ inline void GeraNESApp::drawModPixelInspectorWindow()
 
     const ImVec2 imageMin = ImGui::GetItemRectMin();
     ImDrawList* drawList = ImGui::GetWindowDrawList();
+    const bool imageClicked = ImGui::IsItemClicked(ImGuiMouseButton_Left);
     if(ImGui::IsItemHovered()) {
         const ImVec2 mousePos = ImGui::GetIO().MousePos;
         const int hoveredX = std::clamp(static_cast<int>((mousePos.x - imageMin.x) / m_modPixelInspectorZoom), 0, PPU::SCREEN_WIDTH - 1);
@@ -2184,6 +2264,11 @@ inline void GeraNESApp::drawModPixelInspectorWindow()
             finalColor = m_textureUploadBuffer[sampleY * static_cast<size_t>(m_renderTextureWidth) + sampleX];
         }
 
+        std::ostringstream copyText;
+        copyText << "Screen pixel\n";
+        copyText << "NES: (" << hoveredX << ", " << hoveredY << ")\n";
+        appendColorLine(copyText, "Rendered RGBA", finalColor);
+
         ImGui::BeginTooltip();
         ImGui::Text("Screen pixel");
         ImGui::Text("NES: (%d, %d)", hoveredX, hoveredY);
@@ -2193,6 +2278,34 @@ inline void GeraNESApp::drawModPixelInspectorWindow()
             static_cast<unsigned int>((finalColor >> 16) & 0xFFu),
             static_cast<unsigned int>((finalColor >> 24) & 0xFFu));
 
+        std::optional<ModManager::DebugComposePixel> composeDebug;
+        if(modActive && hasSnapshot && sourceFramebuffer != nullptr) {
+            ModManager::ChrRenderSnapshot chrSnapshot;
+            chrSnapshot.scrollX = snapshot.scrollX;
+            chrSnapshot.scrollY = snapshot.scrollY;
+            chrSnapshot.universalBgColor = snapshot.universalBgColor;
+            chrSnapshot.paletteColors = snapshot.paletteColors;
+            chrSnapshot.tileHashes = snapshot.tileHashes;
+            chrSnapshot.backgroundPixels = snapshot.backgroundPixels;
+            chrSnapshot.spritePixels = snapshot.spritePixels;
+            composeDebug = m_modManager.debugComposePixel(sourceFramebuffer, chrSnapshot, modScale, hoveredX, hoveredY, m_modPixelInspectorFilter);
+        }
+
+        if(composeDebug.has_value() && composeDebug->valid) {
+            ImGui::Text("Base RGBA: #%02X%02X%02X%02X",
+                static_cast<unsigned int>(composeDebug->baseColor & 0xFFu),
+                static_cast<unsigned int>((composeDebug->baseColor >> 8) & 0xFFu),
+                static_cast<unsigned int>((composeDebug->baseColor >> 16) & 0xFFu),
+                static_cast<unsigned int>((composeDebug->baseColor >> 24) & 0xFFu));
+            ImGui::Text("Debug final: #%02X%02X%02X%02X",
+                static_cast<unsigned int>(composeDebug->finalColor & 0xFFu),
+                static_cast<unsigned int>((composeDebug->finalColor >> 8) & 0xFFu),
+                static_cast<unsigned int>((composeDebug->finalColor >> 16) & 0xFFu),
+                static_cast<unsigned int>((composeDebug->finalColor >> 24) & 0xFFu));
+            appendColorLine(copyText, "Base RGBA", composeDebug->baseColor);
+            appendColorLine(copyText, "Debug final", composeDebug->finalColor);
+        }
+
         if(hasSnapshot &&
            pixelIndex < snapshot.backgroundPixels.size() &&
            pixelIndex < snapshot.spritePixels.size()) {
@@ -2201,11 +2314,13 @@ inline void GeraNESApp::drawModPixelInspectorWindow()
 
             ImGui::Separator();
             ImGui::Text("Background");
+            copyText << "\nBackground\n";
             if(bg.valid) {
                 const uint32_t bgHash =
-                    bg.tileIndex < snapshot.tileHashes.size()
+                    bg.tileHash != 0 ? bg.tileHash :
+                    (bg.tileIndex < snapshot.tileHashes.size()
                         ? snapshot.tileHashes[bg.tileIndex]
-                        : 0u;
+                        : 0u);
                 ImGui::Text("Tile index: $%03X", static_cast<unsigned int>(bg.tileIndex));
                 ImGui::Text("Pattern addr: $%04X", static_cast<unsigned int>(bg.tileIndex * 16u));
                 ImGui::Text("Tile hash: %08X", static_cast<unsigned int>(bgHash));
@@ -2213,12 +2328,26 @@ inline void GeraNESApp::drawModPixelInspectorWindow()
                 ImGui::Text("Palette colors: %02X %02X %02X", bg.palette[0], bg.palette[1], bg.palette[2]);
                 ImGui::Text("Color bits: %u", static_cast<unsigned int>(bg.colorLowBits));
                 ImGui::Text("Tile offset: (%u, %u)", static_cast<unsigned int>(bg.offsetX), static_cast<unsigned int>(bg.offsetY));
+                copyText << "Tile index: $" << std::uppercase << std::hex << static_cast<unsigned int>(bg.tileIndex) << std::dec << "\n";
+                copyText << "Pattern addr: $" << std::uppercase << std::hex << static_cast<unsigned int>(bg.tileIndex * 16u) << std::dec << "\n";
+                copyText << "Tile hash: " << std::uppercase << std::hex << static_cast<unsigned int>(bgHash) << std::dec << "\n";
+                copyText << "Palette index: $" << std::uppercase << std::hex << static_cast<unsigned int>(bg.paletteIndex) << std::dec << "\n";
+                copyText << "Palette colors: "
+                         << std::uppercase << std::hex
+                         << std::setw(2) << std::setfill('0') << static_cast<unsigned int>(bg.palette[0]) << " "
+                         << std::setw(2) << static_cast<unsigned int>(bg.palette[1]) << " "
+                         << std::setw(2) << static_cast<unsigned int>(bg.palette[2])
+                         << std::dec << "\n";
+                copyText << "Color bits: " << static_cast<unsigned int>(bg.colorLowBits) << "\n";
+                copyText << "Tile offset: (" << static_cast<unsigned int>(bg.offsetX) << ", " << static_cast<unsigned int>(bg.offsetY) << ")\n";
             } else {
                 ImGui::TextDisabled("No background pixel captured.");
+                copyText << "No background pixel captured.\n";
             }
 
             ImGui::Separator();
             ImGui::Text("Sprites");
+            copyText << "\nSprites\n";
             if(sprite.count > 0) {
                 for(int i = 0; i < static_cast<int>(sprite.count); ++i) {
                     const auto& candidate = sprite.candidates[static_cast<size_t>(i)];
@@ -2244,18 +2373,128 @@ inline void GeraNESApp::drawModPixelInspectorWindow()
                         candidate.horizontalMirror ? "hflip " : "",
                         candidate.verticalMirror ? "vflip" : ""
                     );
+                    copyText << "#" << i
+                             << " tile $" << std::uppercase << std::hex << static_cast<unsigned int>(candidate.tileIndex)
+                             << " hash " << static_cast<unsigned int>(spriteHash)
+                             << std::dec
+                             << " pal "
+                             << std::uppercase << std::hex
+                             << std::setw(2) << std::setfill('0') << static_cast<unsigned int>(candidate.palette[0]) << " "
+                             << std::setw(2) << static_cast<unsigned int>(candidate.palette[1]) << " "
+                             << std::setw(2) << static_cast<unsigned int>(candidate.palette[2])
+                             << std::dec
+                             << " bits " << static_cast<unsigned int>(candidate.colorLowBits)
+                             << " off (" << static_cast<unsigned int>(candidate.offsetX) << "," << static_cast<unsigned int>(candidate.offsetY) << ") ";
+                    if(candidate.behindBackground) copyText << "behind-bg ";
+                    if(candidate.horizontalMirror) copyText << "hflip ";
+                    if(candidate.verticalMirror) copyText << "vflip";
+                    copyText << "\n";
                 }
             } else {
                 ImGui::TextDisabled("No sprite candidates captured.");
+                copyText << "No sprite candidates captured.\n";
+            }
+
+            if(composeDebug.has_value() && composeDebug->valid) {
+                auto drawStage = [](const ModManager::DebugComposeStage& stage) {
+                    if(!stage.valid) {
+                        return;
+                    }
+                    ImGui::Text("%s", stage.stage.c_str());
+                    if(!stage.assetPath.empty()) {
+                        ImGui::Text("  asset: %s", stage.assetPath.c_str());
+                    }
+                    if(stage.priority >= 0) {
+                        ImGui::Text("  prio: %d", stage.priority);
+                    }
+                    if(stage.srcX >= 0 && stage.srcY >= 0) {
+                        ImGui::Text("  src: (%d, %d)", stage.srcX, stage.srcY);
+                    }
+                    if(stage.rawRgba != 0 || stage.srcX >= 0 || stage.srcY >= 0) {
+                        ImGui::Text("  rgba: #%02X%02X%02X%02X",
+                            static_cast<unsigned int>(stage.rawRgba & 0xFFu),
+                            static_cast<unsigned int>((stage.rawRgba >> 8) & 0xFFu),
+                            static_cast<unsigned int>((stage.rawRgba >> 16) & 0xFFu),
+                            static_cast<unsigned int>((stage.rawRgba >> 24) & 0xFFu));
+                    }
+                    if(stage.indexedPaletteIndex >= 0) {
+                        ImGui::Text("  index: %d", stage.indexedPaletteIndex);
+                    }
+                    ImGui::Text("  result: %s", stage.returnedBaseColor ? "baseColor" : "applied");
+                    if(!stage.reason.empty()) {
+                        ImGui::TextWrapped("  why: %s", stage.reason.c_str());
+                    }
+                };
+
+                ImGui::Separator();
+                ImGui::Text("Compose debug");
+                copyText << "\nCompose debug\n";
+                int compactStageCount = 0;
+                constexpr int kCompactStageLimit = 24;
+                auto includeStage = [&](const ModManager::DebugComposeStage& stage) {
+                    const bool visible = m_modPixelInspectorVerboseCandidates
+                        ? (hasStageFilter ? stageMatchesFilter(stage) : true)
+                        : stageVisibleInCompactMode(stage);
+                    if(!visible) {
+                        return false;
+                    }
+                    if(m_modPixelInspectorVerboseCandidates || hasStageFilter) {
+                        return true;
+                    }
+                    if(compactStageCount >= kCompactStageLimit) {
+                        return false;
+                    }
+                    compactStageCount++;
+                    return true;
+                };
+                for(const auto& stage : composeDebug->backgroundCandidates) {
+                    if(includeStage(stage)) {
+                        drawStage(stage);
+                        appendStageText(copyText, stage);
+                    }
+                }
+                if(composeDebug->backgroundOverride.has_value()) {
+                    if(includeStage(*composeDebug->backgroundOverride)) {
+                        drawStage(*composeDebug->backgroundOverride);
+                        appendStageText(copyText, *composeDebug->backgroundOverride);
+                    }
+                }
+                for(const auto& stage : composeDebug->backgroundStages) {
+                    if(includeStage(stage)) {
+                        drawStage(stage);
+                        appendStageText(copyText, stage);
+                    }
+                }
+                for(const auto& stage : composeDebug->spriteStages) {
+                    if(includeStage(stage)) {
+                        drawStage(stage);
+                        appendStageText(copyText, stage);
+                    }
+                }
             }
         } else {
             ImGui::Separator();
             ImGui::TextDisabled("Mod debug snapshot unavailable for this frame.");
+            copyText << "\nMod debug snapshot unavailable for this frame.\n";
+        }
+        if(imageClicked) {
+            m_modPixelInspectorLastDebugText = copyText.str();
         }
         ImGui::EndTooltip();
     }
 
     ImGui::EndChild();
+    ImGui::Separator();
+    ImGui::Text("Selected pixel debug");
+    if(m_modPixelInspectorLastDebugText.empty()) {
+        ImGui::TextDisabled("No pixel selected.");
+    } else {
+        ImGui::InputTextMultiline(
+            "##ModPixelInspectorPinnedDebug",
+            &m_modPixelInspectorLastDebugText,
+            ImVec2(-FLT_MIN, 150.0f),
+            ImGuiInputTextFlags_ReadOnly);
+    }
     ImGui::End();
 }
 

@@ -221,6 +221,7 @@ private:
 public:
     struct DebugModBackgroundPixel {
         uint16_t tileIndex = 0xFFFF;
+        uint32_t tileHash = 0;
         uint8_t palette[3] = {};
         uint8_t paletteIndex = 0;
         uint8_t colorLowBits = 0;
@@ -231,6 +232,7 @@ public:
 
     struct DebugModSpriteCandidate {
         uint16_t tileIndex = 0xFFFF;
+        uint32_t tileHash = 0;
         uint8_t palette[3] = {};
         uint8_t colorLowBits = 0;
         uint8_t offsetX = 0;
@@ -243,6 +245,7 @@ public:
 
     struct DebugModSpritePixel {
         uint16_t tileIndex = 0xFFFF;
+        uint32_t tileHash = 0;
         uint8_t palette[3] = {};
         uint8_t colorLowBits = 0;
         uint8_t offsetX = 0;
@@ -1039,6 +1042,7 @@ public:
             if(source.valid) {
                 const uint8_t colorLowBits = static_cast<uint8_t>(m_currentPixelColorIndex & 0x03);
                 pixel.tileIndex = source.tileIndex;
+                pixel.tileHash = debugHashChrTile(source.tileIndex);
                 pixel.palette[0] = static_cast<uint8_t>(m_palette[(source.paletteOffset + 1) & 0x1F] & 0x3F);
                 pixel.palette[1] = static_cast<uint8_t>(m_palette[(source.paletteOffset + 2) & 0x1F] & 0x3F);
                 pixel.palette[2] = static_cast<uint8_t>(m_palette[(source.paletteOffset + 3) & 0x1F] & 0x3F);
@@ -1649,6 +1653,7 @@ yyy NN YYYYY XXXXX
                 if(sprite.valid && captured.count < captured.candidates.size()) {
                     DebugModSpriteCandidate& candidate = captured.candidates[captured.count++];
                     candidate.tileIndex = sprite.tileIndex;
+                    candidate.tileHash = debugHashChrTile(sprite.tileIndex);
                     candidate.palette[0] = static_cast<uint8_t>(m_palette[0x11 + ((sprite.attr & 0x03) << 2)] & 0x3F);
                     candidate.palette[1] = static_cast<uint8_t>(m_palette[0x12 + ((sprite.attr & 0x03) << 2)] & 0x3F);
                     candidate.palette[2] = static_cast<uint8_t>(m_palette[0x13 + ((sprite.attr & 0x03) << 2)] & 0x3F);
@@ -1661,6 +1666,7 @@ yyy NN YYYYY XXXXX
                     candidate.valid = true;
                     if(!captured.valid) {
                         captured.tileIndex = candidate.tileIndex;
+                        captured.tileHash = candidate.tileHash;
                         captured.palette[0] = candidate.palette[0];
                         captured.palette[1] = candidate.palette[1];
                         captured.palette[2] = candidate.palette[2];
