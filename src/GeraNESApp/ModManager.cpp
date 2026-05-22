@@ -819,14 +819,14 @@ bool ModManager::loadMesenHiresFile()
                     condition.hasMask = true;
                     condition.mask = parseHexValue(tokens[5]);
                 }
-                namedConditions[tokens[0]].push_back(condition);
+                namedConditions[tokens[0]] = { condition };
             } else if(normalizedType == "framerange" && tokens.size() >= 4) {
                 MemoryCondition condition;
                 condition.kind = MemoryCondition::Kind::FrameRange;
                 condition.value = parseDecOrHexValue(tokens[2], 1);
                 condition.address = parseDecOrHexValue(tokens[3], 0);
                 condition.debugName = tokens[0];
-                namedConditions[tokens[0]].push_back(condition);
+                namedConditions[tokens[0]] = { condition };
             } else if((normalizedType == "tileatposition" || normalizedType == "tilenearby" ||
                         normalizedType == "spriteatposition" || normalizedType == "spritenearby") && tokens.size() >= 6) {
                 MemoryCondition condition;
@@ -847,7 +847,7 @@ bool ModManager::loadMesenHiresFile()
                 }
                 condition.expectedPalette = parseMesenPalette(tokens[5]);
                 condition.expectedPaletteKey = parseHexValue(tokens[5]);
-                namedConditions[tokens[0]].push_back(condition);
+                namedConditions[tokens[0]] = { condition };
             }
             continue;
         }
@@ -1957,8 +1957,14 @@ std::optional<ModManager::DebugComposePixel> ModManager::debugComposePixel(const
         }
         case MemoryCondition::Kind::TileAtPosition:
         case MemoryCondition::Kind::TileNearby: {
-            const int targetX = condition.kind == MemoryCondition::Kind::TileAtPosition ? condition.x : (ctx.nesX + condition.x);
-            const int targetY = condition.kind == MemoryCondition::Kind::TileAtPosition ? condition.y : (ctx.nesY + condition.y);
+            int targetX = condition.x;
+            int targetY = condition.y;
+            if(condition.kind == MemoryCondition::Kind::TileNearby) {
+                const int originX = ctx.backgroundPixel != nullptr ? (ctx.nesX - static_cast<int>(ctx.backgroundPixel->offsetX)) : ctx.nesX;
+                const int originY = ctx.backgroundPixel != nullptr ? (ctx.nesY - static_cast<int>(ctx.backgroundPixel->offsetY)) : ctx.nesY;
+                targetX = originX + condition.x;
+                targetY = originY + condition.y;
+            }
             const PPU::DebugModBackgroundPixel* pixel = backgroundPixelAt(targetX, targetY);
             match = pixel != nullptr && tileMatchesCondition(condition, *pixel);
             break;
@@ -1971,8 +1977,14 @@ std::optional<ModManager::DebugComposePixel> ModManager::debugComposePixel(const
                 xSign = ctx.spriteCandidate->horizontalMirror ? -1 : 1;
                 ySign = ctx.spriteCandidate->verticalMirror ? -1 : 1;
             }
-            const int targetX = condition.kind == MemoryCondition::Kind::SpriteAtPosition ? condition.x : (ctx.nesX + condition.x * xSign);
-            const int targetY = condition.kind == MemoryCondition::Kind::SpriteAtPosition ? condition.y : (ctx.nesY + condition.y * ySign);
+            int targetX = condition.x;
+            int targetY = condition.y;
+            if(condition.kind == MemoryCondition::Kind::SpriteNearby) {
+                const int originX = ctx.spriteCandidate != nullptr ? (ctx.nesX - static_cast<int>(ctx.spriteCandidate->offsetX)) : ctx.nesX;
+                const int originY = ctx.spriteCandidate != nullptr ? (ctx.nesY - static_cast<int>(ctx.spriteCandidate->offsetY)) : ctx.nesY;
+                targetX = originX + condition.x * xSign;
+                targetY = originY + condition.y * ySign;
+            }
             const PPU::DebugModSpritePixel* pixel = spritePixelAt(targetX, targetY);
             if(pixel != nullptr) {
                 for(uint8_t i = 0; i < pixel->count; ++i) {
@@ -2023,8 +2035,14 @@ std::optional<ModManager::DebugComposePixel> ModManager::debugComposePixel(const
             break;
         case MemoryCondition::Kind::TileAtPosition:
         case MemoryCondition::Kind::TileNearby: {
-            const int targetX = condition.kind == MemoryCondition::Kind::TileAtPosition ? condition.x : (ctx.nesX + condition.x);
-            const int targetY = condition.kind == MemoryCondition::Kind::TileAtPosition ? condition.y : (ctx.nesY + condition.y);
+            int targetX = condition.x;
+            int targetY = condition.y;
+            if(condition.kind == MemoryCondition::Kind::TileNearby) {
+                const int originX = ctx.backgroundPixel != nullptr ? (ctx.nesX - static_cast<int>(ctx.backgroundPixel->offsetX)) : ctx.nesX;
+                const int originY = ctx.backgroundPixel != nullptr ? (ctx.nesY - static_cast<int>(ctx.backgroundPixel->offsetY)) : ctx.nesY;
+                targetX = originX + condition.x;
+                targetY = originY + condition.y;
+            }
             out << " (tile @" << targetX << "," << targetY << ")";
             break;
         }
@@ -2036,8 +2054,14 @@ std::optional<ModManager::DebugComposePixel> ModManager::debugComposePixel(const
                 xSign = ctx.spriteCandidate->horizontalMirror ? -1 : 1;
                 ySign = ctx.spriteCandidate->verticalMirror ? -1 : 1;
             }
-            const int targetX = condition.kind == MemoryCondition::Kind::SpriteAtPosition ? condition.x : (ctx.nesX + condition.x * xSign);
-            const int targetY = condition.kind == MemoryCondition::Kind::SpriteAtPosition ? condition.y : (ctx.nesY + condition.y * ySign);
+            int targetX = condition.x;
+            int targetY = condition.y;
+            if(condition.kind == MemoryCondition::Kind::SpriteNearby) {
+                const int originX = ctx.spriteCandidate != nullptr ? (ctx.nesX - static_cast<int>(ctx.spriteCandidate->offsetX)) : ctx.nesX;
+                const int originY = ctx.spriteCandidate != nullptr ? (ctx.nesY - static_cast<int>(ctx.spriteCandidate->offsetY)) : ctx.nesY;
+                targetX = originX + condition.x * xSign;
+                targetY = originY + condition.y * ySign;
+            }
             out << " (sprite @" << targetX << "," << targetY << ")";
             break;
         }
@@ -3239,8 +3263,14 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
         }
         case MemoryCondition::Kind::TileAtPosition:
         case MemoryCondition::Kind::TileNearby: {
-            const int targetX = condition.kind == MemoryCondition::Kind::TileAtPosition ? condition.x : (ctx.nesX + condition.x);
-            const int targetY = condition.kind == MemoryCondition::Kind::TileAtPosition ? condition.y : (ctx.nesY + condition.y);
+            int targetX = condition.x;
+            int targetY = condition.y;
+            if(condition.kind == MemoryCondition::Kind::TileNearby) {
+                const int originX = ctx.backgroundPixel != nullptr ? (ctx.nesX - static_cast<int>(ctx.backgroundPixel->offsetX)) : ctx.nesX;
+                const int originY = ctx.backgroundPixel != nullptr ? (ctx.nesY - static_cast<int>(ctx.backgroundPixel->offsetY)) : ctx.nesY;
+                targetX = originX + condition.x;
+                targetY = originY + condition.y;
+            }
             const PPU::DebugModBackgroundPixel* pixel = backgroundPixelAt(targetX, targetY);
             match = pixel != nullptr && tileMatchesCondition(condition, *pixel);
             break;
@@ -3253,8 +3283,14 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
                 xSign = ctx.spriteCandidate->horizontalMirror ? -1 : 1;
                 ySign = ctx.spriteCandidate->verticalMirror ? -1 : 1;
             }
-            const int targetX = condition.kind == MemoryCondition::Kind::SpriteAtPosition ? condition.x : (ctx.nesX + condition.x * xSign);
-            const int targetY = condition.kind == MemoryCondition::Kind::SpriteAtPosition ? condition.y : (ctx.nesY + condition.y * ySign);
+            int targetX = condition.x;
+            int targetY = condition.y;
+            if(condition.kind == MemoryCondition::Kind::SpriteNearby) {
+                const int originX = ctx.spriteCandidate != nullptr ? (ctx.nesX - static_cast<int>(ctx.spriteCandidate->offsetX)) : ctx.nesX;
+                const int originY = ctx.spriteCandidate != nullptr ? (ctx.nesY - static_cast<int>(ctx.spriteCandidate->offsetY)) : ctx.nesY;
+                targetX = originX + condition.x * xSign;
+                targetY = originY + condition.y * ySign;
+            }
             const PPU::DebugModSpritePixel* pixel = spritePixelAt(targetX, targetY);
             if(pixel != nullptr) {
                 for(uint8_t i = 0; i < pixel->count; ++i) {
