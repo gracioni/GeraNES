@@ -3404,6 +3404,28 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
 
     std::unordered_map<uint64_t, const PreparedOverride*> overrideLookupCache;
     overrideLookupCache.reserve(std::min<size_t>(activeOverrides.size() * 16u, 16384u));
+    std::unordered_map<uint64_t, const PreparedOverride*> dynamicOverrideLookupCache;
+    dynamicOverrideLookupCache.reserve(std::min<size_t>(activeOverrides.size() * 32u, 32768u));
+
+    auto makeDynamicOverrideLookupKey = [](uint64_t baseKey, const ConditionContext& ctx) {
+        int originX = ctx.nesX;
+        int originY = ctx.nesY;
+        if(ctx.spriteCandidate != nullptr) {
+            originX -= static_cast<int>(ctx.spriteCandidate->offsetX);
+            originY -= static_cast<int>(ctx.spriteCandidate->offsetY);
+        } else if(ctx.backgroundPixel != nullptr) {
+            originX -= static_cast<int>(ctx.backgroundPixel->offsetX);
+            originY -= static_cast<int>(ctx.backgroundPixel->offsetY);
+        }
+
+        uint64_t key = baseKey;
+        key ^= static_cast<uint64_t>(originX & 0x01FF) << 1;
+        key ^= static_cast<uint64_t>(originY & 0x01FF) << 10;
+        key ^= key >> 33;
+        key *= 0xff51afd7ed558ccdULL;
+        key ^= key >> 33;
+        return key;
+    };
 
     auto findOverride = [&](ChrOverride::Target target, int tileIndex, int fullTileIndex, int currentPatternTable, const std::array<uint8_t, 3>& palette, bool hMirror, bool vMirror, bool bgPriority, const ConditionContext& ctx) -> const PreparedOverride* {
         const uint32_t lookupHash = tileHash(fullTileIndex);
@@ -3421,6 +3443,12 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
              !dynamicOverridesByRelativeTile[static_cast<size_t>(tileIndex)].empty());
         if(canUseOverrideLookupCache && !hasDynamicCandidates) {
             if(const auto it = overrideLookupCache.find(lookupKey); it != overrideLookupCache.end()) {
+                return it->second;
+            }
+        }
+        const uint64_t dynamicLookupKey = hasDynamicCandidates ? makeDynamicOverrideLookupKey(lookupKey, ctx) : 0u;
+        if(hasDynamicCandidates) {
+            if(const auto it = dynamicOverrideLookupCache.find(dynamicLookupKey); it != dynamicOverrideLookupCache.end()) {
                 return it->second;
             }
         }
@@ -3559,9 +3587,11 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
 
         if(hasDynamicCandidates) {
             if(const PreparedOverride* exact = scanAllDynamicExact()) {
+                dynamicOverrideLookupCache.emplace(dynamicLookupKey, exact);
                 return exact;
             }
             if(const PreparedOverride* dynamicDefault = scanAllDynamicDefault()) {
+                dynamicOverrideLookupCache.emplace(dynamicLookupKey, dynamicDefault);
                 return dynamicDefault;
             }
         } else {
@@ -3586,12 +3616,18 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
             }
         }
         if(fullTileIndex != tileIndex) {
+            if(hasDynamicCandidates) {
+                dynamicOverrideLookupCache.emplace(dynamicLookupKey, nullptr);
+            }
             if(canUseOverrideLookupCache && !hasDynamicCandidates) {
                 overrideLookupCache.emplace(lookupKey, nullptr);
             }
             return nullptr;
         }
         const PreparedOverride* relativeDefaultMatch = scanRelativeTile(tileIndex, true);
+        if(hasDynamicCandidates) {
+            dynamicOverrideLookupCache.emplace(dynamicLookupKey, relativeDefaultMatch);
+        }
         if(canUseOverrideLookupCache && !hasDynamicCandidates) {
             overrideLookupCache.emplace(lookupKey, relativeDefaultMatch);
         }
