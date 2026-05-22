@@ -3433,6 +3433,13 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
     std::unordered_map<uint64_t, const PreparedOverride*> dynamicOverrideLookupCache;
     dynamicOverrideLookupCache.reserve(std::min<size_t>(activeOverrides.size() * 64u, 65536u));
 
+    struct ResolvedBackgroundLayer {
+        const PreparedBackground* prepared = nullptr;
+        bool valid = false;
+        int baseSrcX = 0;
+        int baseSrcY = 0;
+    };
+
     auto makeDynamicOverrideLookupKey = [](uint64_t baseKey, const ConditionContext& ctx) {
         int originX = ctx.nesX;
         int originY = ctx.nesY;
@@ -3787,26 +3794,40 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
         }
     }
 
-    auto sampleBackgroundPixel = [&](uint32_t dstColor, const PreparedBackground& prepared, int nesX, int nesY, int subX, int subY) {
+    auto resolveBackgroundLayer = [&](const PreparedBackground& prepared, int nesX, int nesY) {
+        ResolvedBackgroundLayer resolved;
+        resolved.prepared = &prepared;
+
         const BackgroundReplacement& replacement = *prepared.replacement;
         const DecodedImage& image = *prepared.image;
         if(image.width <= 0 || image.height <= 0) {
-            return dstColor;
+            return resolved;
         }
 
         const int srcNesX = replacement.sourceX + nesX + prepared.bgScrollX;
         const int srcNesY = replacement.sourceY + nesY + prepared.bgScrollY;
-
         if(srcNesX < 0 || srcNesY < 0) {
-            return dstColor;
+            return resolved;
         }
         if((srcNesX + 1) * prepared.backgroundScale > image.width || (srcNesY + 1) * prepared.backgroundScale > image.height) {
+            return resolved;
+        }
+
+        resolved.valid = true;
+        resolved.baseSrcX = srcNesX * prepared.backgroundScale;
+        resolved.baseSrcY = srcNesY * prepared.backgroundScale;
+        return resolved;
+    };
+
+    auto sampleResolvedBackgroundPixel = [&](uint32_t dstColor, const ResolvedBackgroundLayer& resolved, int subX, int subY) {
+        if(!resolved.valid || resolved.prepared == nullptr) {
             return dstColor;
         }
 
-        const int srcX = srcNesX * prepared.backgroundScale + std::clamp(subX, 0, prepared.backgroundScale - 1);
-        const int srcY = srcNesY * prepared.backgroundScale + std::clamp(subY, 0, prepared.backgroundScale - 1);
-
+        const PreparedBackground& prepared = *resolved.prepared;
+        const DecodedImage& image = *prepared.image;
+        const int srcX = resolved.baseSrcX + std::clamp(subX, 0, prepared.backgroundScale - 1);
+        const int srcY = resolved.baseSrcY + std::clamp(subY, 0, prepared.backgroundScale - 1);
         const uint32_t src = image.rgba[static_cast<size_t>(srcY) * static_cast<size_t>(image.width) + static_cast<size_t>(srcX)];
         return blendPixel(dstColor, src, prepared.alphaScale);
     };
@@ -3883,6 +3904,36 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
                 }
             }
 
+            std::array<ResolvedBackgroundLayer, 10> resolvedLowPriorityBackgrounds = {};
+            size_t resolvedLowPriorityBackgroundCount = 0;
+            for(const PreparedBackground* preparedBackground : lowPriorityBackgrounds) {
+                if(resolvedLowPriorityBackgroundCount >= resolvedLowPriorityBackgrounds.size()) {
+                    break;
+                }
+                resolvedLowPriorityBackgrounds[resolvedLowPriorityBackgroundCount++] =
+                    resolveBackgroundLayer(*preparedBackground, nesX, nesY);
+            }
+
+            std::array<ResolvedBackgroundLayer, 20> resolvedMidPriorityBackgrounds = {};
+            size_t resolvedMidPriorityBackgroundCount = 0;
+            for(const PreparedBackground* preparedBackground : midPriorityBackgrounds) {
+                if(resolvedMidPriorityBackgroundCount >= resolvedMidPriorityBackgrounds.size()) {
+                    break;
+                }
+                resolvedMidPriorityBackgrounds[resolvedMidPriorityBackgroundCount++] =
+                    resolveBackgroundLayer(*preparedBackground, nesX, nesY);
+            }
+
+            std::array<ResolvedBackgroundLayer, 10> resolvedHighPriorityBackgrounds = {};
+            size_t resolvedHighPriorityBackgroundCount = 0;
+            for(const PreparedBackground* preparedBackground : highPriorityBackgrounds) {
+                if(resolvedHighPriorityBackgroundCount >= resolvedHighPriorityBackgrounds.size()) {
+                    break;
+                }
+                resolvedHighPriorityBackgrounds[resolvedHighPriorityBackgroundCount++] =
+                    resolveBackgroundLayer(*preparedBackground, nesX, nesY);
+            }
+
             const int blockX0 = nesX * scale;
             const int blockX1 = std::min(width, blockX0 + scale);
             if(blockX0 >= blockX1) continue;
@@ -3895,16 +3946,17 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
                     if(outX < 0 || outX >= width) continue;
                     uint32_t color = m_disableOriginalTiles ? 0x00000000u : baseColor;
 
-                    for(const PreparedBackground* preparedBackground : lowPriorityBackgrounds) {
-                        color = sampleBackgroundPixel(color, *preparedBackground, nesX, nesY, subX, subY);
+                    for(size_t i = 0; i < resolvedLowPriorityBackgroundCount; ++i) {
+                        color = sampleResolvedBackgroundPixel(color, resolvedLowPriorityBackgrounds[i], subX, subY);
                     }
 
                     if(bgPixel != nullptr && bgPixel->valid) {
-                        for(const PreparedBackground* preparedBackground : midPriorityBackgrounds) {
-                            if(preparedBackground->priority >= 20) {
+                        for(size_t i = 0; i < resolvedMidPriorityBackgroundCount; ++i) {
+                            const ResolvedBackgroundLayer& resolved = resolvedMidPriorityBackgrounds[i];
+                            if(resolved.prepared == nullptr || resolved.prepared->priority >= 20) {
                                 break;
                             }
-                            color = sampleBackgroundPixel(color, *preparedBackground, nesX, nesY, subX, subY);
+                            color = sampleResolvedBackgroundPixel(color, resolved, subX, subY);
                         }
                         if(backgroundOverride != nullptr) {
                             const std::array<uint8_t, 3> bgPalette = { bgPixel->palette[0], bgPixel->palette[1], bgPixel->palette[2] };
@@ -3927,11 +3979,12 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
                         }
                     }
 
-                    for(const PreparedBackground* preparedBackground : midPriorityBackgrounds) {
-                        if(preparedBackground->priority < 20) {
+                    for(size_t i = 0; i < resolvedMidPriorityBackgroundCount; ++i) {
+                        const ResolvedBackgroundLayer& resolved = resolvedMidPriorityBackgrounds[i];
+                        if(resolved.prepared == nullptr || resolved.prepared->priority < 20) {
                             continue;
                         }
-                        color = sampleBackgroundPixel(color, *preparedBackground, nesX, nesY, subX, subY);
+                        color = sampleResolvedBackgroundPixel(color, resolved, subX, subY);
                     }
 
                     if(spritePixel != nullptr && spritePixel->count > 0) {
@@ -4002,8 +4055,8 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
                         }
                     }
 
-                    for(const PreparedBackground* preparedBackground : highPriorityBackgrounds) {
-                        color = sampleBackgroundPixel(color, *preparedBackground, nesX, nesY, subX, subY);
+                    for(size_t i = 0; i < resolvedHighPriorityBackgroundCount; ++i) {
+                        color = sampleResolvedBackgroundPixel(color, resolvedHighPriorityBackgrounds[i], subX, subY);
                     }
                     dstRow[outX] = color;
                 }
