@@ -1800,12 +1800,12 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
         const uint32_t sourcePixel = image->rgba[sourcePixelIndex];
         if(override->ignorePalette) {
             const uint8_t sourceAlpha = static_cast<uint8_t>((sourcePixel >> 24u) & 0xFFu);
+            if(sourceAlpha == 0) {
+                return baseColor;
+            }
             const uint32_t opaqueSource = (sourcePixel & 0x00FFFFFFu) | 0xFF000000u;
             if(!preserveSourceAlpha) {
                 return opaqueSource;
-            }
-            if(sourceAlpha == 0) {
-                return baseColor;
             }
             if(sourceAlpha == 0xFF) {
                 return opaqueSource;
