@@ -910,7 +910,7 @@ inline void GeraNESApp::menuBar() {
                 m_showPpuViewerWindow = !m_showPpuViewerWindow;
             }
 
-            if(ImGui::MenuItem("Mod Pixel Inspector", nullptr, m_showModPixelInspectorWindow, hasLoadedRom)) {
+            if(ImGui::MenuItem("Screen Pixel Inspector", nullptr, m_showModPixelInspectorWindow, hasLoadedRom)) {
                 m_showModPixelInspectorWindow = !m_showModPixelInspectorWindow;
             }
 
@@ -2107,7 +2107,8 @@ inline void GeraNESApp::drawPpuViewerWindow()
 
 inline void GeraNESApp::drawModPixelInspectorWindow()
 {
-    if(!ImGui::Begin("Mod Pixel Inspector", &m_showModPixelInspectorWindow)) {
+    ImGui::SetNextWindowSize(ImVec2(340.0f, 320.0f), ImGuiCond_FirstUseEver);
+    if(!ImGui::Begin("Screen Pixel Inspector", &m_showModPixelInspectorWindow)) {
         ImGui::End();
         return;
     }

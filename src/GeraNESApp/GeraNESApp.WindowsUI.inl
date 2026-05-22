@@ -618,7 +618,7 @@ inline void GeraNESApp::showOverlay()
 
         const ImVec2 pos = ImVec2(
             overlayOrigin.x + width() - fpsTextSize.x - 32,
-            overlayOrigin.y + static_cast<float>(clientArea.y) + 8.0f
+            overlayOrigin.y + static_cast<float>(clientArea.y) + 16.0f
         );
 
         DrawTextOutlined(drawList, fpsFont, fontSize, pos, 0xFFFFFFFF, 0xFF000000, fpsText.c_str());

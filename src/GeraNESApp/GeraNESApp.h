@@ -216,7 +216,7 @@ private:
     bool m_showMemoryCompareWindow = false;
     bool m_showPpuViewerWindow = false;
     bool m_showModPixelInspectorWindow = false;
-    float m_modPixelInspectorZoom = 3.0f;
+    float m_modPixelInspectorZoom = 1.0f;
     bool m_showEventViewerWindow = false;
     bool m_ppuEventViewerEnabled = false;
     bool m_showArkanoidNesConfigWindow = false;
