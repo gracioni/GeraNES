@@ -3980,26 +3980,42 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
         }
     }
 
-    std::vector<const PreparedBackground*> lowPriorityBackgrounds;
-    std::vector<const PreparedBackground*> midPriorityBackgrounds;
-    std::vector<const PreparedBackground*> highPriorityBackgrounds;
+    struct ActiveBackgroundLayer {
+        const PreparedBackground* prepared = nullptr;
+        int bgScrollX = 0;
+        int bgScrollY = 0;
+    };
+
+    std::vector<ActiveBackgroundLayer> lowPriorityBackgrounds;
+    std::vector<ActiveBackgroundLayer> midPriorityBackgrounds;
+    std::vector<ActiveBackgroundLayer> highPriorityBackgrounds;
     lowPriorityBackgrounds.reserve(10);
     midPriorityBackgrounds.reserve(20);
     highPriorityBackgrounds.reserve(10);
     for(int priority = 0; priority < 40; ++priority) {
         if(const PreparedBackground* preparedBackground = activeBackgroundsByPriority[static_cast<size_t>(priority)]; preparedBackground != nullptr) {
+            const BackgroundReplacement& replacement = *preparedBackground->replacement;
+            ActiveBackgroundLayer activeLayer;
+            activeLayer.prepared = preparedBackground;
+            activeLayer.bgScrollX = static_cast<int>(snapshot.scrollX * replacement.parallaxX) + replacement.scrollX;
+            activeLayer.bgScrollY = static_cast<int>(snapshot.scrollY * replacement.parallaxY) + replacement.scrollY;
             if(priority < 10) {
-                lowPriorityBackgrounds.push_back(preparedBackground);
+                lowPriorityBackgrounds.push_back(activeLayer);
             } else if(priority < 30) {
-                midPriorityBackgrounds.push_back(preparedBackground);
+                midPriorityBackgrounds.push_back(activeLayer);
             } else {
-                highPriorityBackgrounds.push_back(preparedBackground);
+                highPriorityBackgrounds.push_back(activeLayer);
             }
         }
     }
 
-    auto resolveBackgroundLayer = [&](const PreparedBackground& prepared, int nesX, int nesY) {
+    auto resolveBackgroundLayer = [&](const ActiveBackgroundLayer& activeLayer, int nesX, int nesY) {
         ResolvedBackgroundLayer resolved;
+        if(activeLayer.prepared == nullptr) {
+            return resolved;
+        }
+
+        const PreparedBackground& prepared = *activeLayer.prepared;
         resolved.prepared = &prepared;
 
         const BackgroundReplacement& replacement = *prepared.replacement;
@@ -4008,10 +4024,8 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
             return resolved;
         }
 
-        const int bgScrollX = static_cast<int>(snapshot.scrollX * replacement.parallaxX) + replacement.scrollX;
-        const int bgScrollY = static_cast<int>(snapshot.scrollY * replacement.parallaxY) + replacement.scrollY;
-        const int srcNesX = replacement.sourceX + nesX + bgScrollX;
-        const int srcNesY = replacement.sourceY + nesY + bgScrollY;
+        const int srcNesX = replacement.sourceX + nesX + activeLayer.bgScrollX;
+        const int srcNesY = replacement.sourceY + nesY + activeLayer.bgScrollY;
         if(srcNesX < 0 || srcNesY < 0) {
             return resolved;
         }
@@ -4134,32 +4148,32 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
 
             std::array<ResolvedBackgroundLayer, 10> resolvedLowPriorityBackgrounds = {};
             size_t resolvedLowPriorityBackgroundCount = 0;
-            for(const PreparedBackground* preparedBackground : lowPriorityBackgrounds) {
+            for(const ActiveBackgroundLayer& activeLayer : lowPriorityBackgrounds) {
                 if(resolvedLowPriorityBackgroundCount >= resolvedLowPriorityBackgrounds.size()) {
                     break;
                 }
                 resolvedLowPriorityBackgrounds[resolvedLowPriorityBackgroundCount++] =
-                    resolveBackgroundLayer(*preparedBackground, nesX, nesY);
+                    resolveBackgroundLayer(activeLayer, nesX, nesY);
             }
 
             std::array<ResolvedBackgroundLayer, 20> resolvedMidPriorityBackgrounds = {};
             size_t resolvedMidPriorityBackgroundCount = 0;
-            for(const PreparedBackground* preparedBackground : midPriorityBackgrounds) {
+            for(const ActiveBackgroundLayer& activeLayer : midPriorityBackgrounds) {
                 if(resolvedMidPriorityBackgroundCount >= resolvedMidPriorityBackgrounds.size()) {
                     break;
                 }
                 resolvedMidPriorityBackgrounds[resolvedMidPriorityBackgroundCount++] =
-                    resolveBackgroundLayer(*preparedBackground, nesX, nesY);
+                    resolveBackgroundLayer(activeLayer, nesX, nesY);
             }
 
             std::array<ResolvedBackgroundLayer, 10> resolvedHighPriorityBackgrounds = {};
             size_t resolvedHighPriorityBackgroundCount = 0;
-            for(const PreparedBackground* preparedBackground : highPriorityBackgrounds) {
+            for(const ActiveBackgroundLayer& activeLayer : highPriorityBackgrounds) {
                 if(resolvedHighPriorityBackgroundCount >= resolvedHighPriorityBackgrounds.size()) {
                     break;
                 }
                 resolvedHighPriorityBackgrounds[resolvedHighPriorityBackgroundCount++] =
-                    resolveBackgroundLayer(*preparedBackground, nesX, nesY);
+                    resolveBackgroundLayer(activeLayer, nesX, nesY);
             }
 
             const int blockX0 = nesX * scale;
