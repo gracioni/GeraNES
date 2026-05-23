@@ -6,6 +6,7 @@
 #include <optional>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 #include "GeraNES/GeraNESEmu.h"
@@ -288,7 +289,47 @@ private:
         int paletteColorCount = 0;
     };
 
+    struct RenderPreparedOverride {
+        const ChrOverride* override = nullptr;
+        const DecodedImage* image = nullptr;
+        int sourceScale = 1;
+        ChrOverride::SourceLayout wholeChrLayout = ChrOverride::SourceLayout::PatternTables;
+        bool hasDynamicConditions = false;
+        std::vector<const MemoryCondition*> runtimeConditions;
+        size_t sequence = 0;
+    };
+
+    struct RenderPreparedBackground {
+        const BackgroundReplacement* replacement = nullptr;
+        const DecodedImage* image = nullptr;
+        int priority = 0;
+        int backgroundScale = 1;
+        int alphaScale = 255;
+        std::vector<const MemoryCondition*> runtimeConditions;
+    };
+
+    struct RenderComposeCache {
+        bool valid = false;
+        int scale = 1;
+        std::vector<const ChrOverride*> activeOverrides;
+        std::vector<RenderPreparedOverride> preparedOverrides;
+        std::array<std::vector<const RenderPreparedOverride*>, 512> overridesByFullTile;
+        std::array<std::vector<const RenderPreparedOverride*>, 256> overridesByRelativeTile;
+        std::array<std::vector<const RenderPreparedOverride*>, 512> dynamicOverridesByFullTile;
+        std::array<std::vector<const RenderPreparedOverride*>, 256> dynamicOverridesByRelativeTile;
+        std::unordered_map<uint32_t, std::vector<const RenderPreparedOverride*>> overridesByChrHash;
+        std::unordered_map<uint32_t, std::vector<const RenderPreparedOverride*>> dynamicOverridesByChrHash;
+        std::vector<const RenderPreparedOverride*> wholeChrOverrides;
+        std::vector<const RenderPreparedOverride*> dynamicWholeChrOverrides;
+        std::array<bool, 512> hasDynamicOverridesByFullTile = {};
+        std::array<bool, 256> hasDynamicOverridesByRelativeTile = {};
+        std::unordered_set<uint32_t> dynamicOverrideHashes;
+        std::vector<RenderPreparedBackground> preparedBackgrounds;
+    };
+
     std::unordered_map<std::string, std::optional<DecodedImage>> m_imageCache;
+    RenderComposeCache m_renderComposeCache;
+    bool m_renderComposeCacheDirty = true;
 
     static std::string normalizeZipPath(std::string path);
     static std::optional<std::filesystem::path> resolveFolderEntryPath(const std::filesystem::path& rootPath, const std::string& entryName);
@@ -314,6 +355,8 @@ private:
     static std::optional<DecodedImage> decodeImage(const std::vector<uint8_t>& data);
     bool loadMesenHiresFile();
     void rebuildFrameConditionPlan();
+    void invalidateRenderComposeCache();
+    void rebuildRenderComposeCache();
     static uint32_t blendPixel(uint32_t dst, uint32_t src, int alphaScale);
     static uint32_t hashChrTile(PPU& ppu, int tileIndex);
 };

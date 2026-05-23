@@ -526,6 +526,13 @@ void ModManager::clear()
     m_frameConditionState = {};
     m_frameConditionPlan = {};
     m_imageCache.clear();
+    invalidateRenderComposeCache();
+}
+
+void ModManager::invalidateRenderComposeCache()
+{
+    m_renderComposeCache = {};
+    m_renderComposeCacheDirty = true;
 }
 
 bool ModManager::selectModSource(const std::filesystem::path& modSourcePath, std::string& error)
@@ -768,6 +775,7 @@ bool ModManager::loadDefinitionForCurrentMod()
     m_backgroundReplacements.clear();
     m_frameConditionPlan = {};
     m_imageCache.clear();
+    invalidateRenderComposeCache();
 
     if(!loadMesenHiresFile()) {
         return false;
@@ -1184,22 +1192,40 @@ void ModManager::onFrame(GeraNESEmu& emu)
         }
     }
 
+    bool renderComposeCacheChanged = false;
     const size_t chrCount = std::min(m_chrOverrides.size(), m_frameConditionPlan.chrOverrideGlobalConditions.size());
     for(size_t i = 0; i < chrCount; ++i) {
-        m_chrOverrides[i].enabled = globalConditionsMatch(m_frameConditionPlan.chrOverrideGlobalConditions[i]);
+        const bool enabled = globalConditionsMatch(m_frameConditionPlan.chrOverrideGlobalConditions[i]);
+        if(m_chrOverrides[i].enabled != enabled) {
+            renderComposeCacheChanged = true;
+            m_chrOverrides[i].enabled = enabled;
+        }
     }
     for(size_t i = chrCount; i < m_chrOverrides.size(); ++i) {
-        m_chrOverrides[i].enabled = true;
+        if(!m_chrOverrides[i].enabled) {
+            renderComposeCacheChanged = true;
+            m_chrOverrides[i].enabled = true;
+        }
     }
 
     const size_t bgCount = std::min(m_backgroundReplacements.size(), m_frameConditionPlan.backgroundGlobalConditions.size());
     for(size_t i = 0; i < bgCount; ++i) {
-        m_backgroundReplacements[i].enabled = globalConditionsMatch(m_frameConditionPlan.backgroundGlobalConditions[i]);
+        const bool enabled = globalConditionsMatch(m_frameConditionPlan.backgroundGlobalConditions[i]);
+        if(m_backgroundReplacements[i].enabled != enabled) {
+            renderComposeCacheChanged = true;
+            m_backgroundReplacements[i].enabled = enabled;
+        }
     }
     for(size_t i = bgCount; i < m_backgroundReplacements.size(); ++i) {
-        m_backgroundReplacements[i].enabled = true;
+        if(!m_backgroundReplacements[i].enabled) {
+            renderComposeCacheChanged = true;
+            m_backgroundReplacements[i].enabled = true;
+        }
     }
     m_frameConditionState = std::move(frameConditionState);
+    if(renderComposeCacheChanged) {
+        m_renderComposeCacheDirty = true;
+    }
 }
 
 void ModManager::rebuildFrameConditionPlan()
@@ -1251,6 +1277,138 @@ void ModManager::rebuildFrameConditionPlan()
     for(size_t i = 0; i < m_backgroundReplacements.size(); ++i) {
         appendGlobalConditions(m_backgroundReplacements[i].conditions, m_frameConditionPlan.backgroundGlobalConditions[i]);
     }
+}
+
+void ModManager::rebuildRenderComposeCache()
+{
+    m_renderComposeCache = {};
+    m_renderComposeCache.scale = std::max(1, m_resolutionMultiplier);
+
+    auto appendRuntimeConditions = [](const std::vector<MemoryCondition>& conditions, auto& runtimeConditions) {
+        runtimeConditions.clear();
+        runtimeConditions.reserve(conditions.size());
+        for(const MemoryCondition& condition : conditions) {
+            if(condition.kind != MemoryCondition::Kind::MemoryCheck &&
+               condition.kind != MemoryCondition::Kind::FrameRange) {
+                runtimeConditions.push_back(&condition);
+            }
+        }
+    };
+
+    m_renderComposeCache.activeOverrides.reserve(m_chrOverrides.size());
+    for(const ChrOverride& override : m_chrOverrides) {
+        if(override.enabled && !override.assetPath.empty()) {
+            m_renderComposeCache.activeOverrides.push_back(&override);
+        }
+    }
+    if(!m_renderComposeCache.activeOverrides.empty()) {
+        std::stable_sort(m_renderComposeCache.activeOverrides.begin(), m_renderComposeCache.activeOverrides.end(), [](const ChrOverride* a, const ChrOverride* b) {
+            return a->priority > b->priority;
+        });
+    }
+
+    m_renderComposeCache.preparedOverrides.reserve(m_renderComposeCache.activeOverrides.size());
+    for(const ChrOverride* override : m_renderComposeCache.activeOverrides) {
+        RenderPreparedOverride prepared;
+        prepared.override = override;
+        prepared.sequence = m_renderComposeCache.preparedOverrides.size();
+        prepared.image = decodedImage(override->assetPath);
+        if(prepared.image == nullptr || prepared.image->rgba.empty()) {
+            continue;
+        }
+        prepared.sourceScale = std::max(1, m_resolutionMultiplier);
+        if(!override->wholeChr() && !override->hasSourcePosition() && override->sourceLayout != ChrOverride::SourceLayout::PatternTables) {
+            const int scaleX = prepared.image->width / std::max(1, override->columns * 8);
+            if(scaleX > 0) {
+                prepared.sourceScale = scaleX;
+            }
+        }
+        prepared.wholeChrLayout =
+            override->sourceLayout == ChrOverride::SourceLayout::Auto
+                ? ChrOverride::SourceLayout::PatternTables
+                : override->sourceLayout;
+        appendRuntimeConditions(override->conditions, prepared.runtimeConditions);
+        prepared.hasDynamicConditions = std::any_of(
+            prepared.runtimeConditions.begin(),
+            prepared.runtimeConditions.end(),
+            [](const MemoryCondition* condition) {
+                return condition != nullptr &&
+                       (condition->kind == MemoryCondition::Kind::TileAtPosition ||
+                        condition->kind == MemoryCondition::Kind::TileNearby ||
+                        condition->kind == MemoryCondition::Kind::SpriteAtPosition ||
+                        condition->kind == MemoryCondition::Kind::SpriteNearby);
+            });
+        m_renderComposeCache.preparedOverrides.push_back(std::move(prepared));
+        const RenderPreparedOverride* preparedPtr = &m_renderComposeCache.preparedOverrides.back();
+        if(override->wholeChr()) {
+            if(override->hasChrHash) {
+                if(preparedPtr->hasDynamicConditions) {
+                    m_renderComposeCache.dynamicOverridesByChrHash[override->chrHash].push_back(preparedPtr);
+                } else {
+                    m_renderComposeCache.overridesByChrHash[override->chrHash].push_back(preparedPtr);
+                }
+            } else if(preparedPtr->hasDynamicConditions) {
+                m_renderComposeCache.dynamicWholeChrOverrides.push_back(preparedPtr);
+            } else {
+                m_renderComposeCache.wholeChrOverrides.push_back(preparedPtr);
+            }
+        } else if(override->absoluteTile) {
+            if(override->tile >= 0 && override->tile < static_cast<int>(m_renderComposeCache.overridesByFullTile.size())) {
+                if(preparedPtr->hasDynamicConditions) {
+                    m_renderComposeCache.dynamicOverridesByFullTile[static_cast<size_t>(override->tile)].push_back(preparedPtr);
+                } else {
+                    m_renderComposeCache.overridesByFullTile[static_cast<size_t>(override->tile)].push_back(preparedPtr);
+                }
+            }
+        } else if(override->tile >= 0) {
+            if(override->tile < static_cast<int>(m_renderComposeCache.overridesByRelativeTile.size())) {
+                if(preparedPtr->hasDynamicConditions) {
+                    m_renderComposeCache.dynamicOverridesByRelativeTile[static_cast<size_t>(override->tile)].push_back(preparedPtr);
+                } else {
+                    m_renderComposeCache.overridesByRelativeTile[static_cast<size_t>(override->tile)].push_back(preparedPtr);
+                }
+            } else if(override->tile < static_cast<int>(m_renderComposeCache.overridesByFullTile.size())) {
+                if(preparedPtr->hasDynamicConditions) {
+                    m_renderComposeCache.dynamicOverridesByFullTile[static_cast<size_t>(override->tile)].push_back(preparedPtr);
+                } else {
+                    m_renderComposeCache.overridesByFullTile[static_cast<size_t>(override->tile)].push_back(preparedPtr);
+                }
+            }
+        }
+    }
+
+    for(size_t i = 0; i < m_renderComposeCache.dynamicOverridesByFullTile.size(); ++i) {
+        m_renderComposeCache.hasDynamicOverridesByFullTile[i] = !m_renderComposeCache.dynamicOverridesByFullTile[i].empty();
+    }
+    for(size_t i = 0; i < m_renderComposeCache.dynamicOverridesByRelativeTile.size(); ++i) {
+        m_renderComposeCache.hasDynamicOverridesByRelativeTile[i] = !m_renderComposeCache.dynamicOverridesByRelativeTile[i].empty();
+    }
+    m_renderComposeCache.dynamicOverrideHashes.reserve(m_renderComposeCache.dynamicOverridesByChrHash.size());
+    for(const auto& [hash, _] : m_renderComposeCache.dynamicOverridesByChrHash) {
+        m_renderComposeCache.dynamicOverrideHashes.insert(hash);
+    }
+
+    m_renderComposeCache.preparedBackgrounds.reserve(m_backgroundReplacements.size());
+    for(const BackgroundReplacement& replacement : m_backgroundReplacements) {
+        if(!replacement.enabled || replacement.assetPath.empty()) {
+            continue;
+        }
+        const DecodedImage* image = decodedImage(replacement.assetPath);
+        if(image == nullptr || image->rgba.empty()) {
+            continue;
+        }
+        RenderPreparedBackground prepared;
+        prepared.replacement = &replacement;
+        prepared.image = image;
+        prepared.priority = std::clamp(replacement.priority, 0, 39);
+        prepared.backgroundScale = std::max(1, m_resolutionMultiplier);
+        prepared.alphaScale = std::clamp(static_cast<int>(std::round(replacement.opacity * 255.0f)), 0, 255);
+        appendRuntimeConditions(replacement.conditions, prepared.runtimeConditions);
+        m_renderComposeCache.preparedBackgrounds.push_back(std::move(prepared));
+    }
+
+    m_renderComposeCache.valid = true;
+    m_renderComposeCacheDirty = false;
 }
 
 std::optional<std::vector<uint8_t>> ModManager::readAsset(const std::string& assetPath) const
@@ -2789,26 +2947,21 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
         return;
     }
 
-    struct PreparedOverride {
-        const ChrOverride* override = nullptr;
-        const DecodedImage* image = nullptr;
-        int sourceScale = 1;
-        ChrOverride::SourceLayout wholeChrLayout = ChrOverride::SourceLayout::PatternTables;
-        bool hasDynamicConditions = false;
-        std::vector<const MemoryCondition*> runtimeConditions;
-        size_t sequence = 0;
-    };
-
-    struct PreparedBackground {
-        const BackgroundReplacement* replacement = nullptr;
-        const DecodedImage* image = nullptr;
-        int priority = 0;
-        int backgroundScale = 1;
-        int alphaScale = 255;
-        int bgScrollX = 0;
-        int bgScrollY = 0;
-        std::vector<const MemoryCondition*> runtimeConditions;
-    };
+    std::vector<const ChrOverride*> activeOverridesLocal;
+    std::vector<RenderPreparedOverride> preparedOverridesLocal;
+    std::array<std::vector<const RenderPreparedOverride*>, 512> overridesByFullTileLocal;
+    std::array<std::vector<const RenderPreparedOverride*>, 256> overridesByRelativeTileLocal;
+    std::array<std::vector<const RenderPreparedOverride*>, 512> dynamicOverridesByFullTileLocal;
+    std::array<std::vector<const RenderPreparedOverride*>, 256> dynamicOverridesByRelativeTileLocal;
+    std::unordered_map<uint32_t, std::vector<const RenderPreparedOverride*>> overridesByChrHashLocal;
+    std::unordered_map<uint32_t, std::vector<const RenderPreparedOverride*>> dynamicOverridesByChrHashLocal;
+    std::vector<const RenderPreparedOverride*> wholeChrOverridesLocal;
+    std::vector<const RenderPreparedOverride*> dynamicWholeChrOverridesLocal;
+    std::array<bool, 512> hasDynamicOverridesByFullTileLocal = {};
+    std::array<bool, 256> hasDynamicOverridesByRelativeTileLocal = {};
+    std::unordered_set<uint32_t> dynamicOverrideHashesLocal;
+    std::vector<RenderPreparedBackground> preparedBackgroundsLocal;
+    const std::vector<const ChrOverride*>* activeOverridesPtr = nullptr;
 
     auto appendRuntimeConditions = [](const std::vector<MemoryCondition>& conditions, auto& runtimeConditions) {
         runtimeConditions.clear();
@@ -2821,138 +2974,175 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
         }
     };
 
-    std::vector<const ChrOverride*> activeOverrides;
-    if(activeOverrideFilter != nullptr) {
-        activeOverrides = *activeOverrideFilter;
-    } else {
-        activeOverrides.reserve(m_chrOverrides.size());
-        for(const ChrOverride& override : m_chrOverrides) {
-            if(override.enabled && !override.assetPath.empty()) {
-                activeOverrides.push_back(&override);
-            }
-        }
-    }
-    if(!activeOverrides.empty()) {
-        std::stable_sort(activeOverrides.begin(), activeOverrides.end(), [](const ChrOverride* a, const ChrOverride* b) {
-            return a->priority > b->priority;
-        });
-    }
+    const std::vector<RenderPreparedOverride>* preparedOverridesPtr = nullptr;
+    const std::array<std::vector<const RenderPreparedOverride*>, 512>* overridesByFullTilePtr = nullptr;
+    const std::array<std::vector<const RenderPreparedOverride*>, 256>* overridesByRelativeTilePtr = nullptr;
+    const std::array<std::vector<const RenderPreparedOverride*>, 512>* dynamicOverridesByFullTilePtr = nullptr;
+    const std::array<std::vector<const RenderPreparedOverride*>, 256>* dynamicOverridesByRelativeTilePtr = nullptr;
+    const std::unordered_map<uint32_t, std::vector<const RenderPreparedOverride*>>* overridesByChrHashPtr = nullptr;
+    const std::unordered_map<uint32_t, std::vector<const RenderPreparedOverride*>>* dynamicOverridesByChrHashPtr = nullptr;
+    const std::vector<const RenderPreparedOverride*>* wholeChrOverridesPtr = nullptr;
+    const std::vector<const RenderPreparedOverride*>* dynamicWholeChrOverridesPtr = nullptr;
+    const std::array<bool, 512>* hasDynamicOverridesByFullTilePtr = nullptr;
+    const std::array<bool, 256>* hasDynamicOverridesByRelativeTilePtr = nullptr;
+    const std::unordered_set<uint32_t>* dynamicOverrideHashesPtr = nullptr;
+    const std::vector<RenderPreparedBackground>* preparedBackgroundsPtr = nullptr;
 
-    std::vector<PreparedOverride> preparedOverrides;
-    preparedOverrides.reserve(activeOverrides.size());
-    std::array<std::vector<const PreparedOverride*>, 512> overridesByFullTile;
-    std::array<std::vector<const PreparedOverride*>, 256> overridesByRelativeTile;
-    std::array<std::vector<const PreparedOverride*>, 512> dynamicOverridesByFullTile;
-    std::array<std::vector<const PreparedOverride*>, 256> dynamicOverridesByRelativeTile;
-    std::unordered_map<uint32_t, std::vector<const PreparedOverride*>> overridesByChrHash;
-    std::unordered_map<uint32_t, std::vector<const PreparedOverride*>> dynamicOverridesByChrHash;
-    std::vector<const PreparedOverride*> wholeChrOverrides;
-    std::vector<const PreparedOverride*> dynamicWholeChrOverrides;
-    for(const ChrOverride* override : activeOverrides) {
-        PreparedOverride prepared;
-        prepared.override = override;
-        prepared.sequence = preparedOverrides.size();
-        prepared.image = decodedImage(override->assetPath);
-        if(prepared.image == nullptr || prepared.image->rgba.empty()) {
-            continue;
+    if(activeOverrideFilter == nullptr) {
+        if(m_renderComposeCacheDirty || !m_renderComposeCache.valid || m_renderComposeCache.scale != std::max(1, m_resolutionMultiplier)) {
+            rebuildRenderComposeCache();
         }
-        prepared.sourceScale = std::max(1, m_resolutionMultiplier);
-        if(!override->wholeChr() && !override->hasSourcePosition() && override->sourceLayout != ChrOverride::SourceLayout::PatternTables) {
-            const int scaleX = prepared.image->width / std::max(1, override->columns * 8);
-            if(scaleX > 0) {
-                prepared.sourceScale = scaleX;
-            }
-        }
-        prepared.wholeChrLayout =
-            override->sourceLayout == ChrOverride::SourceLayout::Auto
-                ? ChrOverride::SourceLayout::PatternTables
-                : override->sourceLayout;
-        appendRuntimeConditions(override->conditions, prepared.runtimeConditions);
-        prepared.hasDynamicConditions = std::any_of(
-            prepared.runtimeConditions.begin(),
-            prepared.runtimeConditions.end(),
-            [](const MemoryCondition* condition) {
-                return condition != nullptr &&
-                       (condition->kind == MemoryCondition::Kind::TileAtPosition ||
-                        condition->kind == MemoryCondition::Kind::TileNearby ||
-                        condition->kind == MemoryCondition::Kind::SpriteAtPosition ||
-                        condition->kind == MemoryCondition::Kind::SpriteNearby);
+        activeOverridesPtr = &m_renderComposeCache.activeOverrides;
+        preparedOverridesPtr = &m_renderComposeCache.preparedOverrides;
+        overridesByFullTilePtr = &m_renderComposeCache.overridesByFullTile;
+        overridesByRelativeTilePtr = &m_renderComposeCache.overridesByRelativeTile;
+        dynamicOverridesByFullTilePtr = &m_renderComposeCache.dynamicOverridesByFullTile;
+        dynamicOverridesByRelativeTilePtr = &m_renderComposeCache.dynamicOverridesByRelativeTile;
+        overridesByChrHashPtr = &m_renderComposeCache.overridesByChrHash;
+        dynamicOverridesByChrHashPtr = &m_renderComposeCache.dynamicOverridesByChrHash;
+        wholeChrOverridesPtr = &m_renderComposeCache.wholeChrOverrides;
+        dynamicWholeChrOverridesPtr = &m_renderComposeCache.dynamicWholeChrOverrides;
+        hasDynamicOverridesByFullTilePtr = &m_renderComposeCache.hasDynamicOverridesByFullTile;
+        hasDynamicOverridesByRelativeTilePtr = &m_renderComposeCache.hasDynamicOverridesByRelativeTile;
+        dynamicOverrideHashesPtr = &m_renderComposeCache.dynamicOverrideHashes;
+        preparedBackgroundsPtr = &m_renderComposeCache.preparedBackgrounds;
+    } else {
+        activeOverridesLocal = *activeOverrideFilter;
+        if(!activeOverridesLocal.empty()) {
+            std::stable_sort(activeOverridesLocal.begin(), activeOverridesLocal.end(), [](const ChrOverride* a, const ChrOverride* b) {
+                return a->priority > b->priority;
             });
-        preparedOverrides.push_back(prepared);
-        const PreparedOverride* preparedPtr = &preparedOverrides.back();
-        if(override->wholeChr()) {
-            if(override->hasChrHash) {
-                if(preparedPtr->hasDynamicConditions) {
-                    dynamicOverridesByChrHash[override->chrHash].push_back(preparedPtr);
-                } else {
-                    overridesByChrHash[override->chrHash].push_back(preparedPtr);
-                }
-            } else if(preparedPtr->hasDynamicConditions) {
-                dynamicWholeChrOverrides.push_back(preparedPtr);
-            } else {
-                wholeChrOverrides.push_back(preparedPtr);
+        }
+        preparedOverridesLocal.reserve(activeOverridesLocal.size());
+        for(const ChrOverride* override : activeOverridesLocal) {
+            RenderPreparedOverride prepared;
+            prepared.override = override;
+            prepared.sequence = preparedOverridesLocal.size();
+            prepared.image = decodedImage(override->assetPath);
+            if(prepared.image == nullptr || prepared.image->rgba.empty()) {
+                continue;
             }
-        } else {
-            if(override->absoluteTile) {
-                if(override->tile >= 0 && override->tile < static_cast<int>(overridesByFullTile.size())) {
+            prepared.sourceScale = std::max(1, m_resolutionMultiplier);
+            if(!override->wholeChr() && !override->hasSourcePosition() && override->sourceLayout != ChrOverride::SourceLayout::PatternTables) {
+                const int scaleX = prepared.image->width / std::max(1, override->columns * 8);
+                if(scaleX > 0) {
+                    prepared.sourceScale = scaleX;
+                }
+            }
+            prepared.wholeChrLayout =
+                override->sourceLayout == ChrOverride::SourceLayout::Auto
+                    ? ChrOverride::SourceLayout::PatternTables
+                    : override->sourceLayout;
+            appendRuntimeConditions(override->conditions, prepared.runtimeConditions);
+            prepared.hasDynamicConditions = std::any_of(
+                prepared.runtimeConditions.begin(),
+                prepared.runtimeConditions.end(),
+                [](const MemoryCondition* condition) {
+                    return condition != nullptr &&
+                           (condition->kind == MemoryCondition::Kind::TileAtPosition ||
+                            condition->kind == MemoryCondition::Kind::TileNearby ||
+                            condition->kind == MemoryCondition::Kind::SpriteAtPosition ||
+                            condition->kind == MemoryCondition::Kind::SpriteNearby);
+                });
+            preparedOverridesLocal.push_back(std::move(prepared));
+            const RenderPreparedOverride* preparedPtr = &preparedOverridesLocal.back();
+            if(override->wholeChr()) {
+                if(override->hasChrHash) {
                     if(preparedPtr->hasDynamicConditions) {
-                        dynamicOverridesByFullTile[static_cast<size_t>(override->tile)].push_back(preparedPtr);
+                        dynamicOverridesByChrHashLocal[override->chrHash].push_back(preparedPtr);
                     } else {
-                        overridesByFullTile[static_cast<size_t>(override->tile)].push_back(preparedPtr);
+                        overridesByChrHashLocal[override->chrHash].push_back(preparedPtr);
+                    }
+                } else if(preparedPtr->hasDynamicConditions) {
+                    dynamicWholeChrOverridesLocal.push_back(preparedPtr);
+                } else {
+                    wholeChrOverridesLocal.push_back(preparedPtr);
+                }
+            } else if(override->absoluteTile) {
+                if(override->tile >= 0 && override->tile < static_cast<int>(overridesByFullTileLocal.size())) {
+                    if(preparedPtr->hasDynamicConditions) {
+                        dynamicOverridesByFullTileLocal[static_cast<size_t>(override->tile)].push_back(preparedPtr);
+                    } else {
+                        overridesByFullTileLocal[static_cast<size_t>(override->tile)].push_back(preparedPtr);
                     }
                 }
             } else if(override->tile >= 0) {
-                if(override->tile < static_cast<int>(overridesByRelativeTile.size())) {
+                if(override->tile < static_cast<int>(overridesByRelativeTileLocal.size())) {
                     if(preparedPtr->hasDynamicConditions) {
-                        dynamicOverridesByRelativeTile[static_cast<size_t>(override->tile)].push_back(preparedPtr);
+                        dynamicOverridesByRelativeTileLocal[static_cast<size_t>(override->tile)].push_back(preparedPtr);
                     } else {
-                        overridesByRelativeTile[static_cast<size_t>(override->tile)].push_back(preparedPtr);
+                        overridesByRelativeTileLocal[static_cast<size_t>(override->tile)].push_back(preparedPtr);
                     }
-                } else if(override->tile < static_cast<int>(overridesByFullTile.size())) {
+                } else if(override->tile < static_cast<int>(overridesByFullTileLocal.size())) {
                     if(preparedPtr->hasDynamicConditions) {
-                        dynamicOverridesByFullTile[static_cast<size_t>(override->tile)].push_back(preparedPtr);
+                        dynamicOverridesByFullTileLocal[static_cast<size_t>(override->tile)].push_back(preparedPtr);
                     } else {
-                        overridesByFullTile[static_cast<size_t>(override->tile)].push_back(preparedPtr);
+                        overridesByFullTileLocal[static_cast<size_t>(override->tile)].push_back(preparedPtr);
                     }
                 }
             }
         }
+        for(size_t i = 0; i < dynamicOverridesByFullTileLocal.size(); ++i) {
+            hasDynamicOverridesByFullTileLocal[i] = !dynamicOverridesByFullTileLocal[i].empty();
+        }
+        for(size_t i = 0; i < dynamicOverridesByRelativeTileLocal.size(); ++i) {
+            hasDynamicOverridesByRelativeTileLocal[i] = !dynamicOverridesByRelativeTileLocal[i].empty();
+        }
+        dynamicOverrideHashesLocal.reserve(dynamicOverridesByChrHashLocal.size());
+        for(const auto& [hash, _] : dynamicOverridesByChrHashLocal) {
+            dynamicOverrideHashesLocal.insert(hash);
+        }
+        preparedBackgroundsLocal.reserve(m_backgroundReplacements.size());
+        for(const BackgroundReplacement& replacement : m_backgroundReplacements) {
+            if(!replacement.enabled || replacement.assetPath.empty()) {
+                continue;
+            }
+            const DecodedImage* image = decodedImage(replacement.assetPath);
+            if(image == nullptr || image->rgba.empty()) {
+                continue;
+            }
+            RenderPreparedBackground prepared;
+            prepared.replacement = &replacement;
+            prepared.image = image;
+            prepared.priority = std::clamp(replacement.priority, 0, 39);
+            prepared.backgroundScale = std::max(1, m_resolutionMultiplier);
+            prepared.alphaScale = std::clamp(static_cast<int>(std::round(replacement.opacity * 255.0f)), 0, 255);
+            appendRuntimeConditions(replacement.conditions, prepared.runtimeConditions);
+            preparedBackgroundsLocal.push_back(std::move(prepared));
+        }
+        activeOverridesPtr = &activeOverridesLocal;
+        preparedOverridesPtr = &preparedOverridesLocal;
+        overridesByFullTilePtr = &overridesByFullTileLocal;
+        overridesByRelativeTilePtr = &overridesByRelativeTileLocal;
+        dynamicOverridesByFullTilePtr = &dynamicOverridesByFullTileLocal;
+        dynamicOverridesByRelativeTilePtr = &dynamicOverridesByRelativeTileLocal;
+        overridesByChrHashPtr = &overridesByChrHashLocal;
+        dynamicOverridesByChrHashPtr = &dynamicOverridesByChrHashLocal;
+        wholeChrOverridesPtr = &wholeChrOverridesLocal;
+        dynamicWholeChrOverridesPtr = &dynamicWholeChrOverridesLocal;
+        hasDynamicOverridesByFullTilePtr = &hasDynamicOverridesByFullTileLocal;
+        hasDynamicOverridesByRelativeTilePtr = &hasDynamicOverridesByRelativeTileLocal;
+        dynamicOverrideHashesPtr = &dynamicOverrideHashesLocal;
+        preparedBackgroundsPtr = &preparedBackgroundsLocal;
     }
+
+    const auto& activeOverrides = *activeOverridesPtr;
+    const auto& preparedOverrides = *preparedOverridesPtr;
+    const auto& overridesByFullTile = *overridesByFullTilePtr;
+    const auto& overridesByRelativeTile = *overridesByRelativeTilePtr;
+    const auto& dynamicOverridesByFullTile = *dynamicOverridesByFullTilePtr;
+    const auto& dynamicOverridesByRelativeTile = *dynamicOverridesByRelativeTilePtr;
+    const auto& overridesByChrHash = *overridesByChrHashPtr;
+    const auto& dynamicOverridesByChrHash = *dynamicOverridesByChrHashPtr;
+    const auto& wholeChrOverrides = *wholeChrOverridesPtr;
+    const auto& dynamicWholeChrOverrides = *dynamicWholeChrOverridesPtr;
+    const auto& hasDynamicOverridesByFullTile = *hasDynamicOverridesByFullTilePtr;
+    const auto& hasDynamicOverridesByRelativeTile = *hasDynamicOverridesByRelativeTilePtr;
+    const auto& dynamicOverrideHashes = *dynamicOverrideHashesPtr;
+    const auto& preparedBackgrounds = *preparedBackgroundsPtr;
     const bool canUseOverrideLookupCache = !preparedOverrides.empty();
-    std::array<bool, 512> hasDynamicOverridesByFullTile = {};
-    std::array<bool, 256> hasDynamicOverridesByRelativeTile = {};
-    for(size_t i = 0; i < dynamicOverridesByFullTile.size(); ++i) {
-        hasDynamicOverridesByFullTile[i] = !dynamicOverridesByFullTile[i].empty();
-    }
-    for(size_t i = 0; i < dynamicOverridesByRelativeTile.size(); ++i) {
-        hasDynamicOverridesByRelativeTile[i] = !dynamicOverridesByRelativeTile[i].empty();
-    }
-    std::unordered_set<uint32_t> dynamicOverrideHashes;
-    dynamicOverrideHashes.reserve(dynamicOverridesByChrHash.size());
-    for(const auto& [hash, _] : dynamicOverridesByChrHash) {
-        dynamicOverrideHashes.insert(hash);
-    }
-    std::vector<PreparedBackground> preparedBackgrounds;
-    preparedBackgrounds.reserve(m_backgroundReplacements.size());
-    for(const BackgroundReplacement& replacement : m_backgroundReplacements) {
-        if(!replacement.enabled || replacement.assetPath.empty()) {
-            continue;
-        }
-        const DecodedImage* image = decodedImage(replacement.assetPath);
-        if(image == nullptr || image->rgba.empty()) {
-            continue;
-        }
-        PreparedBackground prepared;
-        prepared.replacement = &replacement;
-        prepared.image = image;
-        prepared.priority = std::clamp(replacement.priority, 0, 39);
-        prepared.backgroundScale = std::max(1, m_resolutionMultiplier);
-        prepared.alphaScale = std::clamp(static_cast<int>(std::round(replacement.opacity * 255.0f)), 0, 255);
-        prepared.bgScrollX = static_cast<int>(snapshot.scrollX * replacement.parallaxX) + replacement.scrollX;
-        prepared.bgScrollY = static_cast<int>(snapshot.scrollY * replacement.parallaxY) + replacement.scrollY;
-        appendRuntimeConditions(replacement.conditions, prepared.runtimeConditions);
-        preparedBackgrounds.push_back(prepared);
-    }
+    using PreparedOverride = RenderPreparedOverride;
+    using PreparedBackground = RenderPreparedBackground;
 
     if(preparedOverrides.empty() && preparedBackgrounds.empty()) {
         for(int nesY = std::max(0, activeTop / scale); nesY < std::min(PPU::SCREEN_HEIGHT, (activeBottom + scale - 1) / scale); ++nesY) {
@@ -3281,9 +3471,9 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
     };
 
     std::unordered_map<uint64_t, const PreparedOverride*> overrideLookupCache;
-    overrideLookupCache.reserve(std::min<size_t>(activeOverrides.size() * 32u, 32768u));
+    overrideLookupCache.reserve(std::min<size_t>(preparedOverrides.size() * 32u, 32768u));
     std::unordered_map<uint64_t, const PreparedOverride*> dynamicOverrideLookupCache;
-    dynamicOverrideLookupCache.reserve(std::min<size_t>(activeOverrides.size() * 64u, 65536u));
+    dynamicOverrideLookupCache.reserve(std::min<size_t>(preparedOverrides.size() * 64u, 65536u));
 
     struct ResolvedBackgroundLayer {
         const PreparedBackground* prepared = nullptr;
@@ -3665,8 +3855,10 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
             return resolved;
         }
 
-        const int srcNesX = replacement.sourceX + nesX + prepared.bgScrollX;
-        const int srcNesY = replacement.sourceY + nesY + prepared.bgScrollY;
+        const int bgScrollX = static_cast<int>(snapshot.scrollX * replacement.parallaxX) + replacement.scrollX;
+        const int bgScrollY = static_cast<int>(snapshot.scrollY * replacement.parallaxY) + replacement.scrollY;
+        const int srcNesX = replacement.sourceX + nesX + bgScrollX;
+        const int srcNesY = replacement.sourceY + nesY + bgScrollY;
         if(srcNesX < 0 || srcNesY < 0) {
             return resolved;
         }
