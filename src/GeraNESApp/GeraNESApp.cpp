@@ -1508,12 +1508,14 @@ void GeraNESApp::refreshModFrameCaptureHook()
         }
 
         ModManager::ChrRenderSnapshot modSnapshot;
+        const bool captureDebugSnapshot = m_showModPixelInspectorWindow;
         if(!m_modManager.composeFrameOnEmuThread(
                emu,
                modSnapshot,
                framebuffer,
                m_clipHeightValue,
-               PPU::SCREEN_HEIGHT - m_clipHeightValue)) {
+               PPU::SCREEN_HEIGHT - m_clipHeightValue,
+               captureDebugSnapshot)) {
             snapshot = {};
             framebuffer.clear();
             return false;
@@ -1527,10 +1529,16 @@ void GeraNESApp::refreshModFrameCaptureHook()
         snapshot.universalBgColor = modSnapshot.universalBgColor;
         snapshot.paletteColors = modSnapshot.paletteColors;
         snapshot.tileHashes = modSnapshot.tileHashes;
-        snapshot.backgroundPixels = std::move(modSnapshot.backgroundPixels);
-        snapshot.spritePixels = std::move(modSnapshot.spritePixels);
-        snapshot.frameConditionState.frameCount = modSnapshot.frameConditionState.frameCount;
-        snapshot.frameConditionState.memoryValues = std::move(modSnapshot.frameConditionState.memoryValues);
+        if(captureDebugSnapshot) {
+            snapshot.backgroundPixels = std::move(modSnapshot.backgroundPixels);
+            snapshot.spritePixels = std::move(modSnapshot.spritePixels);
+            snapshot.frameConditionState.frameCount = modSnapshot.frameConditionState.frameCount;
+            snapshot.frameConditionState.memoryValues = std::move(modSnapshot.frameConditionState.memoryValues);
+        } else {
+            snapshot.backgroundPixels.clear();
+            snapshot.spritePixels.clear();
+            snapshot.frameConditionState = {};
+        }
         return true;
     });
 }

@@ -588,7 +588,8 @@ bool ModManager::composeFrameOnEmuThread(
     ChrRenderSnapshot& snapshot,
     std::vector<uint32_t>& framebuffer,
     int activeTop,
-    int activeBottom)
+    int activeBottom,
+    bool captureDebugSnapshot)
 {
     if(!m_active || !emu.valid()) {
         snapshot = {};
@@ -601,9 +602,11 @@ bool ModManager::composeFrameOnEmuThread(
     snapshot.scrollX = ppu.getVirtualScrollX();
     snapshot.scrollY = ppu.getVirtualScrollY();
     snapshot.universalBgColor = static_cast<uint8_t>(ppu.debugPeekPpuMemory(0x3F00) & 0x3F);
-    ppu.debugCopyPresentedBackgroundPixels(snapshot.backgroundPixels);
-    ppu.debugCopyPresentedSpritePixels(snapshot.spritePixels);
-    snapshot.frameConditionState = m_frameConditionState;
+    snapshot.backgroundPixelsView = ppu.debugPresentedBackgroundPixelsData();
+    snapshot.backgroundPixelsViewCount = ppu.debugPresentedBackgroundPixelsCount();
+    snapshot.spritePixelsView = ppu.debugPresentedSpritePixelsData();
+    snapshot.spritePixelsViewCount = ppu.debugPresentedSpritePixelsCount();
+    snapshot.frameConditionStateView = &m_frameConditionState;
     for(size_t i = 0; i < snapshot.paletteColors.size(); ++i) {
         snapshot.paletteColors[i] = ppu.NESToRGBAColor(static_cast<uint8_t>(i));
     }
@@ -630,6 +633,11 @@ bool ModManager::composeFrameOnEmuThread(
         emu.getFramebuffer(),
         snapshot
     );
+    if(captureDebugSnapshot) {
+        ppu.debugCopyPresentedBackgroundPixels(snapshot.backgroundPixels);
+        ppu.debugCopyPresentedSpritePixels(snapshot.spritePixels);
+        snapshot.frameConditionState = m_frameConditionState;
+    }
     return true;
 }
 
@@ -1630,7 +1638,8 @@ std::optional<ModManager::DebugComposePixel> ModManager::debugComposePixel(const
         return std::nullopt;
     }
 
-    const FrameConditionState& frameConditionState = snapshot.frameConditionState;
+    const FrameConditionState& frameConditionState =
+        snapshot.frameConditionStateView != nullptr ? *snapshot.frameConditionStateView : snapshot.frameConditionState;
 
     struct PreparedOverride {
         const ChrOverride* override = nullptr;
@@ -1796,6 +1805,12 @@ std::optional<ModManager::DebugComposePixel> ModManager::debugComposePixel(const
             return nullptr;
         }
         const size_t index = static_cast<size_t>(y) * PPU::SCREEN_WIDTH + static_cast<size_t>(x);
+        if(snapshot.backgroundPixelsView != nullptr) {
+            if(index >= snapshot.backgroundPixelsViewCount) {
+                return nullptr;
+            }
+            return &snapshot.backgroundPixelsView[index];
+        }
         if(index >= snapshot.backgroundPixels.size()) {
             return nullptr;
         }
@@ -1807,6 +1822,12 @@ std::optional<ModManager::DebugComposePixel> ModManager::debugComposePixel(const
             return nullptr;
         }
         const size_t index = static_cast<size_t>(y) * PPU::SCREEN_WIDTH + static_cast<size_t>(x);
+        if(snapshot.spritePixelsView != nullptr) {
+            if(index >= snapshot.spritePixelsViewCount) {
+                return nullptr;
+            }
+            return &snapshot.spritePixelsView[index];
+        }
         if(index >= snapshot.spritePixels.size()) {
             return nullptr;
         }
@@ -2324,9 +2345,13 @@ std::optional<ModManager::DebugComposePixel> ModManager::debugComposePixel(const
 
     const size_t pixelIndex = static_cast<size_t>(nesY) * PPU::SCREEN_WIDTH + static_cast<size_t>(nesX);
     const PPU::DebugModBackgroundPixel* bgPixel =
-        pixelIndex < snapshot.backgroundPixels.size() ? &snapshot.backgroundPixels[pixelIndex] : nullptr;
+        snapshot.backgroundPixelsView != nullptr
+            ? (pixelIndex < snapshot.backgroundPixelsViewCount ? &snapshot.backgroundPixelsView[pixelIndex] : nullptr)
+            : (pixelIndex < snapshot.backgroundPixels.size() ? &snapshot.backgroundPixels[pixelIndex] : nullptr);
     const PPU::DebugModSpritePixel* spritePixel =
-        pixelIndex < snapshot.spritePixels.size() ? &snapshot.spritePixels[pixelIndex] : nullptr;
+        snapshot.spritePixelsView != nullptr
+            ? (pixelIndex < snapshot.spritePixelsViewCount ? &snapshot.spritePixelsView[pixelIndex] : nullptr)
+            : (pixelIndex < snapshot.spritePixels.size() ? &snapshot.spritePixels[pixelIndex] : nullptr);
 
     const int subX = 0;
     const int subY = 0;
@@ -2740,7 +2765,8 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
         return;
     }
 
-    const FrameConditionState& frameConditionState = snapshot.frameConditionState;
+    const FrameConditionState& frameConditionState =
+        snapshot.frameConditionStateView != nullptr ? *snapshot.frameConditionStateView : snapshot.frameConditionState;
 
     if(m_chrOverrides.empty()) {
         for(int nesY = std::max(0, activeTop / scale); nesY < std::min(PPU::SCREEN_HEIGHT, (activeBottom + scale - 1) / scale); ++nesY) {
@@ -2961,6 +2987,12 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
             return nullptr;
         }
         const size_t index = static_cast<size_t>(y) * PPU::SCREEN_WIDTH + static_cast<size_t>(x);
+        if(snapshot.backgroundPixelsView != nullptr) {
+            if(index >= snapshot.backgroundPixelsViewCount) {
+                return nullptr;
+            }
+            return &snapshot.backgroundPixelsView[index];
+        }
         if(index >= snapshot.backgroundPixels.size()) {
             return nullptr;
         }
@@ -2972,6 +3004,12 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
             return nullptr;
         }
         const size_t index = static_cast<size_t>(y) * PPU::SCREEN_WIDTH + static_cast<size_t>(x);
+        if(snapshot.spritePixelsView != nullptr) {
+            if(index >= snapshot.spritePixelsViewCount) {
+                return nullptr;
+            }
+            return &snapshot.spritePixelsView[index];
+        }
         if(index >= snapshot.spritePixels.size()) {
             return nullptr;
         }
@@ -3707,9 +3745,13 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
             const uint32_t baseColor = srcRow[nesX];
             const size_t pixelIndex = static_cast<size_t>(nesY) * PPU::SCREEN_WIDTH + static_cast<size_t>(nesX);
             const PPU::DebugModBackgroundPixel* bgPixel =
-                pixelIndex < snapshot.backgroundPixels.size() ? &snapshot.backgroundPixels[pixelIndex] : nullptr;
+                snapshot.backgroundPixelsView != nullptr
+                    ? (pixelIndex < snapshot.backgroundPixelsViewCount ? &snapshot.backgroundPixelsView[pixelIndex] : nullptr)
+                    : (pixelIndex < snapshot.backgroundPixels.size() ? &snapshot.backgroundPixels[pixelIndex] : nullptr);
             const PPU::DebugModSpritePixel* spritePixel =
-                pixelIndex < snapshot.spritePixels.size() ? &snapshot.spritePixels[pixelIndex] : nullptr;
+                snapshot.spritePixelsView != nullptr
+                    ? (pixelIndex < snapshot.spritePixelsViewCount ? &snapshot.spritePixelsView[pixelIndex] : nullptr)
+                    : (pixelIndex < snapshot.spritePixels.size() ? &snapshot.spritePixels[pixelIndex] : nullptr);
 
             const PreparedOverride* backgroundOverride = nullptr;
             uint32_t backgroundFallbackColor = baseColor;

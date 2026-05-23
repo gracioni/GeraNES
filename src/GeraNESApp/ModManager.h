@@ -177,8 +177,13 @@ public:
         uint8_t universalBgColor = 0;
         std::array<uint32_t, 64> paletteColors = {};
         std::array<uint32_t, 512> tileHashes = {};
+        const PPU::DebugModBackgroundPixel* backgroundPixelsView = nullptr;
+        size_t backgroundPixelsViewCount = 0;
+        const PPU::DebugModSpritePixel* spritePixelsView = nullptr;
+        size_t spritePixelsViewCount = 0;
         std::vector<PPU::DebugModBackgroundPixel> backgroundPixels;
         std::vector<PPU::DebugModSpritePixel> spritePixels;
+        const FrameConditionState* frameConditionStateView = nullptr;
         FrameConditionState frameConditionState;
     };
 
@@ -235,7 +240,7 @@ public:
     bool loadDefinitionForCurrentMod();
     void onFrame(GeraNESEmu& emu);
     void onEmulatorReset();
-    bool composeFrameOnEmuThread(GeraNESEmu& emu, ChrRenderSnapshot& snapshot, std::vector<uint32_t>& framebuffer, int activeTop, int activeBottom);
+    bool composeFrameOnEmuThread(GeraNESEmu& emu, ChrRenderSnapshot& snapshot, std::vector<uint32_t>& framebuffer, int activeTop, int activeBottom, bool captureDebugSnapshot);
     void composeChrFrame(std::vector<uint32_t>& framebuffer, int width, int height, int activeTop, int activeBottom, int scale, const uint32_t* sourceFramebuffer, const ChrRenderSnapshot& snapshot, const std::vector<const ChrOverride*>* activeOverrideFilter = nullptr);
 
     bool active() const { return m_active; }

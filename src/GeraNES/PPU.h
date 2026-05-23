@@ -1372,6 +1372,38 @@ yyy NN YYYYY XXXXX
         out = m_debugModSpritePixels;
     }
 
+    const DebugModBackgroundPixel* debugPresentedBackgroundPixelsData() const
+    {
+        if(!m_debugModPresentedBackgroundPixels.empty()) {
+            return m_debugModPresentedBackgroundPixels.data();
+        }
+        return m_debugModBackgroundPixels.empty() ? nullptr : m_debugModBackgroundPixels.data();
+    }
+
+    size_t debugPresentedBackgroundPixelsCount() const
+    {
+        if(!m_debugModPresentedBackgroundPixels.empty()) {
+            return m_debugModPresentedBackgroundPixels.size();
+        }
+        return m_debugModBackgroundPixels.size();
+    }
+
+    const DebugModSpritePixel* debugPresentedSpritePixelsData() const
+    {
+        if(!m_debugModPresentedSpritePixels.empty()) {
+            return m_debugModPresentedSpritePixels.data();
+        }
+        return m_debugModSpritePixels.empty() ? nullptr : m_debugModSpritePixels.data();
+    }
+
+    size_t debugPresentedSpritePixelsCount() const
+    {
+        if(!m_debugModPresentedSpritePixels.empty()) {
+            return m_debugModPresentedSpritePixels.size();
+        }
+        return m_debugModSpritePixels.size();
+    }
+
     void debugSetModBackgroundPixelForTest(int x, int y, const DebugModBackgroundPixel& pixel)
     {
         if(x < 0 || x >= SCREEN_WIDTH || y < 0 || y >= SCREEN_HEIGHT) {
