@@ -157,6 +157,17 @@ public:
         std::unordered_map<uint64_t, uint32_t> memoryValues;
     };
 
+    struct FrameConditionPlan {
+        struct CachedMemoryRead {
+            uint64_t key = 0;
+            MemoryCondition condition;
+        };
+
+        std::vector<CachedMemoryRead> uniqueMemoryReads;
+        std::vector<std::vector<MemoryCondition>> chrOverrideGlobalConditions;
+        std::vector<std::vector<MemoryCondition>> backgroundGlobalConditions;
+    };
+
     struct DebugDecodedImage {
         int width = 0;
         int height = 0;
@@ -230,6 +241,7 @@ private:
     HdPackAudioConfig m_hdAudioConfig;
     std::shared_ptr<HdPackAudioRuntime> m_hdAudioRuntime;
     FrameConditionState m_frameConditionState;
+    FrameConditionPlan m_frameConditionPlan;
     mutable std::mutex m_frameConditionStateMutex;
     struct DecodedImage {
         int width = 0;
@@ -266,6 +278,7 @@ private:
     const DecodedImage* decodedImage(const std::string& assetPath);
     static std::optional<DecodedImage> decodeImage(const std::vector<uint8_t>& data);
     bool loadMesenHiresFile();
+    void rebuildFrameConditionPlan();
     static uint32_t blendPixel(uint32_t dst, uint32_t src, int alphaScale);
     static uint32_t hashChrTile(PPU& ppu, int tileIndex);
 };

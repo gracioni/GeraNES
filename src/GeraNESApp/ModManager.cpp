@@ -431,6 +431,7 @@ void ModManager::clear()
     m_hdAudioConfig = {};
     m_hdAudioRuntime->clearConfig();
     m_frameConditionState = {};
+    m_frameConditionPlan = {};
     m_imageCache.clear();
 }
 
@@ -663,6 +664,7 @@ bool ModManager::loadDefinitionForCurrentMod()
     m_customPalette.reset();
     m_chrOverrides.clear();
     m_backgroundReplacements.clear();
+    m_frameConditionPlan = {};
     m_imageCache.clear();
 
     if(!loadMesenHiresFile()) {
@@ -700,6 +702,7 @@ bool ModManager::loadDefinitionForCurrentMod()
         }
     }
 
+    rebuildFrameConditionPlan();
     m_scriptLoaded = true;
     Logger::instance().log("Mesen hires.txt loaded.", Logger::Type::INFO);
     return true;
@@ -1033,19 +1036,17 @@ bool ModManager::loadMesenHiresFile()
 void ModManager::onFrame(GeraNESEmu& emu)
 {
     if(!m_active || !m_scriptLoaded) return;
-    emu.getConsole().ppu().debugSetModRenderCaptureEnabled(true);
+    const bool needsGraphicsCapture = !m_chrOverrides.empty() || !m_backgroundReplacements.empty();
+    emu.getConsole().ppu().debugSetModRenderCaptureEnabled(needsGraphicsCapture);
     if(m_customPalette.has_value()) {
         emu.getConsole().ppu().setColorPalette(*m_customPalette);
     }
     FrameConditionState frameConditionState;
     frameConditionState.frameCount = emu.frameCount();
+    frameConditionState.memoryValues.reserve(m_frameConditionPlan.uniqueMemoryReads.size());
 
     auto globalConditionsMatch = [&](const std::vector<MemoryCondition>& conditions) {
         for(const MemoryCondition& condition : conditions) {
-            if(condition.kind != MemoryCondition::Kind::MemoryCheck &&
-               condition.kind != MemoryCondition::Kind::FrameRange) {
-                continue;
-            }
             if(!conditionMatches(condition, emu)) {
                 return false;
             }
@@ -1053,35 +1054,67 @@ void ModManager::onFrame(GeraNESEmu& emu)
         return true;
     };
 
-    auto cacheConditionMemory = [&](const MemoryCondition& condition) {
-        if(condition.kind != MemoryCondition::Kind::MemoryCheck) {
-            return;
-        }
-        const uint64_t key = makeMemoryCacheKey(condition.memoryType, condition.address, condition.word, condition.scale);
-        if(frameConditionState.memoryValues.find(key) == frameConditionState.memoryValues.end()) {
-            frameConditionState.memoryValues.emplace(key, readMemoryValue(condition, emu));
-        }
-    };
+    for(const FrameConditionPlan::CachedMemoryRead& cachedRead : m_frameConditionPlan.uniqueMemoryReads) {
+        frameConditionState.memoryValues.emplace(cachedRead.key, readMemoryValue(cachedRead.condition, emu));
+    }
 
-    for(const ChrOverride& override : m_chrOverrides) {
-        for(const MemoryCondition& condition : override.conditions) {
-            cacheConditionMemory(condition);
-        }
+    const size_t chrCount = std::min(m_chrOverrides.size(), m_frameConditionPlan.chrOverrideGlobalConditions.size());
+    for(size_t i = 0; i < chrCount; ++i) {
+        m_chrOverrides[i].enabled = globalConditionsMatch(m_frameConditionPlan.chrOverrideGlobalConditions[i]);
     }
-    for(const BackgroundReplacement& replacement : m_backgroundReplacements) {
-        for(const MemoryCondition& condition : replacement.conditions) {
-            cacheConditionMemory(condition);
-        }
+    for(size_t i = chrCount; i < m_chrOverrides.size(); ++i) {
+        m_chrOverrides[i].enabled = true;
     }
-    for(ChrOverride& override : m_chrOverrides) {
-        override.enabled = globalConditionsMatch(override.conditions);
+
+    const size_t bgCount = std::min(m_backgroundReplacements.size(), m_frameConditionPlan.backgroundGlobalConditions.size());
+    for(size_t i = 0; i < bgCount; ++i) {
+        m_backgroundReplacements[i].enabled = globalConditionsMatch(m_frameConditionPlan.backgroundGlobalConditions[i]);
     }
-    for(BackgroundReplacement& replacement : m_backgroundReplacements) {
-        replacement.enabled = globalConditionsMatch(replacement.conditions);
+    for(size_t i = bgCount; i < m_backgroundReplacements.size(); ++i) {
+        m_backgroundReplacements[i].enabled = true;
     }
     {
         const std::lock_guard<std::mutex> lock(m_frameConditionStateMutex);
         m_frameConditionState = std::move(frameConditionState);
+    }
+}
+
+void ModManager::rebuildFrameConditionPlan()
+{
+    m_frameConditionPlan = {};
+
+    auto appendGlobalConditions = [&](const std::vector<MemoryCondition>& source, std::vector<MemoryCondition>& globals) {
+        for(const MemoryCondition& condition : source) {
+            if(condition.kind != MemoryCondition::Kind::MemoryCheck &&
+               condition.kind != MemoryCondition::Kind::FrameRange) {
+                continue;
+            }
+            globals.push_back(condition);
+            if(condition.kind != MemoryCondition::Kind::MemoryCheck) {
+                continue;
+            }
+            const uint64_t key = makeMemoryCacheKey(condition.memoryType, condition.address, condition.word, condition.scale);
+            const auto duplicateIt = std::find_if(
+                m_frameConditionPlan.uniqueMemoryReads.begin(),
+                m_frameConditionPlan.uniqueMemoryReads.end(),
+                [key](const FrameConditionPlan::CachedMemoryRead& cachedRead) { return cachedRead.key == key; });
+            if(duplicateIt == m_frameConditionPlan.uniqueMemoryReads.end()) {
+                FrameConditionPlan::CachedMemoryRead cachedRead;
+                cachedRead.key = key;
+                cachedRead.condition = condition;
+                m_frameConditionPlan.uniqueMemoryReads.push_back(std::move(cachedRead));
+            }
+        }
+    };
+
+    m_frameConditionPlan.chrOverrideGlobalConditions.resize(m_chrOverrides.size());
+    for(size_t i = 0; i < m_chrOverrides.size(); ++i) {
+        appendGlobalConditions(m_chrOverrides[i].conditions, m_frameConditionPlan.chrOverrideGlobalConditions[i]);
+    }
+
+    m_frameConditionPlan.backgroundGlobalConditions.resize(m_backgroundReplacements.size());
+    for(size_t i = 0; i < m_backgroundReplacements.size(); ++i) {
+        appendGlobalConditions(m_backgroundReplacements[i].conditions, m_frameConditionPlan.backgroundGlobalConditions[i]);
     }
 }
 
