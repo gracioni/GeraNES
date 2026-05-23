@@ -311,6 +311,7 @@ private:
     struct RenderComposeCache {
         bool valid = false;
         int scale = 1;
+        bool needsTileHashes = false;
         std::vector<const ChrOverride*> activeOverrides;
         std::vector<RenderPreparedOverride> preparedOverrides;
         std::array<std::vector<const RenderPreparedOverride*>, 512> overridesByFullTile;

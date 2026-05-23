@@ -617,8 +617,14 @@ bool ModManager::composeFrameOnEmuThread(
     for(size_t i = 0; i < snapshot.paletteColors.size(); ++i) {
         snapshot.paletteColors[i] = ppu.NESToRGBAColor(static_cast<uint8_t>(i));
     }
-    for(size_t i = 0; i < snapshot.tileHashes.size(); ++i) {
-        snapshot.tileHashes[i] = ppu.debugHashChrTile(static_cast<int>(i));
+    if(m_renderComposeCacheDirty || !m_renderComposeCache.valid || m_renderComposeCache.scale != std::max(1, m_resolutionMultiplier)) {
+        rebuildRenderComposeCache();
+    }
+    const bool needsTileHashes = captureDebugSnapshot || m_renderComposeCache.needsTileHashes;
+    if(needsTileHashes) {
+        for(size_t i = 0; i < snapshot.tileHashes.size(); ++i) {
+            snapshot.tileHashes[i] = ppu.debugHashChrTile(static_cast<int>(i));
+        }
     }
 
     const int scale = std::clamp(m_resolutionMultiplier, 1, 8);
@@ -1283,6 +1289,7 @@ void ModManager::rebuildRenderComposeCache()
 {
     m_renderComposeCache = {};
     m_renderComposeCache.scale = std::max(1, m_resolutionMultiplier);
+    m_renderComposeCache.needsTileHashes = false;
 
     auto appendRuntimeConditions = [](const std::vector<MemoryCondition>& conditions, auto& runtimeConditions) {
         runtimeConditions.clear();
@@ -1328,6 +1335,14 @@ void ModManager::rebuildRenderComposeCache()
                 ? ChrOverride::SourceLayout::PatternTables
                 : override->sourceLayout;
         appendRuntimeConditions(override->conditions, prepared.runtimeConditions);
+        if(override->hasChrHash) {
+            m_renderComposeCache.needsTileHashes = true;
+        }
+        for(const MemoryCondition* condition : prepared.runtimeConditions) {
+            if(condition != nullptr && condition->hasExpectedTile && condition->expectedTileByHash) {
+                m_renderComposeCache.needsTileHashes = true;
+            }
+        }
         prepared.hasDynamicConditions = std::any_of(
             prepared.runtimeConditions.begin(),
             prepared.runtimeConditions.end(),
@@ -1404,6 +1419,11 @@ void ModManager::rebuildRenderComposeCache()
         prepared.backgroundScale = std::max(1, m_resolutionMultiplier);
         prepared.alphaScale = std::clamp(static_cast<int>(std::round(replacement.opacity * 255.0f)), 0, 255);
         appendRuntimeConditions(replacement.conditions, prepared.runtimeConditions);
+        for(const MemoryCondition* condition : prepared.runtimeConditions) {
+            if(condition != nullptr && condition->hasExpectedTile && condition->expectedTileByHash) {
+                m_renderComposeCache.needsTileHashes = true;
+            }
+        }
         m_renderComposeCache.preparedBackgrounds.push_back(std::move(prepared));
     }
 
