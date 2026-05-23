@@ -1140,9 +1140,25 @@ void ModManager::onFrame(GeraNESEmu& emu)
     frameConditionState.frameCount = emu.frameCount();
     frameConditionState.memoryValues.reserve(m_frameConditionPlan.uniqueMemoryReads.size());
 
+    auto globalConditionMatchesCached = [&](const MemoryCondition& condition) {
+        if(condition.kind == MemoryCondition::Kind::FrameRange) {
+            const uint32_t range = std::max(1u, condition.value);
+            const bool match = (frameConditionState.frameCount % range) >= condition.address;
+            return condition.inverted ? !match : match;
+        }
+        if(condition.kind != MemoryCondition::Kind::MemoryCheck) {
+            return !condition.inverted;
+        }
+
+        const uint64_t key = makeMemoryCacheKey(condition.memorySource, condition.address, condition.word, condition.scale);
+        const auto it = frameConditionState.memoryValues.find(key);
+        const uint32_t actual = it != frameConditionState.memoryValues.end() ? it->second : 0u;
+        return evaluateMemoryCondition(condition, actual);
+    };
+
     auto globalConditionsMatch = [&](const std::vector<MemoryCondition>& conditions) {
         for(const MemoryCondition& condition : conditions) {
-            if(!conditionMatches(condition, emu)) {
+            if(!globalConditionMatchesCached(condition)) {
                 return false;
             }
         }
