@@ -3681,33 +3681,6 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
             return nullptr;
         };
 
-        auto scanDynamicFullTile = [&](int lookupTile, bool allowDefaultTileFallback) -> const PreparedOverride* {
-            if(lookupTile >= 0 && lookupTile < static_cast<int>(dynamicOverridesByFullTile.size())) {
-                if(const PreparedOverride* found = scanCandidates(dynamicOverridesByFullTile[static_cast<size_t>(lookupTile)], allowDefaultTileFallback, target, tileIndex, fullTileIndex, currentPatternTable, palette, hMirror, vMirror, bgPriority, ctx)) {
-                    return found;
-                }
-            }
-            return nullptr;
-        };
-
-        auto scanDynamicRelativeTile = [&](int lookupTile, bool allowDefaultTileFallback) -> const PreparedOverride* {
-            if(lookupTile >= 0 && lookupTile < static_cast<int>(dynamicOverridesByRelativeTile.size())) {
-                if(const PreparedOverride* found = scanCandidates(dynamicOverridesByRelativeTile[static_cast<size_t>(lookupTile)], allowDefaultTileFallback, target, tileIndex, fullTileIndex, currentPatternTable, palette, hMirror, vMirror, bgPriority, ctx)) {
-                    return found;
-                }
-            }
-            return nullptr;
-        };
-
-        auto scanDynamicHash = [&](bool allowDefaultTileFallback) -> const PreparedOverride* {
-            if(const auto it = dynamicOverridesByChrHash.find(lookupHash); it != dynamicOverridesByChrHash.end()) {
-                if(const PreparedOverride* found = scanCandidates(it->second, allowDefaultTileFallback, target, tileIndex, fullTileIndex, currentPatternTable, palette, hMirror, vMirror, bgPriority, ctx)) {
-                    return found;
-                }
-            }
-            return nullptr;
-        };
-
         auto scanMergedFullTile = [&](int lookupTile, bool allowDefaultTileFallback) -> const PreparedOverride* {
             if(lookupTile < 0 || lookupTile >= static_cast<int>(overridesByFullTile.size())) {
                 return nullptr;
@@ -3741,71 +3714,43 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
             return scanMergedCandidates(wholeChrOverrides, dynamicWholeChrOverrides, allowDefaultTileFallback, target, tileIndex, fullTileIndex, currentPatternTable, palette, hMirror, vMirror, bgPriority, ctx);
         };
 
-        auto scanAllExact = [&]() -> const PreparedOverride* {
-            if(const PreparedOverride* found = scanFullTile(fullTileIndex, false)) {
-                return found;
+        if(!hasDynamicCandidates) {
+            if(fullTileIndex >= 0 && fullTileIndex < static_cast<int>(hasStaticOverridesByFullTile.size()) &&
+               hasStaticOverridesByFullTile[static_cast<size_t>(fullTileIndex)]) {
+                if(const PreparedOverride* found = scanFullTile(fullTileIndex, false)) {
+                    if(canUseOverrideLookupCache) {
+                        overrideLookupCache.emplace(lookupKey, found);
+                    }
+                    return found;
+                }
             }
-            if(fullTileIndex != tileIndex) {
+            if(fullTileIndex != tileIndex &&
+               tileIndex >= 0 && tileIndex < static_cast<int>(hasStaticOverridesByRelativeTile.size()) &&
+               hasStaticOverridesByRelativeTile[static_cast<size_t>(tileIndex)]) {
                 if(const PreparedOverride* found = scanRelativeTile(tileIndex, false)) {
+                    if(canUseOverrideLookupCache) {
+                        overrideLookupCache.emplace(lookupKey, found);
+                    }
                     return found;
                 }
             }
-            if(const PreparedOverride* found = scanHash(false)) {
-                return found;
-            }
-            return scanCandidates(wholeChrOverrides, false, target, tileIndex, fullTileIndex, currentPatternTable, palette, hMirror, vMirror, bgPriority, ctx);
-        };
-
-        auto scanAllDynamicExact = [&]() -> const PreparedOverride* {
-            if(const PreparedOverride* found = scanMergedFullTile(fullTileIndex, false)) {
-                return found;
-            }
-            if(fullTileIndex != tileIndex) {
-                if(const PreparedOverride* found = scanMergedRelativeTile(tileIndex, false)) {
+            if(staticOverrideHashes.find(lookupHash) != staticOverrideHashes.end()) {
+                if(const PreparedOverride* found = scanHash(false)) {
+                    if(canUseOverrideLookupCache) {
+                        overrideLookupCache.emplace(lookupKey, found);
+                    }
                     return found;
                 }
             }
-            if(const PreparedOverride* found = scanMergedHash(false)) {
-                return found;
-            }
-            return scanMergedWhole(false);
-        };
-
-        auto scanAllDynamicDefault = [&]() -> const PreparedOverride* {
-            if(const PreparedOverride* found = scanMergedHash(true)) {
-                return found;
-            }
-            if(const PreparedOverride* found = scanMergedFullTile(fullTileIndex, true)) {
-                return found;
-            }
-            if(fullTileIndex == tileIndex) {
-                if(const PreparedOverride* found = scanMergedRelativeTile(tileIndex, true)) {
+            if(hasWholeChrOverrides) {
+                if(const PreparedOverride* found = scanCandidates(wholeChrOverrides, false, target, tileIndex, fullTileIndex, currentPatternTable, palette, hMirror, vMirror, bgPriority, ctx)) {
+                    if(canUseOverrideLookupCache) {
+                        overrideLookupCache.emplace(lookupKey, found);
+                    }
                     return found;
                 }
             }
-            return scanMergedWhole(true);
-        };
 
-        if(hasDynamicCandidates) {
-            if(const PreparedOverride* exact = scanAllDynamicExact()) {
-                dynamicOverrideLookupCache.emplace(dynamicLookupKey, exact);
-                return exact;
-            }
-            if(!hasDefaultCandidates) {
-                dynamicOverrideLookupCache.emplace(dynamicLookupKey, nullptr);
-                return nullptr;
-            }
-            if(const PreparedOverride* dynamicDefault = scanAllDynamicDefault()) {
-                dynamicOverrideLookupCache.emplace(dynamicLookupKey, dynamicDefault);
-                return dynamicDefault;
-            }
-        } else {
-            if(const PreparedOverride* exact = scanAllExact()) {
-                if(canUseOverrideLookupCache) {
-                    overrideLookupCache.emplace(lookupKey, exact);
-                }
-                return exact;
-            }
             if(!hasDefaultCandidates) {
                 if(canUseOverrideLookupCache) {
                     overrideLookupCache.emplace(lookupKey, nullptr);
@@ -3813,36 +3758,110 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
                 return nullptr;
             }
 
-            if(const PreparedOverride* defaultMatch = scanFullTile(fullTileIndex, true)) {
-                if(canUseOverrideLookupCache) {
-                    overrideLookupCache.emplace(lookupKey, defaultMatch);
+            if(fullTileIndex >= 0 && fullTileIndex < static_cast<int>(hasDefaultOverridesByFullTile.size()) &&
+               hasDefaultOverridesByFullTile[static_cast<size_t>(fullTileIndex)]) {
+                if(const PreparedOverride* found = scanFullTile(fullTileIndex, true)) {
+                    if(canUseOverrideLookupCache) {
+                        overrideLookupCache.emplace(lookupKey, found);
+                    }
+                    return found;
                 }
-                return defaultMatch;
             }
-            if(const PreparedOverride* hashDefaultMatch = scanHash(true)) {
-                if(canUseOverrideLookupCache) {
-                    overrideLookupCache.emplace(lookupKey, hashDefaultMatch);
+            if(defaultOverrideHashes.find(lookupHash) != defaultOverrideHashes.end()) {
+                if(const PreparedOverride* found = scanHash(true)) {
+                    if(canUseOverrideLookupCache) {
+                        overrideLookupCache.emplace(lookupKey, found);
+                    }
+                    return found;
                 }
-                return hashDefaultMatch;
             }
-        }
-        if(fullTileIndex != tileIndex) {
-            if(hasDynamicCandidates) {
-                dynamicOverrideLookupCache.emplace(dynamicLookupKey, nullptr);
+            if(fullTileIndex == tileIndex &&
+               tileIndex >= 0 && tileIndex < static_cast<int>(hasDefaultOverridesByRelativeTile.size()) &&
+               hasDefaultOverridesByRelativeTile[static_cast<size_t>(tileIndex)]) {
+                if(const PreparedOverride* found = scanRelativeTile(tileIndex, true)) {
+                    if(canUseOverrideLookupCache) {
+                        overrideLookupCache.emplace(lookupKey, found);
+                    }
+                    return found;
+                }
             }
-            if(canUseOverrideLookupCache && !hasDynamicCandidates) {
+            if(hasWholeChrDefaultOverrides) {
+                if(const PreparedOverride* found = scanCandidates(wholeChrOverrides, true, target, tileIndex, fullTileIndex, currentPatternTable, palette, hMirror, vMirror, bgPriority, ctx)) {
+                    if(canUseOverrideLookupCache) {
+                        overrideLookupCache.emplace(lookupKey, found);
+                    }
+                    return found;
+                }
+            }
+
+            if(canUseOverrideLookupCache) {
                 overrideLookupCache.emplace(lookupKey, nullptr);
             }
             return nullptr;
         }
-        const PreparedOverride* relativeDefaultMatch = scanRelativeTile(tileIndex, true);
-        if(hasDynamicCandidates) {
-            dynamicOverrideLookupCache.emplace(dynamicLookupKey, relativeDefaultMatch);
+
+        if(fullTileIndex >= 0 && fullTileIndex < static_cast<int>(overridesByFullTile.size())) {
+            if(const PreparedOverride* exact = scanMergedFullTile(fullTileIndex, false)) {
+                dynamicOverrideLookupCache.emplace(dynamicLookupKey, exact);
+                return exact;
+            }
         }
-        if(canUseOverrideLookupCache && !hasDynamicCandidates) {
-            overrideLookupCache.emplace(lookupKey, relativeDefaultMatch);
+        if(fullTileIndex != tileIndex &&
+           tileIndex >= 0 && tileIndex < static_cast<int>(overridesByRelativeTile.size())) {
+            if(const PreparedOverride* exact = scanMergedRelativeTile(tileIndex, false)) {
+                dynamicOverrideLookupCache.emplace(dynamicLookupKey, exact);
+                return exact;
+            }
         }
-        return relativeDefaultMatch;
+        if(hasStaticExactCandidates || dynamicOverrideHashes.find(lookupHash) != dynamicOverrideHashes.end()) {
+            if(const PreparedOverride* exact = scanMergedHash(false)) {
+                dynamicOverrideLookupCache.emplace(dynamicLookupKey, exact);
+                return exact;
+            }
+        }
+        if(hasWholeChrOverrides || !dynamicWholeChrOverrides.empty()) {
+            if(const PreparedOverride* exact = scanMergedWhole(false)) {
+                dynamicOverrideLookupCache.emplace(dynamicLookupKey, exact);
+                return exact;
+            }
+        }
+
+        if(!hasDefaultCandidates) {
+            dynamicOverrideLookupCache.emplace(dynamicLookupKey, nullptr);
+            return nullptr;
+        }
+        if(defaultOverrideHashes.find(lookupHash) != defaultOverrideHashes.end()) {
+            if(const PreparedOverride* dynamicDefault = scanMergedHash(true)) {
+                dynamicOverrideLookupCache.emplace(dynamicLookupKey, dynamicDefault);
+                return dynamicDefault;
+            }
+        }
+        if(fullTileIndex >= 0 && fullTileIndex < static_cast<int>(hasDefaultOverridesByFullTile.size()) &&
+           hasDefaultOverridesByFullTile[static_cast<size_t>(fullTileIndex)]) {
+            if(const PreparedOverride* dynamicDefault = scanMergedFullTile(fullTileIndex, true)) {
+                dynamicOverrideLookupCache.emplace(dynamicLookupKey, dynamicDefault);
+                return dynamicDefault;
+            }
+        }
+        if(fullTileIndex != tileIndex) {
+            dynamicOverrideLookupCache.emplace(dynamicLookupKey, nullptr);
+            return nullptr;
+        }
+        if(tileIndex >= 0 && tileIndex < static_cast<int>(hasDefaultOverridesByRelativeTile.size()) &&
+           hasDefaultOverridesByRelativeTile[static_cast<size_t>(tileIndex)]) {
+            if(const PreparedOverride* relativeDefaultMatch = scanMergedRelativeTile(tileIndex, true)) {
+                dynamicOverrideLookupCache.emplace(dynamicLookupKey, relativeDefaultMatch);
+                return relativeDefaultMatch;
+            }
+        }
+        if(hasWholeChrDefaultOverrides || !dynamicWholeChrOverrides.empty()) {
+            if(const PreparedOverride* dynamicDefault = scanMergedWhole(true)) {
+                dynamicOverrideLookupCache.emplace(dynamicLookupKey, dynamicDefault);
+                return dynamicDefault;
+            }
+        }
+        dynamicOverrideLookupCache.emplace(dynamicLookupKey, nullptr);
+        return nullptr;
     };
 
     auto sampleOverridePixel = [&](uint32_t baseColor, uint32_t fallbackLayerColor, const PreparedOverride* prepared, int tileIndex, int offsetX, int offsetY, int subX, int subY, uint8_t /*colorLowBits*/, const std::array<uint8_t, 3>& palette, bool horizontalMirror, bool verticalMirror, bool preserveSourceAlpha = false) {
