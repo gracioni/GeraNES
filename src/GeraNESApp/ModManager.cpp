@@ -23,6 +23,57 @@ extern "C" int mz_uncompress(unsigned char* pDest, mz_ulong* pDest_len, const un
 constexpr int MZ_OK = 0;
 constexpr uint8_t kPngSignature[8] = { 0x89u, 'P', 'N', 'G', '\r', '\n', 0x1Au, '\n' };
 
+bool evaluateMemoryCondition(const ModManager::MemoryCondition& condition, uint32_t actual)
+{
+    uint32_t expected = condition.value;
+    if(condition.hasMask) {
+        actual &= condition.mask;
+        expected &= condition.mask;
+    }
+
+    bool match = false;
+    switch(condition.compareOp) {
+    case ModManager::MemoryCondition::CompareOp::AnyOf:
+        for(uint32_t value : condition.values) {
+            if(condition.hasMask) {
+                value &= condition.mask;
+            }
+            if(actual == value) {
+                match = true;
+                break;
+            }
+        }
+        break;
+    case ModManager::MemoryCondition::CompareOp::NotEqual:
+        match = actual != expected;
+        break;
+    case ModManager::MemoryCondition::CompareOp::Greater:
+        match = actual > expected;
+        break;
+    case ModManager::MemoryCondition::CompareOp::GreaterOrEqual:
+        match = actual >= expected;
+        break;
+    case ModManager::MemoryCondition::CompareOp::Less:
+        match = actual < expected;
+        break;
+    case ModManager::MemoryCondition::CompareOp::LessOrEqual:
+        match = actual <= expected;
+        break;
+    case ModManager::MemoryCondition::CompareOp::BitSet:
+        match = (actual & expected) == expected;
+        break;
+    case ModManager::MemoryCondition::CompareOp::BitClear:
+        match = (actual & expected) == 0;
+        break;
+    case ModManager::MemoryCondition::CompareOp::Equal:
+    default:
+        match = actual == expected;
+        break;
+    }
+
+    return condition.inverted ? !match : match;
+}
+
 uint32_t readBigEndian32(const uint8_t* data)
 {
     return (static_cast<uint32_t>(data[0]) << 24u) |
@@ -206,6 +257,47 @@ std::string toLower(std::string value)
         return static_cast<char>(std::tolower(ch));
     });
     return value;
+}
+
+ModManager::MemoryCondition::MemorySource parseMemorySourceName(const std::string& type)
+{
+    const std::string normalizedType = toLower(type);
+    if(normalizedType == "cpu") return ModManager::MemoryCondition::MemorySource::Cpu;
+    if(normalizedType == "ppu") return ModManager::MemoryCondition::MemorySource::Ppu;
+    if(normalizedType == "oam") return ModManager::MemoryCondition::MemorySource::Oam;
+    if(normalizedType == "primary_oam") return ModManager::MemoryCondition::MemorySource::PrimaryOam;
+    if(normalizedType == "secondary_oam") return ModManager::MemoryCondition::MemorySource::SecondaryOam;
+    return ModManager::MemoryCondition::MemorySource::Unknown;
+}
+
+ModManager::MemoryCondition::CompareOp parseCompareOpName(const std::string& op)
+{
+    const std::string normalizedOp = toLower(op);
+    if(normalizedOp == "in" || normalizedOp == "any_of" || normalizedOp == "anyof") {
+        return ModManager::MemoryCondition::CompareOp::AnyOf;
+    }
+    if(normalizedOp == "!=" || normalizedOp == "~=" || normalizedOp == "not_equal" || normalizedOp == "not_equals") {
+        return ModManager::MemoryCondition::CompareOp::NotEqual;
+    }
+    if(normalizedOp == ">" || normalizedOp == "greater_than" || normalizedOp == "greater") {
+        return ModManager::MemoryCondition::CompareOp::Greater;
+    }
+    if(normalizedOp == ">=" || normalizedOp == "greater_or_equal" || normalizedOp == "greater_equals") {
+        return ModManager::MemoryCondition::CompareOp::GreaterOrEqual;
+    }
+    if(normalizedOp == "<" || normalizedOp == "less_than" || normalizedOp == "less") {
+        return ModManager::MemoryCondition::CompareOp::Less;
+    }
+    if(normalizedOp == "<=" || normalizedOp == "less_or_equal" || normalizedOp == "less_equals") {
+        return ModManager::MemoryCondition::CompareOp::LessOrEqual;
+    }
+    if(normalizedOp == "bit_set" || normalizedOp == "bits_set") {
+        return ModManager::MemoryCondition::CompareOp::BitSet;
+    }
+    if(normalizedOp == "bit_clear" || normalizedOp == "bits_clear") {
+        return ModManager::MemoryCondition::CompareOp::BitClear;
+    }
+    return ModManager::MemoryCondition::CompareOp::Equal;
 }
 
 std::string trimMesenToken(std::string value)
@@ -868,8 +960,10 @@ bool ModManager::loadMesenHiresFile()
                 MemoryCondition condition;
                 condition.kind = MemoryCondition::Kind::MemoryCheck;
                 condition.memoryType = normalizedType == "ppumemorycheckconstant" ? "ppu" : "cpu";
+                condition.memorySource = parseMemorySourceName(condition.memoryType);
                 condition.address = parseHexValue(tokens[2]);
                 condition.op = tokens[3];
+                condition.compareOp = parseCompareOpName(condition.op);
                 condition.value = parseHexValue(tokens[4]);
                 condition.debugName = tokens[0];
                 if(tokens.size() >= 6) {
@@ -1093,7 +1187,7 @@ void ModManager::rebuildFrameConditionPlan()
             if(condition.kind != MemoryCondition::Kind::MemoryCheck) {
                 continue;
             }
-            const uint64_t key = makeMemoryCacheKey(condition.memoryType, condition.address, condition.word, condition.scale);
+            const uint64_t key = makeMemoryCacheKey(condition.memorySource, condition.address, condition.word, condition.scale);
             const auto duplicateIt = std::find_if(
                 m_frameConditionPlan.uniqueMemoryReads.begin(),
                 m_frameConditionPlan.uniqueMemoryReads.end(),
@@ -1343,14 +1437,11 @@ std::string ModManager::sha1Hex(const std::vector<uint8_t>& data)
     return out.str();
 }
 
-uint64_t ModManager::makeMemoryCacheKey(const std::string& type, uint32_t address, bool word, int scale)
+uint64_t ModManager::makeMemoryCacheKey(MemoryCondition::MemorySource source, uint32_t address, bool word, int scale)
 {
     uint64_t hash = 1469598103934665603ull;
-    const std::string normalizedType = toLower(type);
-    for(unsigned char ch : normalizedType) {
-        hash ^= ch;
-        hash *= 1099511628211ull;
-    }
+    hash ^= static_cast<uint64_t>(source);
+    hash *= 1099511628211ull;
     hash ^= static_cast<uint64_t>(address);
     hash *= 1099511628211ull;
     hash ^= static_cast<uint64_t>(word ? 1u : 0u);
@@ -1360,20 +1451,19 @@ uint64_t ModManager::makeMemoryCacheKey(const std::string& type, uint32_t addres
     return hash;
 }
 
-uint8_t ModManager::readMemory(GeraNESEmu* emu, const std::string& type, uint32_t address) const
+uint8_t ModManager::readMemory(GeraNESEmu* emu, MemoryCondition::MemorySource source, uint32_t address) const
 {
     if(emu == nullptr) return 0;
-    const std::string normalizedType = toLower(type);
-    if(normalizedType == "cpu") {
+    if(source == MemoryCondition::MemorySource::Cpu) {
         return emu->debugPeekCpuMemory(static_cast<uint16_t>(address));
     }
-    if(normalizedType == "ppu") {
+    if(source == MemoryCondition::MemorySource::Ppu) {
         return emu->getConsole().ppu().debugPeekPpuMemory(static_cast<uint16_t>(address));
     }
-    if(normalizedType == "oam" || normalizedType == "primary_oam") {
+    if(source == MemoryCondition::MemorySource::Oam || source == MemoryCondition::MemorySource::PrimaryOam) {
         return emu->getConsole().ppu().debugPeekPrimaryOam(static_cast<uint8_t>(address));
     }
-    if(normalizedType == "secondary_oam") {
+    if(source == MemoryCondition::MemorySource::SecondaryOam) {
         return emu->getConsole().ppu().debugPeekSecondaryOam(static_cast<uint8_t>(address));
     }
     return 0;
@@ -1381,9 +1471,9 @@ uint8_t ModManager::readMemory(GeraNESEmu* emu, const std::string& type, uint32_
 
 uint32_t ModManager::readMemoryValue(const MemoryCondition& source, GeraNESEmu& emu) const
 {
-    uint32_t low = readMemory(&emu, source.memoryType, source.address);
+    uint32_t low = readMemory(&emu, source.memorySource, source.address);
     if(source.word) {
-        const uint32_t high = readMemory(&emu, source.memoryType, source.address + 1u);
+        const uint32_t high = readMemory(&emu, source.memorySource, source.address + 1u);
         low |= high << 8u;
     }
     const int scale = std::max(1, source.scale);
@@ -1411,35 +1501,8 @@ bool ModManager::conditionMatches(const MemoryCondition& condition, GeraNESEmu& 
         return !condition.inverted;
     }
 
-    uint32_t actual = readMemoryValue(condition, emu);
-    uint32_t expected = condition.value;
-    if(condition.hasMask) {
-        actual &= condition.mask;
-        expected &= condition.mask;
-    }
-
-    const std::string op = toLower(condition.op);
-    if(op == "in" || op == "any_of" || op == "anyof") {
-        bool match = false;
-        for(uint32_t value : condition.values) {
-            if(condition.hasMask) value &= condition.mask;
-            if(actual == value) {
-                match = true;
-                break;
-            }
-        }
-        return condition.inverted ? !match : match;
-    }
-    bool match = false;
-    if(op == "!=" || op == "~=" || op == "not_equal" || op == "not_equals") match = actual != expected;
-    else if(op == ">" || op == "greater_than" || op == "greater") match = actual > expected;
-    else if(op == ">=" || op == "greater_or_equal" || op == "greater_equals") match = actual >= expected;
-    else if(op == "<" || op == "less_than" || op == "less") match = actual < expected;
-    else if(op == "<=" || op == "less_or_equal" || op == "less_equals") match = actual <= expected;
-    else if(op == "bit_set" || op == "bits_set") match = (actual & expected) == expected;
-    else if(op == "bit_clear" || op == "bits_clear") match = (actual & expected) == 0;
-    else match = actual == expected;
-    return condition.inverted ? !match : match;
+    const uint32_t actual = readMemoryValue(condition, emu);
+    return evaluateMemoryCondition(condition, actual);
 }
 
 const ModManager::DecodedImage* ModManager::decodedImage(const std::string& assetPath)
@@ -1811,43 +1874,10 @@ std::optional<ModManager::DebugComposePixel> ModManager::debugComposePixel(const
         bool match = false;
         switch(condition.kind) {
         case MemoryCondition::Kind::MemoryCheck: {
-            const uint64_t key = makeMemoryCacheKey(condition.memoryType, condition.address, condition.word, condition.scale);
+            const uint64_t key = makeMemoryCacheKey(condition.memorySource, condition.address, condition.word, condition.scale);
             const auto it = frameConditionState.memoryValues.find(key);
             const uint32_t actual = it != frameConditionState.memoryValues.end() ? it->second : 0u;
-            uint32_t expected = condition.value;
-            uint32_t maskedActual = actual;
-            if(condition.hasMask) {
-                maskedActual &= condition.mask;
-                expected &= condition.mask;
-            }
-            const std::string op = toLower(condition.op);
-            if(op == "in" || op == "any_of" || op == "anyof") {
-                for(uint32_t value : condition.values) {
-                    if(condition.hasMask) {
-                        value &= condition.mask;
-                    }
-                    if(maskedActual == value) {
-                        match = true;
-                        break;
-                    }
-                }
-            } else if(op == "!=" || op == "~=" || op == "not_equal" || op == "not_equals") {
-                match = maskedActual != expected;
-            } else if(op == ">" || op == "greater_than" || op == "greater") {
-                match = maskedActual > expected;
-            } else if(op == ">=" || op == "greater_or_equal" || op == "greater_equals") {
-                match = maskedActual >= expected;
-            } else if(op == "<" || op == "less_than" || op == "less") {
-                match = maskedActual < expected;
-            } else if(op == "<=" || op == "less_or_equal" || op == "less_equals") {
-                match = maskedActual <= expected;
-            } else if(op == "bit_set" || op == "bits_set") {
-                match = (maskedActual & expected) == expected;
-            } else if(op == "bit_clear" || op == "bits_clear") {
-                match = (maskedActual & expected) == 0;
-            } else {
-                match = maskedActual == expected;
-            }
+            match = evaluateMemoryCondition(condition, actual);
             break;
         }
         case MemoryCondition::Kind::FrameRange: {
@@ -1897,6 +1927,9 @@ std::optional<ModManager::DebugComposePixel> ModManager::debugComposePixel(const
             break;
         }
         }
+        if(condition.kind == MemoryCondition::Kind::MemoryCheck) {
+            return match;
+        }
         return condition.inverted ? !match : match;
     };
 
@@ -1916,7 +1949,7 @@ std::optional<ModManager::DebugComposePixel> ModManager::debugComposePixel(const
 
         switch(condition.kind) {
         case MemoryCondition::Kind::MemoryCheck: {
-            const uint64_t key = makeMemoryCacheKey(condition.memoryType, condition.address, condition.word, condition.scale);
+            const uint64_t key = makeMemoryCacheKey(condition.memorySource, condition.address, condition.word, condition.scale);
             const auto it = frameConditionState.memoryValues.find(key);
             const uint32_t actual = it != frameConditionState.memoryValues.end() ? it->second : 0u;
             out << " (" << condition.memoryType << "[$"
@@ -2968,32 +3001,10 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
         bool match = false;
         switch(condition.kind) {
         case MemoryCondition::Kind::MemoryCheck: {
-            const uint64_t key = makeMemoryCacheKey(condition.memoryType, condition.address, condition.word, condition.scale);
+            const uint64_t key = makeMemoryCacheKey(condition.memorySource, condition.address, condition.word, condition.scale);
             const auto it = frameConditionState.memoryValues.find(key);
             const uint32_t actual = it != frameConditionState.memoryValues.end() ? it->second : 0u;
-            uint32_t expected = condition.value;
-            uint32_t maskedActual = actual;
-            if(condition.hasMask) {
-                maskedActual &= condition.mask;
-                expected &= condition.mask;
-            }
-            const std::string op = toLower(condition.op);
-            if(op == "in" || op == "any_of" || op == "anyof") {
-                for(uint32_t value : condition.values) {
-                    if(condition.hasMask) value &= condition.mask;
-                    if(maskedActual == value) {
-                        match = true;
-                        break;
-                    }
-                }
-            } else if(op == "!=" || op == "~=" || op == "not_equal" || op == "not_equals") match = maskedActual != expected;
-            else if(op == ">" || op == "greater_than" || op == "greater") match = maskedActual > expected;
-            else if(op == ">=" || op == "greater_or_equal" || op == "greater_equals") match = maskedActual >= expected;
-            else if(op == "<" || op == "less_than" || op == "less") match = maskedActual < expected;
-            else if(op == "<=" || op == "less_or_equal" || op == "less_equals") match = maskedActual <= expected;
-            else if(op == "bit_set" || op == "bits_set") match = (maskedActual & expected) == expected;
-            else if(op == "bit_clear" || op == "bits_clear") match = (maskedActual & expected) == 0;
-            else match = maskedActual == expected;
+            match = evaluateMemoryCondition(condition, actual);
             break;
         }
         case MemoryCondition::Kind::FrameRange: {
@@ -3042,6 +3053,9 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
             }
             break;
         }
+        }
+        if(condition.kind == MemoryCondition::Kind::MemoryCheck) {
+            return match;
         }
         return condition.inverted ? !match : match;
     };

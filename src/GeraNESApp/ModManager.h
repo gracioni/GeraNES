@@ -15,6 +15,27 @@
 class ModManager {
 public:
     struct MemoryCondition {
+        enum class MemorySource {
+            Cpu,
+            Ppu,
+            Oam,
+            PrimaryOam,
+            SecondaryOam,
+            Unknown
+        };
+
+        enum class CompareOp {
+            Equal,
+            NotEqual,
+            Greater,
+            GreaterOrEqual,
+            Less,
+            LessOrEqual,
+            BitSet,
+            BitClear,
+            AnyOf
+        };
+
         enum class Kind {
             MemoryCheck,
             FrameRange,
@@ -27,10 +48,12 @@ public:
         Kind kind = Kind::MemoryCheck;
         bool inverted = false;
         std::string memoryType = "cpu";
+        MemorySource memorySource = MemorySource::Cpu;
         uint32_t address = 0;
         bool word = false;
         int scale = 1;
         std::string op = "==";
+        CompareOp compareOp = CompareOp::Equal;
         uint32_t value = 0;
         bool hasMask = false;
         uint32_t mask = 0;
@@ -269,9 +292,9 @@ private:
         const std::vector<uint8_t>& patchData,
         std::string& error);
     static std::string sha1Hex(const std::vector<uint8_t>& data);
-    static uint64_t makeMemoryCacheKey(const std::string& type, uint32_t address, bool word, int scale);
+    static uint64_t makeMemoryCacheKey(MemoryCondition::MemorySource source, uint32_t address, bool word, int scale);
 
-    uint8_t readMemory(GeraNESEmu* emu, const std::string& type, uint32_t address) const;
+    uint8_t readMemory(GeraNESEmu* emu, MemoryCondition::MemorySource source, uint32_t address) const;
     uint32_t readMemoryValue(const MemoryCondition& source, GeraNESEmu& emu) const;
     bool conditionsMatch(const std::vector<MemoryCondition>& conditions, GeraNESEmu& emu) const;
     bool conditionMatches(const MemoryCondition& condition, GeraNESEmu& emu) const;
