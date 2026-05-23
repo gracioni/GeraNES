@@ -1299,10 +1299,18 @@ yyy NN YYYYY XXXXX
 
     void debugSetModRenderCaptureEnabled(bool enabled)
     {
+        if(m_debugModRenderCaptureEnabled == enabled) {
+            return;
+        }
         m_debugModRenderCaptureEnabled = enabled;
         if(enabled) {
-            m_debugModBackgroundPixels.assign(static_cast<size_t>(SCREEN_WIDTH * SCREEN_HEIGHT), {});
-            m_debugModSpritePixels.assign(static_cast<size_t>(SCREEN_WIDTH * SCREEN_HEIGHT), {});
+            const size_t pixelCount = static_cast<size_t>(SCREEN_WIDTH * SCREEN_HEIGHT);
+            if(m_debugModBackgroundPixels.size() != pixelCount) {
+                m_debugModBackgroundPixels.assign(pixelCount, {});
+            }
+            if(m_debugModSpritePixels.size() != pixelCount) {
+                m_debugModSpritePixels.assign(pixelCount, {});
+            }
             m_debugModBackgroundShift = {};
         }
     }
