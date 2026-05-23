@@ -963,6 +963,7 @@ bool ModManager::loadMesenHiresFile()
                 condition.memoryType = normalizedType == "ppumemorycheckconstant" ? "ppu" : "cpu";
                 condition.memorySource = parseMemorySourceName(condition.memoryType);
                 condition.address = parseHexValue(tokens[2]);
+                condition.memoryCacheKey = makeMemoryCacheKey(condition.memorySource, condition.address, condition.word, condition.scale);
                 condition.op = tokens[3];
                 condition.compareOp = parseCompareOpName(condition.op);
                 condition.value = parseHexValue(tokens[4]);
@@ -1140,25 +1141,26 @@ void ModManager::onFrame(GeraNESEmu& emu)
     frameConditionState.frameCount = emu.frameCount();
     frameConditionState.memoryValues.reserve(m_frameConditionPlan.uniqueMemoryReads.size());
 
-    auto globalConditionMatchesCached = [&](const MemoryCondition& condition) {
-        if(condition.kind == MemoryCondition::Kind::FrameRange) {
-            const uint32_t range = std::max(1u, condition.value);
-            const bool match = (frameConditionState.frameCount % range) >= condition.address;
-            return condition.inverted ? !match : match;
-        }
-        if(condition.kind != MemoryCondition::Kind::MemoryCheck) {
-            return !condition.inverted;
-        }
-
-        const uint64_t key = makeMemoryCacheKey(condition.memorySource, condition.address, condition.word, condition.scale);
-        const auto it = frameConditionState.memoryValues.find(key);
+    auto memoryConditionMatchesCached = [&](const MemoryCondition& condition) {
+        const auto it = frameConditionState.memoryValues.find(condition.memoryCacheKey);
         const uint32_t actual = it != frameConditionState.memoryValues.end() ? it->second : 0u;
         return evaluateMemoryCondition(condition, actual);
     };
 
-    auto globalConditionsMatch = [&](const std::vector<MemoryCondition>& conditions) {
-        for(const MemoryCondition& condition : conditions) {
-            if(!globalConditionMatchesCached(condition)) {
+    auto frameRangeConditionMatches = [&](const MemoryCondition& condition) {
+        const uint32_t range = std::max(1u, condition.value);
+        const bool match = (frameConditionState.frameCount % range) >= condition.address;
+        return condition.inverted ? !match : match;
+    };
+
+    auto globalConditionsMatch = [&](const FrameConditionPlan::RuleConditions& conditions) {
+        for(const MemoryCondition& condition : conditions.memoryConditions) {
+            if(!memoryConditionMatchesCached(condition)) {
+                return false;
+            }
+        }
+        for(const MemoryCondition& condition : conditions.frameRangeConditions) {
+            if(!frameRangeConditionMatches(condition)) {
                 return false;
             }
         }
@@ -1191,17 +1193,24 @@ void ModManager::rebuildFrameConditionPlan()
 {
     m_frameConditionPlan = {};
 
-    auto appendGlobalConditions = [&](const std::vector<MemoryCondition>& source, std::vector<MemoryCondition>& globals) {
+    auto appendGlobalConditions = [&](const std::vector<MemoryCondition>& source, FrameConditionPlan::RuleConditions& globals) {
         for(const MemoryCondition& condition : source) {
-            if(condition.kind != MemoryCondition::Kind::MemoryCheck &&
-               condition.kind != MemoryCondition::Kind::FrameRange) {
+            if(condition.kind == MemoryCondition::Kind::FrameRange) {
+                globals.frameRangeConditions.push_back(condition);
                 continue;
             }
-            globals.push_back(condition);
             if(condition.kind != MemoryCondition::Kind::MemoryCheck) {
                 continue;
             }
-            const uint64_t key = makeMemoryCacheKey(condition.memorySource, condition.address, condition.word, condition.scale);
+            MemoryCondition compiledCondition = condition;
+            if(compiledCondition.memoryCacheKey == 0) {
+                compiledCondition.memoryCacheKey = makeMemoryCacheKey(
+                    compiledCondition.memorySource,
+                    compiledCondition.address,
+                    compiledCondition.word,
+                    compiledCondition.scale);
+            }
+            const uint64_t key = compiledCondition.memoryCacheKey;
             const auto duplicateIt = std::find_if(
                 m_frameConditionPlan.uniqueMemoryReads.begin(),
                 m_frameConditionPlan.uniqueMemoryReads.end(),
@@ -1209,9 +1218,10 @@ void ModManager::rebuildFrameConditionPlan()
             if(duplicateIt == m_frameConditionPlan.uniqueMemoryReads.end()) {
                 FrameConditionPlan::CachedMemoryRead cachedRead;
                 cachedRead.key = key;
-                cachedRead.condition = condition;
+                cachedRead.condition = compiledCondition;
                 m_frameConditionPlan.uniqueMemoryReads.push_back(std::move(cachedRead));
             }
+            globals.memoryConditions.push_back(std::move(compiledCondition));
         }
     };
 

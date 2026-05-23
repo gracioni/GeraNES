@@ -51,6 +51,7 @@ public:
         uint32_t address = 0;
         bool word = false;
         int scale = 1;
+        uint64_t memoryCacheKey = 0;
         std::string op = "==";
         CompareOp compareOp = CompareOp::Equal;
         uint32_t value = 0;
@@ -186,9 +187,14 @@ public:
             MemoryCondition condition;
         };
 
+        struct RuleConditions {
+            std::vector<MemoryCondition> memoryConditions;
+            std::vector<MemoryCondition> frameRangeConditions;
+        };
+
         std::vector<CachedMemoryRead> uniqueMemoryReads;
-        std::vector<std::vector<MemoryCondition>> chrOverrideGlobalConditions;
-        std::vector<std::vector<MemoryCondition>> backgroundGlobalConditions;
+        std::vector<RuleConditions> chrOverrideGlobalConditions;
+        std::vector<RuleConditions> backgroundGlobalConditions;
     };
 
     struct DebugDecodedImage {
