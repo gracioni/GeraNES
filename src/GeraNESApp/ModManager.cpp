@@ -4125,6 +4125,7 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
 
             const PreparedOverride* backgroundOverride = nullptr;
             uint32_t backgroundFallbackColor = baseColor;
+            std::array<uint8_t, 3> backgroundPalette = {};
             const auto spriteFallbackColorFor = [&](const PPU::DebugModSpriteCandidate& candidate) {
                 const std::array<uint8_t, 3> spritePalette = { candidate.palette[0], candidate.palette[1], candidate.palette[2] };
                 const int spritePaletteIndex = std::clamp(static_cast<int>(candidate.colorLowBits), 1, 3) - 1;
@@ -4136,13 +4137,13 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
 
             if(bgPixel != nullptr && bgPixel->valid) {
                 const int bgFullTileIndex = bgPixel->tileIndex != 0xFFFF ? static_cast<int>(bgPixel->tileIndex) : -1;
-                const std::array<uint8_t, 3> bgPalette = { bgPixel->palette[0], bgPixel->palette[1], bgPixel->palette[2] };
+                backgroundPalette = { bgPixel->palette[0], bgPixel->palette[1], bgPixel->palette[2] };
                 if(bgFullTileIndex >= 0) {
                     const ConditionContext context = { nesX, nesY, bgPixel, nullptr };
                     backgroundOverride =
                         onlyWholeChrOverrides && fastBackgroundOverride != nullptr
                             ? fastBackgroundOverride
-                            : findOverride(ChrOverride::Target::Background, bgFullTileIndex & 0xFF, bgFullTileIndex, bgFullTileIndex / 256, bgPalette, false, false, false, context);
+                            : findOverride(ChrOverride::Target::Background, bgFullTileIndex & 0xFF, bgFullTileIndex, bgFullTileIndex / 256, backgroundPalette, false, false, false, context);
                 }
                 backgroundFallbackColor = m_disableOriginalTiles ? 0x00000000u : snapshot.paletteColors[bgPixel->paletteIndex & 0x3F];
             }
@@ -4160,6 +4161,7 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
             struct ResolvedSpriteCandidate {
                 const PPU::DebugModSpriteCandidate* candidate = nullptr;
                 const PreparedOverride* spriteOverride = nullptr;
+                std::array<uint8_t, 3> spritePalette = {};
                 uint32_t fixedFallbackColor = 0;
                 bool fallbackUsesCurrentColor = true;
                 int originalIndex = -1;
@@ -4178,6 +4180,7 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
 
                     ResolvedSpriteCandidate resolvedCandidate;
                     resolvedCandidate.candidate = &candidate;
+                    resolvedCandidate.spritePalette = { candidate.palette[0], candidate.palette[1], candidate.palette[2] };
                     resolvedCandidate.originalIndex = i;
                     resolvedCandidate.fallbackUsesCurrentColor = candidate.colorLowBits == 0 || m_disableOriginalTiles;
                     if(!resolvedCandidate.fallbackUsesCurrentColor) {
@@ -4186,7 +4189,6 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
 
                     const int spriteFullTileIndex = candidate.tileIndex != 0xFFFF ? static_cast<int>(candidate.tileIndex) : -1;
                     if(spriteFullTileIndex >= 0) {
-                        const std::array<uint8_t, 3> spritePalette = { candidate.palette[0], candidate.palette[1], candidate.palette[2] };
                         const ConditionContext context = { nesX, nesY, bgPixel, &candidate };
                         resolvedCandidate.spriteOverride =
                             (onlyWholeChrOverrides && fastSpriteOverride != nullptr)
@@ -4196,7 +4198,7 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
                                     spriteFullTileIndex & 0xFF,
                                     spriteFullTileIndex,
                                     spriteFullTileIndex / 256,
-                                    spritePalette,
+                                    resolvedCandidate.spritePalette,
                                     candidate.horizontalMirror,
                                     candidate.verticalMirror,
                                     candidate.behindBackground,
@@ -4319,7 +4321,6 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
 
                     if(bgPixel != nullptr && bgPixel->valid) {
                         if(backgroundOverride != nullptr) {
-                            const std::array<uint8_t, 3> bgPalette = { bgPixel->palette[0], bgPixel->palette[1], bgPixel->palette[2] };
                             color = sampleOverridePixel(
                                 color,
                                 backgroundFallbackColor,
@@ -4330,7 +4331,7 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
                                 subX,
                                 subY,
                                 bgPixel->colorLowBits,
-                                bgPalette,
+                                backgroundPalette,
                                 false,
                                 false
                             );
@@ -4349,7 +4350,6 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
                             const uint32_t spriteFallbackColor =
                                 resolvedCandidate.fallbackUsesCurrentColor ? color : resolvedCandidate.fixedFallbackColor;
                             if(resolvedCandidate.spriteOverride != nullptr) {
-                                const std::array<uint8_t, 3> spritePalette = { candidate.palette[0], candidate.palette[1], candidate.palette[2] };
                                 color = sampleOverridePixel(
                                     color,
                                     spriteFallbackColor,
@@ -4360,7 +4360,7 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
                                     subX,
                                     subY,
                                     candidate.colorLowBits,
-                                    spritePalette,
+                                    resolvedCandidate.spritePalette,
                                     candidate.horizontalMirror,
                                     candidate.verticalMirror,
                                     true
