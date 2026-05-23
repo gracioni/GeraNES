@@ -322,6 +322,10 @@ private:
         std::unordered_map<uint32_t, std::vector<const RenderPreparedOverride*>> dynamicOverridesByChrHash;
         std::vector<const RenderPreparedOverride*> wholeChrOverrides;
         std::vector<const RenderPreparedOverride*> dynamicWholeChrOverrides;
+        std::array<bool, 512> hasDefaultOverridesByFullTile = {};
+        std::array<bool, 256> hasDefaultOverridesByRelativeTile = {};
+        std::unordered_set<uint32_t> defaultOverrideHashes;
+        bool hasWholeChrDefaultOverrides = false;
         std::array<bool, 512> hasDynamicOverridesByFullTile = {};
         std::array<bool, 256> hasDynamicOverridesByRelativeTile = {};
         std::unordered_set<uint32_t> dynamicOverrideHashes;
