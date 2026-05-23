@@ -53,7 +53,9 @@ private:
     struct ActiveClip
     {
         std::shared_ptr<const DecodedClip> clip;
-        double position = 0.0;
+        uint64_t positionFrames = 0;
+        uint32_t positionRemainder = 0;
+        uint32_t phaseDenominator = 1;
         bool loopEnabled = false;
         uint32_t loopPosition = 0;
         bool finished = false;

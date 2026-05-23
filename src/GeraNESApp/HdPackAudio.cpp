@@ -2,11 +2,31 @@
 
 #include <algorithm>
 #include <cmath>
-#include <cstdlib>
 
 #include "logger/logger.h"
 
 #include <stb_vorbis.c>
+
+namespace
+{
+template<typename TClip>
+void rescaleClipPhase(TClip& clip, uint32_t newDenominator)
+{
+    newDenominator = std::max<uint32_t>(1, newDenominator);
+    if(clip.phaseDenominator == newDenominator) {
+        return;
+    }
+
+    const uint32_t oldDenominator = std::max<uint32_t>(1, clip.phaseDenominator);
+    const uint64_t scaledRemainder =
+        (static_cast<uint64_t>(clip.positionRemainder) * static_cast<uint64_t>(newDenominator) + oldDenominator / 2u)
+        / static_cast<uint64_t>(oldDenominator);
+
+    clip.positionFrames += scaledRemainder / newDenominator;
+    clip.positionRemainder = static_cast<uint32_t>(scaledRemainder % newDenominator);
+    clip.phaseDenominator = newDenominator;
+}
+}
 
 HdPackAudioRuntime::HdPackAudioRuntime(AssetReader assetReader)
     : m_assetReader(std::move(assetReader))
@@ -150,13 +170,33 @@ void HdPackAudioRuntime::resetRuntimeUnlocked()
 void HdPackAudioRuntime::onOutputSampleRateChanged(int sampleRate)
 {
     std::scoped_lock lock(m_mutex);
-    m_outputSampleRate = std::max(1, sampleRate);
+    const uint32_t newSampleRate = static_cast<uint32_t>(std::max(1, sampleRate));
+    if(static_cast<uint32_t>(m_outputSampleRate) == newSampleRate) {
+        return;
+    }
+
+    m_outputSampleRate = static_cast<int>(newSampleRate);
+    if(m_bgm) {
+        rescaleClipPhase(*m_bgm, newSampleRate);
+    }
+    for(ActiveClip& clip : m_sfx) {
+        rescaleClipPhase(clip, newSampleRate);
+    }
 }
 
 float HdPackAudioRuntime::mixAudioSample(int sampleRate)
 {
     std::scoped_lock lock(m_mutex);
-    m_outputSampleRate = std::max(1, sampleRate);
+    const uint32_t newSampleRate = static_cast<uint32_t>(std::max(1, sampleRate));
+    if(static_cast<uint32_t>(m_outputSampleRate) != newSampleRate) {
+        m_outputSampleRate = static_cast<int>(newSampleRate);
+        if(m_bgm) {
+            rescaleClipPhase(*m_bgm, newSampleRate);
+        }
+        for(ActiveClip& clip : m_sfx) {
+            rescaleClipPhase(clip, newSampleRate);
+        }
+    }
 
     float mixed = 0.0f;
     if(m_bgm && !m_bgmPaused) {
@@ -191,38 +231,72 @@ std::shared_ptr<const HdPackAudioRuntime::DecodedClip> HdPackAudioRuntime::loadC
         return nullptr;
     }
 
-    int channels = 0;
-    int sampleRate = 0;
-    short* decoded = nullptr;
-    const int sampleFrames = stb_vorbis_decode_memory(
+    int error = 0;
+    stb_vorbis* vorbis = stb_vorbis_open_memory(
         assetData->data(),
         static_cast<int>(assetData->size()),
-        &channels,
-        &sampleRate,
-        &decoded);
+        &error,
+        nullptr);
 
-    if(sampleFrames <= 0 || decoded == nullptr || channels <= 0 || sampleRate <= 0) {
+    if(vorbis == nullptr) {
+        Logger::instance().log(
+            "Failed to decode HD audio asset: " + assetPath + " (stb_vorbis error " + std::to_string(error) + ")",
+            Logger::Type::WARNING);
+        m_clipCache[assetPath] = nullptr;
+        return nullptr;
+    }
+
+    const stb_vorbis_info info = stb_vorbis_get_info(vorbis);
+    const int channels = info.channels;
+    const int sampleRate = static_cast<int>(info.sample_rate);
+    const unsigned int totalFrames = stb_vorbis_stream_length_in_samples(vorbis);
+
+    if(channels <= 0 || sampleRate <= 0) {
         Logger::instance().log("Failed to decode HD audio asset: " + assetPath, Logger::Type::WARNING);
-        if(decoded) {
-            std::free(decoded);
-        }
+        stb_vorbis_close(vorbis);
         m_clipCache[assetPath] = nullptr;
         return nullptr;
     }
 
     auto clip = std::make_shared<DecodedClip>();
     clip->sampleRate = sampleRate;
-    clip->monoSamples.resize(static_cast<size_t>(sampleFrames));
-    for(int frame = 0; frame < sampleFrames; ++frame) {
-        int64_t acc = 0;
-        for(int ch = 0; ch < channels; ++ch) {
-            acc += decoded[frame * channels + ch];
-        }
-        const float mono = static_cast<float>(acc / static_cast<double>(channels)) / 32768.0f;
-        clip->monoSamples[static_cast<size_t>(frame)] = mono;
+    if(totalFrames > 0) {
+        clip->monoSamples.reserve(static_cast<size_t>(totalFrames));
     }
 
-    std::free(decoded);
+    constexpr int DecodeChunkFrames = 1024;
+    std::vector<float> interleavedBuffer(static_cast<size_t>(DecodeChunkFrames) * static_cast<size_t>(channels));
+
+    while(true) {
+        const int framesDecoded = stb_vorbis_get_samples_float_interleaved(
+            vorbis,
+            channels,
+            interleavedBuffer.data(),
+            static_cast<int>(interleavedBuffer.size()));
+        if(framesDecoded <= 0) {
+            break;
+        }
+
+        const size_t baseIndex = clip->monoSamples.size();
+        clip->monoSamples.resize(baseIndex + static_cast<size_t>(framesDecoded));
+        for(int frame = 0; frame < framesDecoded; ++frame) {
+            float acc = 0.0f;
+            for(int ch = 0; ch < channels; ++ch) {
+                acc += interleavedBuffer[static_cast<size_t>(frame * channels + ch)];
+            }
+            clip->monoSamples[baseIndex + static_cast<size_t>(frame)] =
+                std::clamp(acc / static_cast<float>(channels), -1.0f, 1.0f);
+        }
+    }
+
+    stb_vorbis_close(vorbis);
+
+    if(clip->monoSamples.empty()) {
+        Logger::instance().log("Failed to decode HD audio asset: " + assetPath, Logger::Type::WARNING);
+        m_clipCache[assetPath] = nullptr;
+        return nullptr;
+    }
+
     m_clipCache[assetPath] = clip;
     return clip;
 }
@@ -246,6 +320,7 @@ bool HdPackAudioRuntime::playBgmTrack(int trackId)
 
     auto bgm = std::make_unique<ActiveClip>();
     bgm->clip = clip;
+    bgm->phaseDenominator = static_cast<uint32_t>(std::max(1, m_outputSampleRate));
     bgm->loopEnabled = (m_playbackOptions & 0x01) != 0;
     bgm->loopPosition = std::min<uint32_t>(it->second.loopPosition, static_cast<uint32_t>(clip->monoSamples.size()));
     m_bgm = std::move(bgm);
@@ -268,9 +343,12 @@ bool HdPackAudioRuntime::playSfxTrack(uint8_t sfxNumber)
 
     ActiveClip sfx;
     sfx.clip = clip;
+    sfx.phaseDenominator = static_cast<uint32_t>(std::max(1, m_outputSampleRate));
     m_sfx.push_back(std::move(sfx));
     return true;
 }
+
+
 
 float HdPackAudioRuntime::mixClipSample(ActiveClip& clip, uint8_t volume) const
 {
@@ -286,50 +364,61 @@ float HdPackAudioRuntime::mixClipSample(ActiveClip& clip, uint8_t volume) const
         return 0.0f;
     }
 
-    auto wrapLoopPosition = [&](double position) {
+    const uint32_t outputRate = static_cast<uint32_t>(std::max(1, m_outputSampleRate));
+    if(clip.phaseDenominator != outputRate) {
+        rescaleClipPhase(clip, outputRate);
+    }
+
+    auto wrapLoopPosition = [&]() {
         if(!clip.loopEnabled || sampleCount <= 1) {
             clip.finished = true;
-            return position;
+            return;
         }
 
         const size_t loopStart = std::min<size_t>(clip.loopPosition, sampleCount - 1);
         if(loopStart >= sampleCount - 1) {
             clip.finished = true;
-            return position;
+            return;
         }
 
-        const double loopLength = static_cast<double>(sampleCount - loopStart);
-        if(loopLength <= 0.0) {
+        const uint64_t loopStartNumerator = static_cast<uint64_t>(loopStart) * outputRate;
+        const uint64_t loopLengthNumerator = static_cast<uint64_t>(sampleCount - loopStart) * outputRate;
+        if(loopLengthNumerator == 0) {
             clip.finished = true;
-            return position;
+            return;
         }
 
-        position = static_cast<double>(loopStart) + std::fmod(position - static_cast<double>(loopStart), loopLength);
-        if(position < static_cast<double>(loopStart)) {
-            position += loopLength;
-        }
-        return position;
+        const uint64_t positionNumerator =
+            static_cast<uint64_t>(clip.positionFrames) * outputRate + static_cast<uint64_t>(clip.positionRemainder);
+        const uint64_t wrappedNumerator =
+            loopStartNumerator + (positionNumerator - loopStartNumerator) % loopLengthNumerator;
+
+        clip.positionFrames = wrappedNumerator / outputRate;
+        clip.positionRemainder = static_cast<uint32_t>(wrappedNumerator % outputRate);
     };
 
-    if(clip.position >= static_cast<double>(sampleCount)) {
-        clip.position = wrapLoopPosition(clip.position);
+    if(clip.positionFrames >= sampleCount) {
+        wrapLoopPosition();
         if(clip.finished) {
             return 0.0f;
         }
     }
 
-    const size_t sampleIndex = std::min<size_t>(static_cast<size_t>(clip.position), sampleCount - 1);
+    const size_t sampleIndex = std::min<size_t>(static_cast<size_t>(clip.positionFrames), sampleCount - 1);
     const size_t nextIndex = std::min<size_t>(sampleIndex + 1, sampleCount - 1);
-    const float frac = static_cast<float>(clip.position - static_cast<double>(sampleIndex));
+    const float frac = static_cast<float>(clip.positionRemainder) / static_cast<float>(outputRate);
     const float current = samples[sampleIndex];
     const float next = samples[nextIndex];
     const float value = current + (next - current) * frac;
 
-    const double step = static_cast<double>(clip.clip->sampleRate) / static_cast<double>(std::max(1, m_outputSampleRate));
-    clip.position += step;
-    if(clip.position >= static_cast<double>(sampleCount) && clip.loopEnabled) {
-        clip.position = wrapLoopPosition(clip.position);
-    } else if(clip.position >= static_cast<double>(sampleCount)) {
+    const uint64_t advancedRemainder =
+        static_cast<uint64_t>(clip.positionRemainder) + static_cast<uint64_t>(clip.clip->sampleRate);
+    clip.positionFrames += advancedRemainder / outputRate;
+    clip.positionRemainder = static_cast<uint32_t>(advancedRemainder % outputRate);
+
+    if(clip.positionFrames >= sampleCount && clip.loopEnabled) {
+        wrapLoopPosition();
+    } else if(clip.positionFrames >= sampleCount) {
         clip.finished = true;
     }
 
