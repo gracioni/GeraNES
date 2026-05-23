@@ -1357,6 +1357,7 @@ void ModManager::rebuildRenderComposeCache()
         const RenderPreparedOverride* preparedPtr = &m_renderComposeCache.preparedOverrides.back();
         if(override->wholeChr()) {
             if(override->hasChrHash) {
+                m_renderComposeCache.staticOverrideHashes.insert(override->chrHash);
                 if(override->defaultTile) {
                     m_renderComposeCache.defaultOverrideHashes.insert(override->chrHash);
                 }
@@ -1371,6 +1372,7 @@ void ModManager::rebuildRenderComposeCache()
                 }
                 m_renderComposeCache.dynamicWholeChrOverrides.push_back(preparedPtr);
             } else {
+                m_renderComposeCache.hasWholeChrOverrides = true;
                 if(override->defaultTile) {
                     m_renderComposeCache.hasWholeChrDefaultOverrides = true;
                 }
@@ -1378,6 +1380,7 @@ void ModManager::rebuildRenderComposeCache()
             }
         } else if(override->absoluteTile) {
             if(override->tile >= 0 && override->tile < static_cast<int>(m_renderComposeCache.overridesByFullTile.size())) {
+                m_renderComposeCache.hasStaticOverridesByFullTile[static_cast<size_t>(override->tile)] = true;
                 if(override->defaultTile) {
                     m_renderComposeCache.hasDefaultOverridesByFullTile[static_cast<size_t>(override->tile)] = true;
                 }
@@ -1389,6 +1392,7 @@ void ModManager::rebuildRenderComposeCache()
             }
         } else if(override->tile >= 0) {
             if(override->tile < static_cast<int>(m_renderComposeCache.overridesByRelativeTile.size())) {
+                m_renderComposeCache.hasStaticOverridesByRelativeTile[static_cast<size_t>(override->tile)] = true;
                 if(override->defaultTile) {
                     m_renderComposeCache.hasDefaultOverridesByRelativeTile[static_cast<size_t>(override->tile)] = true;
                 }
@@ -1398,6 +1402,7 @@ void ModManager::rebuildRenderComposeCache()
                     m_renderComposeCache.overridesByRelativeTile[static_cast<size_t>(override->tile)].push_back(preparedPtr);
                 }
             } else if(override->tile < static_cast<int>(m_renderComposeCache.overridesByFullTile.size())) {
+                m_renderComposeCache.hasStaticOverridesByFullTile[static_cast<size_t>(override->tile)] = true;
                 if(override->defaultTile) {
                     m_renderComposeCache.hasDefaultOverridesByFullTile[static_cast<size_t>(override->tile)] = true;
                 }
@@ -2995,6 +3000,10 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
     std::unordered_map<uint32_t, std::vector<const RenderPreparedOverride*>> dynamicOverridesByChrHashLocal;
     std::vector<const RenderPreparedOverride*> wholeChrOverridesLocal;
     std::vector<const RenderPreparedOverride*> dynamicWholeChrOverridesLocal;
+    std::array<bool, 512> hasStaticOverridesByFullTileLocal = {};
+    std::array<bool, 256> hasStaticOverridesByRelativeTileLocal = {};
+    std::unordered_set<uint32_t> staticOverrideHashesLocal;
+    bool hasWholeChrOverridesLocal = false;
     std::array<bool, 512> hasDefaultOverridesByFullTileLocal = {};
     std::array<bool, 256> hasDefaultOverridesByRelativeTileLocal = {};
     std::unordered_set<uint32_t> defaultOverrideHashesLocal;
@@ -3025,6 +3034,10 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
     const std::unordered_map<uint32_t, std::vector<const RenderPreparedOverride*>>* dynamicOverridesByChrHashPtr = nullptr;
     const std::vector<const RenderPreparedOverride*>* wholeChrOverridesPtr = nullptr;
     const std::vector<const RenderPreparedOverride*>* dynamicWholeChrOverridesPtr = nullptr;
+    const std::array<bool, 512>* hasStaticOverridesByFullTilePtr = nullptr;
+    const std::array<bool, 256>* hasStaticOverridesByRelativeTilePtr = nullptr;
+    const std::unordered_set<uint32_t>* staticOverrideHashesPtr = nullptr;
+    bool hasWholeChrOverrides = false;
     const std::array<bool, 512>* hasDefaultOverridesByFullTilePtr = nullptr;
     const std::array<bool, 256>* hasDefaultOverridesByRelativeTilePtr = nullptr;
     const std::unordered_set<uint32_t>* defaultOverrideHashesPtr = nullptr;
@@ -3048,6 +3061,10 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
         dynamicOverridesByChrHashPtr = &m_renderComposeCache.dynamicOverridesByChrHash;
         wholeChrOverridesPtr = &m_renderComposeCache.wholeChrOverrides;
         dynamicWholeChrOverridesPtr = &m_renderComposeCache.dynamicWholeChrOverrides;
+        hasStaticOverridesByFullTilePtr = &m_renderComposeCache.hasStaticOverridesByFullTile;
+        hasStaticOverridesByRelativeTilePtr = &m_renderComposeCache.hasStaticOverridesByRelativeTile;
+        staticOverrideHashesPtr = &m_renderComposeCache.staticOverrideHashes;
+        hasWholeChrOverrides = m_renderComposeCache.hasWholeChrOverrides;
         hasDefaultOverridesByFullTilePtr = &m_renderComposeCache.hasDefaultOverridesByFullTile;
         hasDefaultOverridesByRelativeTilePtr = &m_renderComposeCache.hasDefaultOverridesByRelativeTile;
         defaultOverrideHashesPtr = &m_renderComposeCache.defaultOverrideHashes;
@@ -3098,6 +3115,7 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
             const RenderPreparedOverride* preparedPtr = &preparedOverridesLocal.back();
             if(override->wholeChr()) {
                 if(override->hasChrHash) {
+                    staticOverrideHashesLocal.insert(override->chrHash);
                     if(override->defaultTile) {
                         defaultOverrideHashesLocal.insert(override->chrHash);
                     }
@@ -3112,6 +3130,7 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
                     }
                     dynamicWholeChrOverridesLocal.push_back(preparedPtr);
                 } else {
+                    hasWholeChrOverridesLocal = true;
                     if(override->defaultTile) {
                         hasWholeChrDefaultOverridesLocal = true;
                     }
@@ -3119,6 +3138,7 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
                 }
             } else if(override->absoluteTile) {
                 if(override->tile >= 0 && override->tile < static_cast<int>(overridesByFullTileLocal.size())) {
+                    hasStaticOverridesByFullTileLocal[static_cast<size_t>(override->tile)] = true;
                     if(override->defaultTile) {
                         hasDefaultOverridesByFullTileLocal[static_cast<size_t>(override->tile)] = true;
                     }
@@ -3130,6 +3150,7 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
                 }
             } else if(override->tile >= 0) {
                 if(override->tile < static_cast<int>(overridesByRelativeTileLocal.size())) {
+                    hasStaticOverridesByRelativeTileLocal[static_cast<size_t>(override->tile)] = true;
                     if(override->defaultTile) {
                         hasDefaultOverridesByRelativeTileLocal[static_cast<size_t>(override->tile)] = true;
                     }
@@ -3139,6 +3160,7 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
                         overridesByRelativeTileLocal[static_cast<size_t>(override->tile)].push_back(preparedPtr);
                     }
                 } else if(override->tile < static_cast<int>(overridesByFullTileLocal.size())) {
+                    hasStaticOverridesByFullTileLocal[static_cast<size_t>(override->tile)] = true;
                     if(override->defaultTile) {
                         hasDefaultOverridesByFullTileLocal[static_cast<size_t>(override->tile)] = true;
                     }
@@ -3188,6 +3210,10 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
         dynamicOverridesByChrHashPtr = &dynamicOverridesByChrHashLocal;
         wholeChrOverridesPtr = &wholeChrOverridesLocal;
         dynamicWholeChrOverridesPtr = &dynamicWholeChrOverridesLocal;
+        hasStaticOverridesByFullTilePtr = &hasStaticOverridesByFullTileLocal;
+        hasStaticOverridesByRelativeTilePtr = &hasStaticOverridesByRelativeTileLocal;
+        staticOverrideHashesPtr = &staticOverrideHashesLocal;
+        hasWholeChrOverrides = hasWholeChrOverridesLocal;
         hasDefaultOverridesByFullTilePtr = &hasDefaultOverridesByFullTileLocal;
         hasDefaultOverridesByRelativeTilePtr = &hasDefaultOverridesByRelativeTileLocal;
         defaultOverrideHashesPtr = &defaultOverrideHashesLocal;
@@ -3208,6 +3234,9 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
     const auto& dynamicOverridesByChrHash = *dynamicOverridesByChrHashPtr;
     const auto& wholeChrOverrides = *wholeChrOverridesPtr;
     const auto& dynamicWholeChrOverrides = *dynamicWholeChrOverridesPtr;
+    const auto& hasStaticOverridesByFullTile = *hasStaticOverridesByFullTilePtr;
+    const auto& hasStaticOverridesByRelativeTile = *hasStaticOverridesByRelativeTilePtr;
+    const auto& staticOverrideHashes = *staticOverrideHashesPtr;
     const auto& hasDefaultOverridesByFullTile = *hasDefaultOverridesByFullTilePtr;
     const auto& hasDefaultOverridesByRelativeTile = *hasDefaultOverridesByRelativeTilePtr;
     const auto& defaultOverrideHashes = *defaultOverrideHashesPtr;
@@ -3586,6 +3615,13 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
                 ? ((ctx.spriteCandidate != nullptr && ctx.spriteCandidate->tileHash != 0) ? ctx.spriteCandidate->tileHash : lookupHash)
                 : ((ctx.backgroundPixel != nullptr && ctx.backgroundPixel->tileHash != 0) ? ctx.backgroundPixel->tileHash : lookupHash);
         const uint64_t lookupKey = makeOverrideLookupKey(target, fullTileIndex, currentPatternTable, currentTileHash, palette, hMirror, vMirror, bgPriority);
+        const bool hasStaticExactCandidates =
+            hasWholeChrOverrides ||
+            (staticOverrideHashes.find(lookupHash) != staticOverrideHashes.end()) ||
+            (fullTileIndex >= 0 && fullTileIndex < static_cast<int>(hasStaticOverridesByFullTile.size()) &&
+             hasStaticOverridesByFullTile[static_cast<size_t>(fullTileIndex)]) ||
+            (tileIndex >= 0 && tileIndex < static_cast<int>(hasStaticOverridesByRelativeTile.size()) &&
+             hasStaticOverridesByRelativeTile[static_cast<size_t>(tileIndex)]);
         const bool hasDynamicCandidates =
             !dynamicWholeChrOverrides.empty() ||
             (dynamicOverrideHashes.find(lookupHash) != dynamicOverrideHashes.end()) ||
@@ -3604,6 +3640,12 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
             if(const auto it = overrideLookupCache.find(lookupKey); it != overrideLookupCache.end()) {
                 return it->second;
             }
+        }
+        if(!hasDynamicCandidates && !hasStaticExactCandidates && !hasDefaultCandidates) {
+            if(canUseOverrideLookupCache) {
+                overrideLookupCache.emplace(lookupKey, nullptr);
+            }
+            return nullptr;
         }
         const uint64_t dynamicLookupKey = hasDynamicCandidates ? makeDynamicOverrideLookupKey(lookupKey, ctx) : 0u;
         if(hasDynamicCandidates) {
