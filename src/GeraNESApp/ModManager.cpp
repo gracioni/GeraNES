@@ -10,6 +10,7 @@
 #include <iomanip>
 #include <limits>
 #include <sstream>
+#include <unordered_set>
 
 #include "GeraNES/RomFile.h"
 #include "GeraNESApp/AppSettings.h"
@@ -1139,11 +1140,13 @@ void ModManager::onFrame(GeraNESEmu& emu)
     }
     FrameConditionState frameConditionState;
     frameConditionState.frameCount = emu.frameCount();
-    frameConditionState.memoryValues.reserve(m_frameConditionPlan.uniqueMemoryReads.size());
+    frameConditionState.memoryValues.resize(m_frameConditionPlan.uniqueMemoryReads.size());
 
     auto memoryConditionMatchesCached = [&](const MemoryCondition& condition) {
-        const auto it = frameConditionState.memoryValues.find(condition.memoryCacheKey);
-        const uint32_t actual = it != frameConditionState.memoryValues.end() ? it->second : 0u;
+        const uint32_t actual =
+            condition.readIndex < frameConditionState.memoryValues.size()
+                ? frameConditionState.memoryValues[condition.readIndex]
+                : 0u;
         return evaluateMemoryCondition(condition, actual);
     };
 
@@ -1168,7 +1171,9 @@ void ModManager::onFrame(GeraNESEmu& emu)
     };
 
     for(const FrameConditionPlan::CachedMemoryRead& cachedRead : m_frameConditionPlan.uniqueMemoryReads) {
-        frameConditionState.memoryValues.emplace(cachedRead.key, readMemoryValue(cachedRead.condition, emu));
+        if(cachedRead.readIndex < frameConditionState.memoryValues.size()) {
+            frameConditionState.memoryValues[cachedRead.readIndex] = readMemoryValue(cachedRead.condition, emu);
+        }
     }
 
     const size_t chrCount = std::min(m_chrOverrides.size(), m_frameConditionPlan.chrOverrideGlobalConditions.size());
@@ -1218,8 +1223,12 @@ void ModManager::rebuildFrameConditionPlan()
             if(duplicateIt == m_frameConditionPlan.uniqueMemoryReads.end()) {
                 FrameConditionPlan::CachedMemoryRead cachedRead;
                 cachedRead.key = key;
+                cachedRead.readIndex = m_frameConditionPlan.uniqueMemoryReads.size();
                 cachedRead.condition = compiledCondition;
                 m_frameConditionPlan.uniqueMemoryReads.push_back(std::move(cachedRead));
+                compiledCondition.readIndex = m_frameConditionPlan.uniqueMemoryReads.back().readIndex;
+            } else {
+                compiledCondition.readIndex = duplicateIt->readIndex;
             }
             globals.memoryConditions.push_back(std::move(compiledCondition));
         }
@@ -1629,6 +1638,7 @@ std::optional<ModManager::DebugComposePixel> ModManager::debugComposePixel(const
         int sourceScale = 1;
         ChrOverride::SourceLayout wholeChrLayout = ChrOverride::SourceLayout::PatternTables;
         bool hasDynamicConditions = false;
+        std::vector<const MemoryCondition*> runtimeConditions;
         size_t sequence = 0;
     };
 
@@ -1640,6 +1650,18 @@ std::optional<ModManager::DebugComposePixel> ModManager::debugComposePixel(const
         int alphaScale = 255;
         int bgScrollX = 0;
         int bgScrollY = 0;
+        std::vector<const MemoryCondition*> runtimeConditions;
+    };
+
+    auto appendRuntimeConditions = [](const std::vector<MemoryCondition>& conditions, auto& runtimeConditions) {
+        runtimeConditions.clear();
+        runtimeConditions.reserve(conditions.size());
+        for(const MemoryCondition& condition : conditions) {
+            if(condition.kind != MemoryCondition::Kind::MemoryCheck &&
+               condition.kind != MemoryCondition::Kind::FrameRange) {
+                runtimeConditions.push_back(&condition);
+            }
+        }
     };
 
     std::vector<const ChrOverride*> activeOverrides;
@@ -1684,14 +1706,16 @@ std::optional<ModManager::DebugComposePixel> ModManager::debugComposePixel(const
             override->sourceLayout == ChrOverride::SourceLayout::Auto
                 ? ChrOverride::SourceLayout::PatternTables
                 : override->sourceLayout;
+        appendRuntimeConditions(override->conditions, prepared.runtimeConditions);
         prepared.hasDynamicConditions = std::any_of(
-            override->conditions.begin(),
-            override->conditions.end(),
-            [](const MemoryCondition& condition) {
-                return condition.kind == MemoryCondition::Kind::TileAtPosition ||
-                       condition.kind == MemoryCondition::Kind::TileNearby ||
-                       condition.kind == MemoryCondition::Kind::SpriteAtPosition ||
-                       condition.kind == MemoryCondition::Kind::SpriteNearby;
+            prepared.runtimeConditions.begin(),
+            prepared.runtimeConditions.end(),
+            [](const MemoryCondition* condition) {
+                return condition != nullptr &&
+                       (condition->kind == MemoryCondition::Kind::TileAtPosition ||
+                        condition->kind == MemoryCondition::Kind::TileNearby ||
+                        condition->kind == MemoryCondition::Kind::SpriteAtPosition ||
+                        condition->kind == MemoryCondition::Kind::SpriteNearby);
             });
         preparedOverrides.push_back(prepared);
         const PreparedOverride* preparedPtr = &preparedOverrides.back();
@@ -1752,6 +1776,7 @@ std::optional<ModManager::DebugComposePixel> ModManager::debugComposePixel(const
         prepared.alphaScale = std::clamp(static_cast<int>(std::round(replacement.opacity * 255.0f)), 0, 255);
         prepared.bgScrollX = static_cast<int>(snapshot.scrollX * replacement.parallaxX) + replacement.scrollX;
         prepared.bgScrollY = static_cast<int>(snapshot.scrollY * replacement.parallaxY) + replacement.scrollY;
+        appendRuntimeConditions(replacement.conditions, prepared.runtimeConditions);
         preparedBackgrounds.push_back(prepared);
     }
 
@@ -1894,9 +1919,10 @@ std::optional<ModManager::DebugComposePixel> ModManager::debugComposePixel(const
         bool match = false;
         switch(condition.kind) {
         case MemoryCondition::Kind::MemoryCheck: {
-            const uint64_t key = makeMemoryCacheKey(condition.memorySource, condition.address, condition.word, condition.scale);
-            const auto it = frameConditionState.memoryValues.find(key);
-            const uint32_t actual = it != frameConditionState.memoryValues.end() ? it->second : 0u;
+            const uint32_t actual =
+                condition.readIndex < frameConditionState.memoryValues.size()
+                    ? frameConditionState.memoryValues[condition.readIndex]
+                    : 0u;
             match = evaluateMemoryCondition(condition, actual);
             break;
         }
@@ -1969,9 +1995,10 @@ std::optional<ModManager::DebugComposePixel> ModManager::debugComposePixel(const
 
         switch(condition.kind) {
         case MemoryCondition::Kind::MemoryCheck: {
-            const uint64_t key = makeMemoryCacheKey(condition.memorySource, condition.address, condition.word, condition.scale);
-            const auto it = frameConditionState.memoryValues.find(key);
-            const uint32_t actual = it != frameConditionState.memoryValues.end() ? it->second : 0u;
+            const uint32_t actual =
+                condition.readIndex < frameConditionState.memoryValues.size()
+                    ? frameConditionState.memoryValues[condition.readIndex]
+                    : 0u;
             out << " (" << condition.memoryType << "[$"
                 << std::uppercase << std::hex << condition.address
                 << "]=" << actual
@@ -2049,6 +2076,15 @@ std::optional<ModManager::DebugComposePixel> ModManager::debugComposePixel(const
         return std::nullopt;
     };
 
+    auto firstFailedRuntimeConditionName = [&](const std::vector<const MemoryCondition*>& conditions, const ConditionContext& ctx) -> std::optional<std::string> {
+        for(const MemoryCondition* condition : conditions) {
+            if(condition != nullptr && !conditionMatchesAt(*condition, ctx)) {
+                return describeCondition(*condition, false, ctx);
+            }
+        }
+        return std::nullopt;
+    };
+
     auto matchesRequirement = [](int requirement, bool value) {
         return requirement == 0 || (requirement > 0 && value) || (requirement < 0 && !value);
     };
@@ -2085,8 +2121,10 @@ std::optional<ModManager::DebugComposePixel> ModManager::debugComposePixel(const
         if(!paletteMatches(override, palette, allowDefaultTileFallback)) {
             return false;
         }
-        if(!conditionsMatchAt(override.conditions, ctx)) {
-            return false;
+        for(const MemoryCondition* condition : preparedOverride.runtimeConditions) {
+            if(condition != nullptr && !conditionMatchesAt(*condition, ctx)) {
+                return false;
+            }
         }
         return true;
     };
@@ -2266,7 +2304,7 @@ std::optional<ModManager::DebugComposePixel> ModManager::debugComposePixel(const
             continue;
         }
 
-        if(const auto failed = firstFailedConditionName(prepared.replacement->conditions, backgroundConditionContext); failed.has_value()) {
+        if(const auto failed = firstFailedRuntimeConditionName(prepared.runtimeConditions, backgroundConditionContext); failed.has_value()) {
             debugStage.returnedBaseColor = true;
             debugStage.reason = "condition failed: " + *failed;
             if(backgroundDebugCounts[static_cast<size_t>(priority)] < 6 || debugAssetMatchesFilter(prepared.replacement->assetPath)) {
@@ -2731,6 +2769,7 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
         int sourceScale = 1;
         ChrOverride::SourceLayout wholeChrLayout = ChrOverride::SourceLayout::PatternTables;
         bool hasDynamicConditions = false;
+        std::vector<const MemoryCondition*> runtimeConditions;
         size_t sequence = 0;
     };
 
@@ -2742,6 +2781,18 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
         int alphaScale = 255;
         int bgScrollX = 0;
         int bgScrollY = 0;
+        std::vector<const MemoryCondition*> runtimeConditions;
+    };
+
+    auto appendRuntimeConditions = [](const std::vector<MemoryCondition>& conditions, auto& runtimeConditions) {
+        runtimeConditions.clear();
+        runtimeConditions.reserve(conditions.size());
+        for(const MemoryCondition& condition : conditions) {
+            if(condition.kind != MemoryCondition::Kind::MemoryCheck &&
+               condition.kind != MemoryCondition::Kind::FrameRange) {
+                runtimeConditions.push_back(&condition);
+            }
+        }
     };
 
     std::vector<const ChrOverride*> activeOverrides;
@@ -2790,14 +2841,16 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
             override->sourceLayout == ChrOverride::SourceLayout::Auto
                 ? ChrOverride::SourceLayout::PatternTables
                 : override->sourceLayout;
+        appendRuntimeConditions(override->conditions, prepared.runtimeConditions);
         prepared.hasDynamicConditions = std::any_of(
-            override->conditions.begin(),
-            override->conditions.end(),
-            [](const MemoryCondition& condition) {
-                return condition.kind == MemoryCondition::Kind::TileAtPosition ||
-                       condition.kind == MemoryCondition::Kind::TileNearby ||
-                       condition.kind == MemoryCondition::Kind::SpriteAtPosition ||
-                       condition.kind == MemoryCondition::Kind::SpriteNearby;
+            prepared.runtimeConditions.begin(),
+            prepared.runtimeConditions.end(),
+            [](const MemoryCondition* condition) {
+                return condition != nullptr &&
+                       (condition->kind == MemoryCondition::Kind::TileAtPosition ||
+                        condition->kind == MemoryCondition::Kind::TileNearby ||
+                        condition->kind == MemoryCondition::Kind::SpriteAtPosition ||
+                        condition->kind == MemoryCondition::Kind::SpriteNearby);
             });
         preparedOverrides.push_back(prepared);
         const PreparedOverride* preparedPtr = &preparedOverrides.back();
@@ -2840,6 +2893,19 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
         }
     }
     const bool canUseOverrideLookupCache = !preparedOverrides.empty();
+    std::array<bool, 512> hasDynamicOverridesByFullTile = {};
+    std::array<bool, 256> hasDynamicOverridesByRelativeTile = {};
+    for(size_t i = 0; i < dynamicOverridesByFullTile.size(); ++i) {
+        hasDynamicOverridesByFullTile[i] = !dynamicOverridesByFullTile[i].empty();
+    }
+    for(size_t i = 0; i < dynamicOverridesByRelativeTile.size(); ++i) {
+        hasDynamicOverridesByRelativeTile[i] = !dynamicOverridesByRelativeTile[i].empty();
+    }
+    std::unordered_set<uint32_t> dynamicOverrideHashes;
+    dynamicOverrideHashes.reserve(dynamicOverridesByChrHash.size());
+    for(const auto& [hash, _] : dynamicOverridesByChrHash) {
+        dynamicOverrideHashes.insert(hash);
+    }
     std::vector<PreparedBackground> preparedBackgrounds;
     preparedBackgrounds.reserve(m_backgroundReplacements.size());
     for(const BackgroundReplacement& replacement : m_backgroundReplacements) {
@@ -2858,6 +2924,7 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
         prepared.alphaScale = std::clamp(static_cast<int>(std::round(replacement.opacity * 255.0f)), 0, 255);
         prepared.bgScrollX = static_cast<int>(snapshot.scrollX * replacement.parallaxX) + replacement.scrollX;
         prepared.bgScrollY = static_cast<int>(snapshot.scrollY * replacement.parallaxY) + replacement.scrollY;
+        appendRuntimeConditions(replacement.conditions, prepared.runtimeConditions);
         preparedBackgrounds.push_back(prepared);
     }
 
@@ -3017,9 +3084,10 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
         bool match = false;
         switch(condition.kind) {
         case MemoryCondition::Kind::MemoryCheck: {
-            const uint64_t key = makeMemoryCacheKey(condition.memorySource, condition.address, condition.word, condition.scale);
-            const auto it = frameConditionState.memoryValues.find(key);
-            const uint32_t actual = it != frameConditionState.memoryValues.end() ? it->second : 0u;
+            const uint32_t actual =
+                condition.readIndex < frameConditionState.memoryValues.size()
+                    ? frameConditionState.memoryValues[condition.readIndex]
+                    : 0u;
             match = evaluateMemoryCondition(condition, actual);
             break;
         }
@@ -3121,8 +3189,10 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
         if(!paletteMatches(override, palette, allowDefaultTileFallback)) {
             return false;
         }
-        if(!conditionsMatchAt(override.conditions, ctx)) {
-            return false;
+        for(const MemoryCondition* condition : preparedOverride.runtimeConditions) {
+            if(condition != nullptr && !conditionMatchesAt(*condition, ctx)) {
+                return false;
+            }
         }
         return true;
     };
@@ -3215,11 +3285,11 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
         const uint64_t lookupKey = makeOverrideLookupKey(target, fullTileIndex, currentPatternTable, currentTileHash, palette, hMirror, vMirror, bgPriority);
         const bool hasDynamicCandidates =
             !dynamicWholeChrOverrides.empty() ||
-            (dynamicOverridesByChrHash.find(lookupHash) != dynamicOverridesByChrHash.end()) ||
+            (dynamicOverrideHashes.find(lookupHash) != dynamicOverrideHashes.end()) ||
             (fullTileIndex >= 0 && fullTileIndex < static_cast<int>(dynamicOverridesByFullTile.size()) &&
-             !dynamicOverridesByFullTile[static_cast<size_t>(fullTileIndex)].empty()) ||
+             hasDynamicOverridesByFullTile[static_cast<size_t>(fullTileIndex)]) ||
             (tileIndex >= 0 && tileIndex < static_cast<int>(dynamicOverridesByRelativeTile.size()) &&
-             !dynamicOverridesByRelativeTile[static_cast<size_t>(tileIndex)].empty());
+             hasDynamicOverridesByRelativeTile[static_cast<size_t>(tileIndex)]);
         if(canUseOverrideLookupCache && !hasDynamicCandidates) {
             if(const auto it = overrideLookupCache.find(lookupKey); it != overrideLookupCache.end()) {
                 return it->second;
@@ -3517,7 +3587,14 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
         if(activeBackgroundsByPriority[static_cast<size_t>(prepared.priority)] != nullptr) {
             continue;
         }
-        if(conditionsMatchAt(prepared.replacement->conditions, backgroundConditionContext)) {
+        bool matches = true;
+        for(const MemoryCondition* condition : prepared.runtimeConditions) {
+            if(condition != nullptr && !conditionMatchesAt(*condition, backgroundConditionContext)) {
+                matches = false;
+                break;
+            }
+        }
+        if(matches) {
             activeBackgroundsByPriority[static_cast<size_t>(prepared.priority)] = &prepared;
         }
     }

@@ -145,7 +145,7 @@ struct EmulationHostTypes
         struct FrameConditionState
         {
             uint32_t frameCount = 0;
-            std::unordered_map<uint64_t, uint32_t> memoryValues;
+            std::vector<uint32_t> memoryValues;
         };
 
         bool valid = false;

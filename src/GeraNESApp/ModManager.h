@@ -52,6 +52,7 @@ public:
         bool word = false;
         int scale = 1;
         uint64_t memoryCacheKey = 0;
+        size_t readIndex = 0;
         std::string op = "==";
         CompareOp compareOp = CompareOp::Equal;
         uint32_t value = 0;
@@ -167,7 +168,7 @@ public:
 
     struct FrameConditionState {
         uint32_t frameCount = 0;
-        std::unordered_map<uint64_t, uint32_t> memoryValues;
+        std::vector<uint32_t> memoryValues;
     };
 
     struct ChrRenderSnapshot {
@@ -184,6 +185,7 @@ public:
     struct FrameConditionPlan {
         struct CachedMemoryRead {
             uint64_t key = 0;
+            size_t readIndex = 0;
             MemoryCondition condition;
         };
 
