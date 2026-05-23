@@ -4157,6 +4157,64 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
                 }
             }
 
+            struct ResolvedSpriteCandidate {
+                const PPU::DebugModSpriteCandidate* candidate = nullptr;
+                const PreparedOverride* spriteOverride = nullptr;
+                uint32_t fixedFallbackColor = 0;
+                bool fallbackUsesCurrentColor = true;
+                int originalIndex = -1;
+            };
+
+            std::array<ResolvedSpriteCandidate, 8> resolvedBehindSpriteCandidates = {};
+            size_t resolvedBehindSpriteCandidateCount = 0;
+            std::array<ResolvedSpriteCandidate, 8> resolvedFrontSpriteCandidates = {};
+            size_t resolvedFrontSpriteCandidateCount = 0;
+            if(spritePixel != nullptr && spritePixel->count > 0) {
+                for(int i = static_cast<int>(spritePixel->count) - 1; i >= 0; --i) {
+                    const PPU::DebugModSpriteCandidate& candidate = spritePixel->candidates[static_cast<size_t>(i)];
+                    if(!candidate.valid) {
+                        continue;
+                    }
+
+                    ResolvedSpriteCandidate resolvedCandidate;
+                    resolvedCandidate.candidate = &candidate;
+                    resolvedCandidate.originalIndex = i;
+                    resolvedCandidate.fallbackUsesCurrentColor = candidate.colorLowBits == 0 || m_disableOriginalTiles;
+                    if(!resolvedCandidate.fallbackUsesCurrentColor) {
+                        resolvedCandidate.fixedFallbackColor = spriteFallbackColorFor(candidate);
+                    }
+
+                    const int spriteFullTileIndex = candidate.tileIndex != 0xFFFF ? static_cast<int>(candidate.tileIndex) : -1;
+                    if(spriteFullTileIndex >= 0) {
+                        const std::array<uint8_t, 3> spritePalette = { candidate.palette[0], candidate.palette[1], candidate.palette[2] };
+                        const ConditionContext context = { nesX, nesY, bgPixel, &candidate };
+                        resolvedCandidate.spriteOverride =
+                            (onlyWholeChrOverrides && fastSpriteOverride != nullptr)
+                                ? fastSpriteOverride
+                                : findOverride(
+                                    ChrOverride::Target::Sprite,
+                                    spriteFullTileIndex & 0xFF,
+                                    spriteFullTileIndex,
+                                    spriteFullTileIndex / 256,
+                                    spritePalette,
+                                    candidate.horizontalMirror,
+                                    candidate.verticalMirror,
+                                    candidate.behindBackground,
+                                    context);
+                    }
+
+                    if(candidate.behindBackground) {
+                        if(resolvedBehindSpriteCandidateCount < resolvedBehindSpriteCandidates.size()) {
+                            resolvedBehindSpriteCandidates[resolvedBehindSpriteCandidateCount++] = resolvedCandidate;
+                        }
+                    } else if(i < lowestBgSpriteCandidate) {
+                        if(resolvedFrontSpriteCandidateCount < resolvedFrontSpriteCandidates.size()) {
+                            resolvedFrontSpriteCandidates[resolvedFrontSpriteCandidateCount++] = resolvedCandidate;
+                        }
+                    }
+                }
+            }
+
             std::array<ResolvedBackgroundLayer, 10> resolvedLowPriorityBackgrounds = {};
             size_t resolvedLowPriorityBackgroundCount = 0;
             for(const ActiveBackgroundLayer& activeLayer : lowPriorityBackgrounds) {
@@ -4285,35 +4343,17 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
                         color = sampleResolvedBackgroundPixel(color, resolvedMidAfterTileBackgrounds[i], subX, subY);
                     }
 
-                    if(spritePixel != nullptr && spritePixel->count > 0) {
-                        auto applySpriteCandidate = [&](const PPU::DebugModSpriteCandidate& candidate) {
+                    if(resolvedBehindSpriteCandidateCount > 0 || resolvedFrontSpriteCandidateCount > 0) {
+                        auto applyResolvedSpriteCandidate = [&](const ResolvedSpriteCandidate& resolvedCandidate) {
+                            const PPU::DebugModSpriteCandidate& candidate = *resolvedCandidate.candidate;
                             const uint32_t spriteFallbackColor =
-                                candidate.colorLowBits == 0
-                                    ? color
-                                    : (m_disableOriginalTiles ? color : spriteFallbackColorFor(candidate));
-                            const int spriteFullTileIndex = candidate.tileIndex != 0xFFFF ? static_cast<int>(candidate.tileIndex) : -1;
-                            const std::array<uint8_t, 3> spritePalette = { candidate.palette[0], candidate.palette[1], candidate.palette[2] };
-                            const ConditionContext context = { nesX, nesY, bgPixel, &candidate };
-                            const PreparedOverride* spriteOverride =
-                                spriteFullTileIndex >= 0
-                                    ? ((onlyWholeChrOverrides && fastSpriteOverride != nullptr)
-                                        ? fastSpriteOverride
-                                        : findOverride(
-                                            ChrOverride::Target::Sprite,
-                                            spriteFullTileIndex & 0xFF,
-                                            spriteFullTileIndex,
-                                            spriteFullTileIndex / 256,
-                                            spritePalette,
-                                            candidate.horizontalMirror,
-                                            candidate.verticalMirror,
-                                            candidate.behindBackground,
-                                            context))
-                                    : nullptr;
-                            if(spriteOverride != nullptr) {
+                                resolvedCandidate.fallbackUsesCurrentColor ? color : resolvedCandidate.fixedFallbackColor;
+                            if(resolvedCandidate.spriteOverride != nullptr) {
+                                const std::array<uint8_t, 3> spritePalette = { candidate.palette[0], candidate.palette[1], candidate.palette[2] };
                                 color = sampleOverridePixel(
                                     color,
                                     spriteFallbackColor,
-                                    spriteOverride,
+                                    resolvedCandidate.spriteOverride,
                                     candidate.tileIndex,
                                     candidate.offsetX,
                                     candidate.offsetY,
@@ -4330,26 +4370,14 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
                             }
                         };
 
-                        for(int i = static_cast<int>(spritePixel->count) - 1; i >= 0; --i) {
-                            const PPU::DebugModSpriteCandidate& candidate = spritePixel->candidates[static_cast<size_t>(i)];
-                            if(!candidate.valid || !candidate.behindBackground) {
-                                continue;
+                        if(!backgroundOpaque) {
+                            for(size_t i = 0; i < resolvedBehindSpriteCandidateCount; ++i) {
+                                applyResolvedSpriteCandidate(resolvedBehindSpriteCandidates[i]);
                             }
-                            if(backgroundOpaque) {
-                                continue;
-                            }
-                            applySpriteCandidate(candidate);
                         }
 
-                        for(int i = static_cast<int>(spritePixel->count) - 1; i >= 0; --i) {
-                            const PPU::DebugModSpriteCandidate& candidate = spritePixel->candidates[static_cast<size_t>(i)];
-                            if(!candidate.valid || candidate.behindBackground) {
-                                continue;
-                            }
-                            if(lowestBgSpriteCandidate <= i) {
-                                continue;
-                            }
-                            applySpriteCandidate(candidate);
+                        for(size_t i = 0; i < resolvedFrontSpriteCandidateCount; ++i) {
+                            applyResolvedSpriteCandidate(resolvedFrontSpriteCandidates[i]);
                         }
                     }
 
