@@ -267,25 +267,20 @@ void ThreadedEmulationHost::refreshPpuEventViewerSnapshotLocked(uint32_t frameCo
 
 void ThreadedEmulationHost::refreshModRenderSnapshotLocked(uint32_t frameCount)
 {
+    ModFrameCaptureHook hook;
+    {
+        std::scoped_lock hookLock(m_modFrameCaptureHookMutex);
+        hook = m_modFrameCaptureHook;
+    }
+
     ModRenderSnapshot snapshot;
-    snapshot.valid = m_emu.valid();
-    snapshot.frameCount = frameCount;
-    if(snapshot.valid) {
-        PPU& ppu = m_emu.getConsole().ppu();
-        snapshot.scrollX = ppu.getVirtualScrollX();
-        snapshot.scrollY = ppu.getVirtualScrollY();
-        snapshot.universalBgColor = static_cast<uint8_t>(ppu.debugPeekPpuMemory(0x3F00) & 0x3F);
-        ppu.debugCopyPresentedBackgroundPixels(snapshot.backgroundPixels);
-        ppu.debugCopyPresentedSpritePixels(snapshot.spritePixels);
-        for(size_t i = 0; i < snapshot.paletteColors.size(); ++i) {
-            snapshot.paletteColors[i] = ppu.NESToRGBAColor(static_cast<uint8_t>(i));
-        }
-        for(size_t i = 0; i < snapshot.tileHashes.size(); ++i) {
-            snapshot.tileHashes[i] = ppu.debugHashChrTile(static_cast<int>(i));
-        }
+    std::vector<uint32_t> framebuffer;
+    if(hook) {
+        hook(m_emu, snapshot, framebuffer);
     }
     std::scoped_lock modRenderLock(m_modRenderSnapshotMutex);
     m_modRenderSnapshot = std::move(snapshot);
+    m_presentedModFramebuffer = std::move(framebuffer);
 }
 
 void ThreadedEmulationHost::refreshSnapshotLocked()
@@ -621,6 +616,16 @@ void ThreadedEmulationHost::setPreAdvanceHook(std::function<void(GeraNESEmu&)> h
     m_presenterCv.notify_one();
 }
 
+void ThreadedEmulationHost::setModFrameCaptureHook(ModFrameCaptureHook hook)
+{
+    {
+        std::scoped_lock hookLock(m_modFrameCaptureHookMutex);
+        m_modFrameCaptureHook = std::move(hook);
+    }
+    m_workerWakeRequested.store(true, std::memory_order_release);
+    m_presenterCv.notify_one();
+}
+
 void ThreadedEmulationHost::setDebugTraceSink(std::function<void(const std::string&)> sink)
 {
     (void)sink;
@@ -723,11 +728,10 @@ bool ThreadedEmulationHost::getModRenderSnapshot(ModRenderSnapshot& out) const
 
 bool ThreadedEmulationHost::getModRenderFrame(ModRenderSnapshot& snapshot, std::vector<uint32_t>& framebuffer) const
 {
-    std::scoped_lock lock(m_framebufferMutex, m_modRenderSnapshotMutex);
+    std::scoped_lock lock(m_modRenderSnapshotMutex);
     snapshot = m_modRenderSnapshot;
-    const auto& front = m_framebuffers[m_frontFramebufferIndex.load(std::memory_order_acquire)];
-    framebuffer.assign(front.begin(), front.end());
-    return snapshot.valid;
+    framebuffer = m_presentedModFramebuffer;
+    return snapshot.valid && !framebuffer.empty();
 }
 
 void ThreadedEmulationHost::beginPresentationHoldUntilNextFrameReady()

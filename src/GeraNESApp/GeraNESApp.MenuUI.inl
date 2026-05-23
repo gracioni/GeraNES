@@ -2210,9 +2210,9 @@ inline void GeraNESApp::drawModPixelInspectorWindow()
     }
 
     IEmulationHost::ModRenderSnapshot snapshot;
-    std::vector<uint32_t> inspectorFramebuffer;
-    const bool hasSnapshot = m_emu.getModRenderFrame(snapshot, inspectorFramebuffer) && snapshot.valid;
-    const uint32_t* sourceFramebuffer = inspectorFramebuffer.empty() ? m_emu.getFramebuffer() : inspectorFramebuffer.data();
+    std::vector<uint32_t> unusedPresentedModFramebuffer;
+    const bool hasSnapshot = m_emu.getModRenderFrame(snapshot, unusedPresentedModFramebuffer) && snapshot.valid;
+    const uint32_t* sourceFramebuffer = m_emu.getFramebuffer();
 
     ImGui::Text(
         "Frame %u | Mod %s | Scale %dx | Clip top/bottom %d",

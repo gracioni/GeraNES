@@ -220,9 +220,10 @@ void SingleThreadEmulationHost::onFrameReady()
     m_holdPresentedFramebufferUntilFrameReady = false;
     refreshPpuViewerSnapshot();
     refreshPpuEventViewerSnapshot();
-    refreshModRenderSnapshot();
     if(!m_emu.valid()) {
         std::fill(m_presentedFramebuffer.begin(), m_presentedFramebuffer.end(), 0u);
+        m_modRenderSnapshot = {};
+        m_presentedModFramebuffer.clear();
         return;
     }
     std::memcpy(
@@ -230,6 +231,12 @@ void SingleThreadEmulationHost::onFrameReady()
         m_emu.getFramebuffer(),
         m_presentedFramebuffer.size() * sizeof(uint32_t)
     );
+
+    m_modRenderSnapshot = {};
+    m_presentedModFramebuffer.clear();
+    if(m_modFrameCaptureHook) {
+        m_modFrameCaptureHook(m_emu, m_modRenderSnapshot, m_presentedModFramebuffer);
+    }
 }
 
 void SingleThreadEmulationHost::refreshPresentedFramebuffer()
@@ -323,23 +330,6 @@ void SingleThreadEmulationHost::refreshPpuEventViewerSnapshot()
 void SingleThreadEmulationHost::refreshModRenderSnapshot()
 {
     m_modRenderSnapshot = {};
-    m_modRenderSnapshot.valid = m_emu.valid();
-    m_modRenderSnapshot.frameCount = m_emu.frameCount();
-    if(!m_modRenderSnapshot.valid) {
-        return;
-    }
-    PPU& ppu = m_emu.getConsole().ppu();
-    m_modRenderSnapshot.scrollX = ppu.getVirtualScrollX();
-    m_modRenderSnapshot.scrollY = ppu.getVirtualScrollY();
-    m_modRenderSnapshot.universalBgColor = static_cast<uint8_t>(ppu.debugPeekPpuMemory(0x3F00) & 0x3F);
-    ppu.debugCopyPresentedBackgroundPixels(m_modRenderSnapshot.backgroundPixels);
-    ppu.debugCopyPresentedSpritePixels(m_modRenderSnapshot.spritePixels);
-    for(size_t i = 0; i < m_modRenderSnapshot.paletteColors.size(); ++i) {
-        m_modRenderSnapshot.paletteColors[i] = ppu.NESToRGBAColor(static_cast<uint8_t>(i));
-    }
-    for(size_t i = 0; i < m_modRenderSnapshot.tileHashes.size(); ++i) {
-        m_modRenderSnapshot.tileHashes[i] = ppu.debugHashChrTile(static_cast<int>(i));
-    }
 }
 
 SingleThreadEmulationHost::SingleThreadEmulationHost(IAudioOutput& audioOutput)
@@ -402,6 +392,15 @@ void SingleThreadEmulationHost::setAllowPresenterTimeoutAdvance(bool enabled)
 void SingleThreadEmulationHost::setPreAdvanceHook(std::function<void(GeraNESEmu&)> hook)
 {
     m_preAdvanceHook = std::move(hook);
+}
+
+void SingleThreadEmulationHost::setModFrameCaptureHook(ModFrameCaptureHook hook)
+{
+    m_modFrameCaptureHook = std::move(hook);
+    if(!m_modFrameCaptureHook) {
+        m_modRenderSnapshot = {};
+        m_presentedModFramebuffer.clear();
+    }
 }
 
 void SingleThreadEmulationHost::setDebugTraceSink(std::function<void(const std::string&)> sink)
@@ -512,8 +511,8 @@ bool SingleThreadEmulationHost::getModRenderSnapshot(ModRenderSnapshot& out) con
 bool SingleThreadEmulationHost::getModRenderFrame(ModRenderSnapshot& snapshot, std::vector<uint32_t>& framebuffer) const
 {
     snapshot = m_modRenderSnapshot;
-    framebuffer = m_presentedFramebuffer;
-    return snapshot.valid;
+    framebuffer = m_presentedModFramebuffer;
+    return snapshot.valid && !framebuffer.empty();
 }
 
 void SingleThreadEmulationHost::beginPresentationHoldUntilNextFrameReady()

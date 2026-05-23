@@ -113,16 +113,20 @@ inline void GeraNESApp::fillNoRomStaticFramebuffer()
 
 inline void GeraNESApp::render()
 {
-    const int modScale = (m_emu.valid() && m_modManager.active()) ? std::clamp(m_modManager.resolutionMultiplier(), 1, 8) : 1;
+    IEmulationHost::ModRenderSnapshot modSnapshot;
+    std::vector<uint32_t> modFramebuffer;
+    const bool useModRenderPath =
+        m_emu.valid() &&
+        m_modManager.active() &&
+        m_emu.getModRenderFrame(modSnapshot, modFramebuffer) &&
+        !modFramebuffer.empty();
+
+    const int modScale = useModRenderPath ? std::clamp(modSnapshot.scale, 1, 8) : 1;
     const int textureWidth = 256 * modScale;
     const int textureHeight = 256 * modScale;
     const int activeTop = m_clipHeightValue;
     const int activeBottom = PPU::SCREEN_HEIGHT - m_clipHeightValue;
-    const int activeTopScaled = activeTop * modScale;
-    const int activeBottomScaled = activeBottom * modScale;
     const uint32_t* framebuffer = nullptr;
-    const bool useModRenderPath = m_emu.valid() && m_modManager.active();
-    const bool canUseSnapshotChrRenderPath = useModRenderPath;
 
     if(!m_emu.valid()) {
         fillNoRomStaticFramebuffer();
@@ -166,32 +170,8 @@ inline void GeraNESApp::render()
         }
     };
 
-    if(canUseSnapshotChrRenderPath) {
-        IEmulationHost::ModRenderSnapshot hostSnapshot;
-        std::vector<uint32_t> presentedFramebufferCopy;
-        if(!m_emu.getModRenderFrame(hostSnapshot, presentedFramebufferCopy) || presentedFramebufferCopy.empty()) {
-            copyScaledFramebuffer(m_emu.getFramebuffer());
-        } else {
-            const uint32_t* presentedFramebuffer = presentedFramebufferCopy.data();
-            ModManager::ChrRenderSnapshot chrSnapshot;
-            chrSnapshot.scrollX = hostSnapshot.scrollX;
-            chrSnapshot.scrollY = hostSnapshot.scrollY;
-            chrSnapshot.universalBgColor = hostSnapshot.universalBgColor;
-            chrSnapshot.paletteColors = hostSnapshot.paletteColors;
-            chrSnapshot.tileHashes = hostSnapshot.tileHashes;
-            chrSnapshot.backgroundPixels = std::move(hostSnapshot.backgroundPixels);
-            chrSnapshot.spritePixels = std::move(hostSnapshot.spritePixels);
-            m_modManager.composeChrFrame(
-                m_textureUploadBuffer,
-                textureWidth,
-                textureHeight,
-                activeTopScaled,
-                activeBottomScaled,
-                modScale,
-                presentedFramebuffer,
-                chrSnapshot
-            );
-        }
+    if(useModRenderPath) {
+        m_textureUploadBuffer = modFramebuffer;
     } else {
         copyScaledFramebuffer(framebuffer);
     }

@@ -1498,6 +1498,41 @@ void GeraNESApp::onEmuResetForModAudio(uint32_t)
     m_modManager.onEmulatorReset();
 }
 
+void GeraNESApp::refreshModFrameCaptureHook()
+{
+    m_emu.setModFrameCaptureHook([this](GeraNESEmu& emu, IEmulationHost::ModRenderSnapshot& snapshot, std::vector<uint32_t>& framebuffer) {
+        if(!m_modManager.active()) {
+            snapshot = {};
+            framebuffer.clear();
+            return false;
+        }
+
+        ModManager::ChrRenderSnapshot modSnapshot;
+        if(!m_modManager.composeFrameOnEmuThread(
+               emu,
+               modSnapshot,
+               framebuffer,
+               m_clipHeightValue,
+               PPU::SCREEN_HEIGHT - m_clipHeightValue)) {
+            snapshot = {};
+            framebuffer.clear();
+            return false;
+        }
+
+        snapshot.valid = true;
+        snapshot.frameCount = emu.frameCount();
+        snapshot.scale = m_modManager.resolutionMultiplier();
+        snapshot.scrollX = modSnapshot.scrollX;
+        snapshot.scrollY = modSnapshot.scrollY;
+        snapshot.universalBgColor = modSnapshot.universalBgColor;
+        snapshot.paletteColors = modSnapshot.paletteColors;
+        snapshot.tileHashes = modSnapshot.tileHashes;
+        snapshot.backgroundPixels = std::move(modSnapshot.backgroundPixels);
+        snapshot.spritePixels = std::move(modSnapshot.spritePixels);
+        return true;
+    });
+}
+
 bool GeraNESApp::openRomPath(const fs::path& path, bool updateRecentFiles)
 {
     if(isNetplayRomChangeRestricted()) {
@@ -1505,6 +1540,7 @@ bool GeraNESApp::openRomPath(const fs::path& path, bool updateRecentFiles)
         return false;
     }
 
+    m_emu.setModFrameCaptureHook({});
     const ModManager::LoadRequest modLoad = m_modManager.prepareRomLoad(path);
     const std::string effectivePath = modLoad.effectiveRomPath.string();
 
@@ -1517,6 +1553,7 @@ bool GeraNESApp::openRomPath(const fs::path& path, bool updateRecentFiles)
             m_modManager.loadDefinitionForCurrentMod();
             Logger::instance().log(modLoad.message + " " + modLoad.modPath.string(), Logger::Type::USER);
         }
+        refreshModFrameCaptureHook();
         normalizeTouchControlsTargetForCurrentTopology();
         m_loadedRomPath = path;
         const std::string filename = path.filename().string();
@@ -1530,6 +1567,7 @@ bool GeraNESApp::openRomPath(const fs::path& path, bool updateRecentFiles)
         }
         return true;
     } else {
+        refreshModFrameCaptureHook();
         m_loadedRomPath.clear();
         Logger::instance().log("Failed to load ROM", Logger::Type::USER);
         return false;
@@ -1875,6 +1913,7 @@ GeraNESApp::GeraNESApp()
         cfg.inputDelayFrames = static_cast<int>(updateResult.inputDelayFrames);
         m_modManager.onFrame(emu);
     });
+    refreshModFrameCaptureHook();
 
     std::ofstream file(LOG_FILE);
     file.close();
@@ -2623,7 +2662,9 @@ void GeraNESApp::loadModFolder()
 void GeraNESApp::clearSelectedMod()
 {
     const bool hadSelectedMod = m_modManager.hasSelectedSource();
+    m_emu.setModFrameCaptureHook({});
     m_modManager.clearModSource();
+    refreshModFrameCaptureHook();
     if(hadSelectedMod) {
         Logger::instance().log("Mod cleared.", Logger::Type::USER);
     }

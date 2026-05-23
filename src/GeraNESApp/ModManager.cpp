@@ -489,6 +489,55 @@ void ModManager::onEmulatorReset()
     }
 }
 
+bool ModManager::composeFrameOnEmuThread(
+    GeraNESEmu& emu,
+    ChrRenderSnapshot& snapshot,
+    std::vector<uint32_t>& framebuffer,
+    int activeTop,
+    int activeBottom)
+{
+    if(!m_active || !emu.valid()) {
+        snapshot = {};
+        framebuffer.clear();
+        return false;
+    }
+
+    PPU& ppu = emu.getConsole().ppu();
+    snapshot = {};
+    snapshot.scrollX = ppu.getVirtualScrollX();
+    snapshot.scrollY = ppu.getVirtualScrollY();
+    snapshot.universalBgColor = static_cast<uint8_t>(ppu.debugPeekPpuMemory(0x3F00) & 0x3F);
+    ppu.debugCopyPresentedBackgroundPixels(snapshot.backgroundPixels);
+    ppu.debugCopyPresentedSpritePixels(snapshot.spritePixels);
+    for(size_t i = 0; i < snapshot.paletteColors.size(); ++i) {
+        snapshot.paletteColors[i] = ppu.NESToRGBAColor(static_cast<uint8_t>(i));
+    }
+    for(size_t i = 0; i < snapshot.tileHashes.size(); ++i) {
+        snapshot.tileHashes[i] = ppu.debugHashChrTile(static_cast<int>(i));
+    }
+
+    const int scale = std::clamp(m_resolutionMultiplier, 1, 8);
+    const int width = PPU::SCREEN_WIDTH * scale;
+    const int height = 256 * scale;
+    const int activeTopScaled = std::clamp(activeTop, 0, PPU::SCREEN_HEIGHT) * scale;
+    const int activeBottomScaled = std::clamp(activeBottom, 0, PPU::SCREEN_HEIGHT) * scale;
+    if(framebuffer.size() != static_cast<size_t>(width * height)) {
+        framebuffer.assign(static_cast<size_t>(width * height), 0u);
+    }
+
+    composeChrFrame(
+        framebuffer,
+        width,
+        height,
+        activeTopScaled,
+        activeBottomScaled,
+        scale,
+        emu.getFramebuffer(),
+        snapshot
+    );
+    return true;
+}
+
 std::shared_ptr<IAudioOutput::ExternalAudioMixer> ModManager::externalAudioMixer() const
 {
     if(!m_hdAudioRuntime) {

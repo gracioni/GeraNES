@@ -34,6 +34,7 @@ public:
     using ManualStateChangeRecord = IEmulationHost::ManualStateChangeRecord;
     using InputTopologySnapshot = IEmulationHost::InputTopologySnapshot;
     using ModRenderSnapshot = IEmulationHost::ModRenderSnapshot;
+    using ModFrameCaptureHook = EmulationHostTypes::ModFrameCaptureHook;
     using PpuViewerSnapshot = EmulationHostTypes::PpuViewerSnapshot;
     using PpuEventViewerSnapshot = EmulationHostTypes::PpuEventViewerSnapshot;
 
@@ -184,9 +185,11 @@ private:
     bool m_freeRunningClockInitialized = false;
     std::chrono::steady_clock::time_point m_freeRunningNextTick{};
     std::function<void(GeraNESEmu&)> m_preAdvanceHook;
+    ModFrameCaptureHook m_modFrameCaptureHook;
     PpuViewerSnapshot m_ppuViewerSnapshot;
     PpuEventViewerSnapshot m_ppuEventViewerSnapshot;
     ModRenderSnapshot m_modRenderSnapshot;
+    std::vector<uint32_t> m_presentedModFramebuffer;
     bool m_ppuViewerCaptureEnabled = false;
     bool m_ppuViewerScanlineCaptureEnabled = false;
     bool m_ppuEventViewerCaptureEnabled = false;
@@ -215,6 +218,7 @@ public:
     void setAutoQueuePendingInputOnFrameStart(bool enabled) override;
     void setAllowPresenterTimeoutAdvance(bool enabled) override;
     void setPreAdvanceHook(std::function<void(GeraNESEmu&)> hook) override;
+    void setModFrameCaptureHook(ModFrameCaptureHook hook) override;
     void setDebugTraceSink(std::function<void(const std::string&)> sink);
     void postCommand(std::function<void(GeraNESEmu&)> command) override;
     void setPpuViewerCaptureEnabled(bool enabled, bool scanlineTrace = false);

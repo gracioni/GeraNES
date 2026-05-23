@@ -193,6 +193,7 @@ public:
     bool loadDefinitionForCurrentMod();
     void onFrame(GeraNESEmu& emu);
     void onEmulatorReset();
+    bool composeFrameOnEmuThread(GeraNESEmu& emu, ChrRenderSnapshot& snapshot, std::vector<uint32_t>& framebuffer, int activeTop, int activeBottom);
     void composeChrFrame(std::vector<uint32_t>& framebuffer, int width, int height, int activeTop, int activeBottom, int scale, const uint32_t* sourceFramebuffer, const ChrRenderSnapshot& snapshot, const std::vector<const ChrOverride*>* activeOverrideFilter = nullptr);
 
     bool active() const { return m_active; }

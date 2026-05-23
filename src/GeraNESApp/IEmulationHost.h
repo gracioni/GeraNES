@@ -103,6 +103,8 @@ struct EmulationHostTypes
     };
 
     using FrameInputResolver = std::function<bool(uint32_t, ReplayFrameInput&)>;
+    struct ModRenderSnapshot;
+    using ModFrameCaptureHook = std::function<bool(GeraNESEmu&, ModRenderSnapshot&, std::vector<uint32_t>&)>;
 
     struct InputTopologySnapshot
     {
@@ -141,6 +143,7 @@ struct EmulationHostTypes
     {
         bool valid = false;
         uint32_t frameCount = 0;
+        int scale = 1;
         int scrollX = 0;
         int scrollY = 0;
         uint8_t universalBgColor = 0;
@@ -157,6 +160,7 @@ public:
     using InputState = EmulationHostTypes::InputState;
     using ReplayFrameInput = EmulationHostTypes::ReplayFrameInput;
     using FrameInputResolver = EmulationHostTypes::FrameInputResolver;
+    using ModFrameCaptureHook = EmulationHostTypes::ModFrameCaptureHook;
     using NetplayDiagnosticsSnapshot = ConsoleNetplay::NetplayRuntimeDiagnostics;
     using ManualStateChangeKind = ConsoleNetplay::NetplayManualStateChangeKind;
     using ManualStateChangeRecord = ConsoleNetplay::NetplayManualStateChangeRecord;
@@ -173,6 +177,7 @@ public:
     virtual void setAutoQueuePendingInputOnFrameStart(bool enabled) = 0;
     virtual void setAllowPresenterTimeoutAdvance(bool enabled) = 0;
     virtual void setPreAdvanceHook(std::function<void(GeraNESEmu&)> hook) = 0;
+    virtual void setModFrameCaptureHook(ModFrameCaptureHook hook) = 0;
     virtual void postCommand(std::function<void(GeraNESEmu&)> command) = 0;
     virtual bool open(const std::string& path) = 0;
     virtual std::vector<std::string> getAudioList() const = 0;
