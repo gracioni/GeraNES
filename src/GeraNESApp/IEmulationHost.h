@@ -8,6 +8,7 @@
 #include <memory>
 #include <optional>
 #include <string>
+#include <unordered_map>
 #include <utility>
 #include <vector>
 
@@ -141,6 +142,12 @@ struct EmulationHostTypes
 
     struct ModRenderSnapshot
     {
+        struct FrameConditionState
+        {
+            uint32_t frameCount = 0;
+            std::unordered_map<uint64_t, uint32_t> memoryValues;
+        };
+
         bool valid = false;
         uint32_t frameCount = 0;
         int scale = 1;
@@ -151,6 +158,7 @@ struct EmulationHostTypes
         std::array<uint32_t, 512> tileHashes = {};
         std::vector<PPU::DebugModBackgroundPixel> backgroundPixels;
         std::vector<PPU::DebugModSpritePixel> spritePixels;
+        FrameConditionState frameConditionState;
     };
 };
 

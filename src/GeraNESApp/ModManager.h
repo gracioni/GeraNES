@@ -5,7 +5,6 @@
 #include <filesystem>
 #include <optional>
 #include <string>
-#include <mutex>
 #include <unordered_map>
 #include <vector>
 
@@ -165,6 +164,11 @@ public:
         std::string message;
     };
 
+    struct FrameConditionState {
+        uint32_t frameCount = 0;
+        std::unordered_map<uint64_t, uint32_t> memoryValues;
+    };
+
     struct ChrRenderSnapshot {
         int scrollX = 0;
         int scrollY = 0;
@@ -173,11 +177,7 @@ public:
         std::array<uint32_t, 512> tileHashes = {};
         std::vector<PPU::DebugModBackgroundPixel> backgroundPixels;
         std::vector<PPU::DebugModSpritePixel> spritePixels;
-    };
-
-    struct FrameConditionState {
-        uint32_t frameCount = 0;
-        std::unordered_map<uint64_t, uint32_t> memoryValues;
+        FrameConditionState frameConditionState;
     };
 
     struct FrameConditionPlan {
@@ -265,7 +265,6 @@ private:
     std::shared_ptr<HdPackAudioRuntime> m_hdAudioRuntime;
     FrameConditionState m_frameConditionState;
     FrameConditionPlan m_frameConditionPlan;
-    mutable std::mutex m_frameConditionStateMutex;
     struct DecodedImage {
         int width = 0;
         int height = 0;

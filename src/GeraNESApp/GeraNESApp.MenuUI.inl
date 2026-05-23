@@ -2288,6 +2288,8 @@ inline void GeraNESApp::drawModPixelInspectorWindow()
             chrSnapshot.tileHashes = snapshot.tileHashes;
             chrSnapshot.backgroundPixels = snapshot.backgroundPixels;
             chrSnapshot.spritePixels = snapshot.spritePixels;
+            chrSnapshot.frameConditionState.frameCount = snapshot.frameConditionState.frameCount;
+            chrSnapshot.frameConditionState.memoryValues = snapshot.frameConditionState.memoryValues;
             composeDebug = m_modManager.debugComposePixel(sourceFramebuffer, chrSnapshot, modScale, hoveredX, hoveredY, m_modPixelInspectorFilter);
         }
 

@@ -1529,6 +1529,8 @@ void GeraNESApp::refreshModFrameCaptureHook()
         snapshot.tileHashes = modSnapshot.tileHashes;
         snapshot.backgroundPixels = std::move(modSnapshot.backgroundPixels);
         snapshot.spritePixels = std::move(modSnapshot.spritePixels);
+        snapshot.frameConditionState.frameCount = modSnapshot.frameConditionState.frameCount;
+        snapshot.frameConditionState.memoryValues = std::move(modSnapshot.frameConditionState.memoryValues);
         return true;
     });
 }

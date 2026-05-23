@@ -602,6 +602,7 @@ bool ModManager::composeFrameOnEmuThread(
     snapshot.universalBgColor = static_cast<uint8_t>(ppu.debugPeekPpuMemory(0x3F00) & 0x3F);
     ppu.debugCopyPresentedBackgroundPixels(snapshot.backgroundPixels);
     ppu.debugCopyPresentedSpritePixels(snapshot.spritePixels);
+    snapshot.frameConditionState = m_frameConditionState;
     for(size_t i = 0; i < snapshot.paletteColors.size(); ++i) {
         snapshot.paletteColors[i] = ppu.NESToRGBAColor(static_cast<uint8_t>(i));
     }
@@ -1167,10 +1168,7 @@ void ModManager::onFrame(GeraNESEmu& emu)
     for(size_t i = bgCount; i < m_backgroundReplacements.size(); ++i) {
         m_backgroundReplacements[i].enabled = true;
     }
-    {
-        const std::lock_guard<std::mutex> lock(m_frameConditionStateMutex);
-        m_frameConditionState = std::move(frameConditionState);
-    }
+    m_frameConditionState = std::move(frameConditionState);
 }
 
 void ModManager::rebuildFrameConditionPlan()
@@ -1597,11 +1595,7 @@ std::optional<ModManager::DebugComposePixel> ModManager::debugComposePixel(const
         return std::nullopt;
     }
 
-    FrameConditionState frameConditionState;
-    {
-        const std::lock_guard<std::mutex> lock(m_frameConditionStateMutex);
-        frameConditionState = m_frameConditionState;
-    }
+    const FrameConditionState& frameConditionState = snapshot.frameConditionState;
 
     struct PreparedOverride {
         const ChrOverride* override = nullptr;
@@ -2682,11 +2676,7 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
         return;
     }
 
-    FrameConditionState frameConditionState;
-    {
-        const std::lock_guard<std::mutex> lock(m_frameConditionStateMutex);
-        frameConditionState = m_frameConditionState;
-    }
+    const FrameConditionState& frameConditionState = snapshot.frameConditionState;
 
     if(m_chrOverrides.empty()) {
         for(int nesY = std::max(0, activeTop / scale); nesY < std::min(PPU::SCREEN_HEIGHT, (activeBottom + scale - 1) / scale); ++nesY) {
