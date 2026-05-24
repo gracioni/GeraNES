@@ -4347,6 +4347,9 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
             const int blockX0 = nesX * scale;
             const int blockX1 = std::min(width, blockX0 + scale);
             if(blockX0 >= blockX1) continue;
+            const int subYStart = std::max(0, blockY0 - nesY * scale);
+            const int subYEnd = std::min(scale, blockY1 - nesY * scale);
+            if(subYStart >= subYEnd) continue;
             const bool lowUniform = blockIsUniform(resolvedLowPriorityBackgrounds, resolvedLowPriorityBackgroundCount);
             const bool midBeforeUniform = blockIsUniform(resolvedMidBeforeTileBackgrounds, resolvedMidBeforeTileBackgroundCount);
             const bool midAfterUniform = blockIsUniform(resolvedMidAfterTileBackgrounds, resolvedMidAfterTileBackgroundCount);
@@ -4395,9 +4398,7 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
                 for(int outY = blockY0; outY < blockY1; ++outY) {
                     uint32_t* dstRow = framebuffer.data() + static_cast<size_t>(outY) * static_cast<size_t>(width);
                     for(int outX = blockX0; outX < blockX1; ++outX) {
-                        if(outX >= 0 && outX < width) {
-                            dstRow[outX] = color;
-                        }
+                        dstRow[outX] = color;
                     }
                 }
 #if defined(GERANES_MOD_PROFILE)
@@ -4408,7 +4409,7 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
             }
 
             std::array<std::array<uint32_t, 8>, 8> baseBlockColors = {};
-            for(int subY = 0; subY < scale; ++subY) {
+            for(int subY = subYStart; subY < subYEnd; ++subY) {
                 for(int subX = 0; subX < scale; ++subX) {
 #if defined(GERANES_MOD_PROFILE)
                     const auto backgroundBlendStart = ComposeClock::now();
@@ -4468,7 +4469,7 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
 
             if(!hasResolvedSprites) {
                 if(hasHighPriorityBackgrounds) {
-                    for(int subY = 0; subY < scale; ++subY) {
+                    for(int subY = subYStart; subY < subYEnd; ++subY) {
                         for(int subX = 0; subX < scale; ++subX) {
 #if defined(GERANES_MOD_PROFILE)
                             const auto highBackgroundBlendStart = ComposeClock::now();
@@ -4486,13 +4487,11 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
                     }
                 }
 
-                for(int subY = 0; subY < scale; ++subY) {
+                for(int subY = subYStart; subY < subYEnd; ++subY) {
                     const int outY = nesY * scale + subY;
-                    if(outY < activeTop || outY >= activeBottom || outY < 0 || outY >= height) continue;
                     uint32_t* dstRow = framebuffer.data() + static_cast<size_t>(outY) * static_cast<size_t>(width);
                     for(int subX = 0; subX < scale; ++subX) {
                         const int outX = blockX0 + subX;
-                        if(outX < 0 || outX >= width) continue;
 #if defined(GERANES_MOD_PROFILE)
                         const auto framebufferWriteStart = ComposeClock::now();
 #endif
@@ -4506,7 +4505,7 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
                 continue;
             }
 
-            for(int subY = 0; subY < scale; ++subY) {
+            for(int subY = subYStart; subY < subYEnd; ++subY) {
                 for(int subX = 0; subX < scale; ++subX) {
                     uint32_t color = baseBlockColors[static_cast<size_t>(subY)][static_cast<size_t>(subX)];
 #if defined(GERANES_MOD_PROFILE)
@@ -4603,13 +4602,11 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
                 }
             }
 
-            for(int subY = 0; subY < scale; ++subY) {
+            for(int subY = subYStart; subY < subYEnd; ++subY) {
                 const int outY = nesY * scale + subY;
-                if(outY < activeTop || outY >= activeBottom || outY < 0 || outY >= height) continue;
                 uint32_t* dstRow = framebuffer.data() + static_cast<size_t>(outY) * static_cast<size_t>(width);
                 for(int subX = 0; subX < scale; ++subX) {
                     const int outX = blockX0 + subX;
-                    if(outX < 0 || outX >= width) continue;
 #if defined(GERANES_MOD_PROFILE)
                     const auto framebufferWriteStart = ComposeClock::now();
 #endif
