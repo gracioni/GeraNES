@@ -613,7 +613,9 @@ inline void GeraNESApp::showOverlay()
         ImFont* fpsFont = m_fontFps != nullptr ? m_fontFps : ImGui::GetFont();
         const SDL_Rect clientArea = emulatorClientArea();
 
-        std::string fpsText = std::to_string(m_fps);
+        std::string fpsText =
+            "EMU " + std::to_string(m_emulatorFps) +
+            "  DISP " + std::to_string(m_displayFps);
         ImVec2 fpsTextSize = fpsFont->CalcTextSizeA(fontSize, FLT_MAX, 0, fpsText.c_str());
 
         const ImVec2 pos = ImVec2(

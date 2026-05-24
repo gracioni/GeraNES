@@ -694,8 +694,8 @@ uint32_t ThreadedEmulationHost::manualLoadStateGeneration() const
 
 uint32_t ThreadedEmulationHost::exactEmulationFrame() const
 {
-    std::scoped_lock emuLock(m_emuMutex);
-    return m_emu.frameCount();
+    std::scoped_lock snapshotLock(m_snapshotMutex);
+    return m_snapshot.frameCount;
 }
 
 uint32_t ThreadedEmulationHost::getRegionFPS() const

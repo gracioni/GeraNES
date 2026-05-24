@@ -356,8 +356,12 @@ private:
 
     // FPS vars    
     Uint64 m_fpsTimer = 0;
-    int m_fps = 0;
-    int m_frameCounter = 0;
+    int m_emulatorFps = 0;
+    int m_displayFps = 0;
+    uint32_t m_generatedFrameCounter = 0;
+    uint32_t m_displayLoopCounter = 0;
+    uint32_t m_lastObservedEmulationFrame = 0;
+    bool m_hasLastObservedEmulationFrame = false;
     uint32_t m_lastMainLoopDtMs = 0;
     uint64_t m_presenterFrameAccumScaled = 0;
     uint32_t m_presenterStepRemainder = 0;

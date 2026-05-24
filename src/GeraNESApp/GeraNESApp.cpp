@@ -3758,14 +3758,7 @@ void GeraNESApp::mainLoop()
     applyEffectiveRewindSettings();
     pollAndPrepareInput();
 
-    m_fpsTimer += dt;
-
-    if(m_fpsTimer >= 1000) {
-        int cycles = m_fpsTimer / 1000;
-        m_fps = m_frameCounter / cycles;
-        m_frameCounter = 0;
-        m_fpsTimer %= 1000;
-    }
+    ++m_displayLoopCounter;
 
     bool netplayPacingOverrideActive = false;
     netplayPacingOverrideActive = m_netplayRuntime.uiSnapshot().active;
@@ -3788,7 +3781,9 @@ void GeraNESApp::mainLoop()
             netplayPacingOverrideActive,
             false
         );
-        if(advanced) render();
+        if(advanced) {
+            render();
+        }
     } else {
         const uint32_t emuFps = std::max<uint32_t>(1u, m_emu.getRegionFPS());
         const bool vsyncEnabled = m_vsyncMode != OFF;
@@ -3811,7 +3806,6 @@ void GeraNESApp::mainLoop()
             m_presenterFrameAccumScaled = 0;
             m_emu.updateUntilFrame(stepDtMs);
             render();
-            m_frameCounter++;
             m_netplayRuntime.recordFramePacing(
                 pacingDtMs,
                 1u,
@@ -3823,47 +3817,64 @@ void GeraNESApp::mainLoop()
                m_pendingEnableCpuDebuggerAfterNetplayDisconnect) {
                 syncCpuDebugRuntimeState();
             }
-            return;
-        }
+        } else {
+            const uint64_t pacingScaleDenominator = std::max<uint64_t>(1u, m_mainLoopCounterFrequency);
+            m_presenterFrameAccumScaled += counterDelta * static_cast<uint64_t>(emuFps);
 
-        const uint64_t pacingScaleDenominator = std::max<uint64_t>(1u, m_mainLoopCounterFrequency);
-        m_presenterFrameAccumScaled += counterDelta * static_cast<uint64_t>(emuFps);
+            const int MAX_FRAMES_TO_ADVANCE = 30;
+            uint32_t framesToAdvance = 0u;
+            while(m_presenterFrameAccumScaled >= pacingScaleDenominator && framesToAdvance < MAX_FRAMES_TO_ADVANCE) {
+                ++framesToAdvance;
+                m_presenterFrameAccumScaled -= pacingScaleDenominator;
+            }
 
-        const int MAX_FRAMES_TO_ADVANCE = 30;
-        uint32_t framesToAdvance = 0u;
-        while(m_presenterFrameAccumScaled >= pacingScaleDenominator && framesToAdvance < MAX_FRAMES_TO_ADVANCE) {
-            ++framesToAdvance;
-            m_presenterFrameAccumScaled -= pacingScaleDenominator;
-        }
+            if(framesToAdvance == MAX_FRAMES_TO_ADVANCE && m_presenterFrameAccumScaled > pacingScaleDenominator) {
+                m_presenterFrameAccumScaled = pacingScaleDenominator;
+            }
 
-        if(framesToAdvance == MAX_FRAMES_TO_ADVANCE && m_presenterFrameAccumScaled > pacingScaleDenominator) {
-            m_presenterFrameAccumScaled = pacingScaleDenominator;
+            for(uint32_t i = 0u; i < framesToAdvance; ++i) {
+                const uint32_t stepNumerator = m_presenterStepRemainder + 1000u;
+                uint32_t stepDtMs = stepNumerator / emuFps;
+                m_presenterStepRemainder = stepNumerator % emuFps;
+                stepDtMs = std::max<uint32_t>(1u, stepDtMs);
+                m_emu.updateUntilFrame(stepDtMs);
+            }
+            m_netplayRuntime.recordFramePacing(
+                pacingDtMs,
+                framesToAdvance,
+                framesToAdvance > 1u ? framesToAdvance : 0u,
+                netplayPacingOverrideActive,
+                false
+            );
+            if(framesToAdvance > 0u) {
+                render();
+            }
         }
-
-        for(uint32_t i = 0u; i < framesToAdvance; ++i) {
-            const uint32_t stepNumerator = m_presenterStepRemainder + 1000u;
-            uint32_t stepDtMs = stepNumerator / emuFps;
-            m_presenterStepRemainder = stepNumerator % emuFps;
-            stepDtMs = std::max<uint32_t>(1u, stepDtMs);
-            m_emu.updateUntilFrame(stepDtMs);
-        }
-        m_netplayRuntime.recordFramePacing(
-            pacingDtMs,
-            framesToAdvance,
-            framesToAdvance > 1u ? framesToAdvance : 0u,
-            netplayPacingOverrideActive,
-            false
-        );
-        if(framesToAdvance > 0u) {
-            render();
-        }
+    }
+    const uint32_t observedFrame = m_emu.exactEmulationFrame();
+    uint32_t generatedFrames = 0u;
+    if(m_hasLastObservedEmulationFrame) {
+        generatedFrames =
+            observedFrame >= m_lastObservedEmulationFrame
+                ? (observedFrame - m_lastObservedEmulationFrame)
+                : observedFrame;
+    }
+    m_lastObservedEmulationFrame = observedFrame;
+    m_hasLastObservedEmulationFrame = true;
+    m_generatedFrameCounter += generatedFrames;
+    m_fpsTimer += dt;
+    if(m_fpsTimer >= 1000) {
+        const Uint64 elapsedSeconds = m_fpsTimer / 1000;
+        m_emulatorFps = static_cast<int>(m_generatedFrameCounter / elapsedSeconds);
+        m_displayFps = static_cast<int>(m_displayLoopCounter / elapsedSeconds);
+        m_generatedFrameCounter = 0;
+        m_displayLoopCounter = 0;
+        m_fpsTimer %= 1000;
     }
     if(AppSettings::instance().data.debug.cpuDebuggerEnabled ||
        m_pendingEnableCpuDebuggerAfterNetplayDisconnect) {
         syncCpuDebugRuntimeState();
     }
-
-    m_frameCounter++;
 }
 
 #include "GeraNESApp/GeraNESApp.MenuUI.inl"
