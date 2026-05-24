@@ -4056,6 +4056,14 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
         int bgScrollY = 0;
     };
 
+    struct ScanlineBackgroundLayer {
+        const PreparedBackground* prepared = nullptr;
+        int srcBaseX = 0;
+        int baseSrcY = 0;
+        int minNesX = 0;
+        int maxNesX = -1;
+    };
+
     std::vector<ActiveBackgroundLayer> lowPriorityBackgrounds;
     std::vector<ActiveBackgroundLayer> midBeforeTileBackgrounds;
     std::vector<ActiveBackgroundLayer> midAfterTileBackgrounds;
@@ -4083,7 +4091,7 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
         }
     }
 
-    auto resolveBackgroundLayer = [&](const ActiveBackgroundLayer& activeLayer, int nesX, int nesY) {
+    auto resolveBackgroundLayer = [&](const ScanlineBackgroundLayer& activeLayer, int nesX) {
         ResolvedBackgroundLayer resolved;
         if(activeLayer.prepared == nullptr) {
             return resolved;
@@ -4092,24 +4100,14 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
         const PreparedBackground& prepared = *activeLayer.prepared;
         resolved.prepared = &prepared;
 
-        const BackgroundReplacement& replacement = *prepared.replacement;
+        if(nesX < activeLayer.minNesX || nesX > activeLayer.maxNesX) {
+            return resolved;
+        }
+
         const DecodedImage& image = *prepared.image;
-        if(image.width <= 0 || image.height <= 0) {
-            return resolved;
-        }
-
-        const int srcNesX = replacement.sourceX + nesX + activeLayer.bgScrollX;
-        const int srcNesY = replacement.sourceY + nesY + activeLayer.bgScrollY;
-        if(srcNesX < 0 || srcNesY < 0) {
-            return resolved;
-        }
-        if((srcNesX + 1) * prepared.backgroundScale > image.width || (srcNesY + 1) * prepared.backgroundScale > image.height) {
-            return resolved;
-        }
-
         resolved.valid = true;
-        resolved.baseSrcX = srcNesX * prepared.backgroundScale;
-        resolved.baseSrcY = srcNesY * prepared.backgroundScale;
+        resolved.baseSrcX = (activeLayer.srcBaseX + nesX) * prepared.backgroundScale;
+        resolved.baseSrcY = activeLayer.baseSrcY;
         if(prepared.backgroundScale == 1) {
             resolved.uniformBlock = true;
             resolved.uniformColor =
@@ -4199,6 +4197,39 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
         const int blockY1 = std::min(activeBottom, (nesY + 1) * scale);
         if(blockY0 >= blockY1) continue;
 
+        auto buildScanlineLayers = [&](const std::vector<ActiveBackgroundLayer>& activeLayers) {
+            std::vector<ScanlineBackgroundLayer> scanlineLayers;
+            scanlineLayers.reserve(activeLayers.size());
+            for(const ActiveBackgroundLayer& activeLayer : activeLayers) {
+                if(activeLayer.prepared == nullptr || activeLayer.prepared->image == nullptr) {
+                    continue;
+                }
+                const PreparedBackground& prepared = *activeLayer.prepared;
+                const BackgroundReplacement& replacement = *prepared.replacement;
+                const DecodedImage& image = *prepared.image;
+                const int srcNesY = replacement.sourceY + nesY + activeLayer.bgScrollY;
+                if(srcNesY < 0 || (srcNesY + 1) * prepared.backgroundScale > image.height) {
+                    continue;
+                }
+
+                ScanlineBackgroundLayer scanlineLayer;
+                scanlineLayer.prepared = &prepared;
+                scanlineLayer.srcBaseX = replacement.sourceX + activeLayer.bgScrollX;
+                scanlineLayer.baseSrcY = srcNesY * prepared.backgroundScale;
+                scanlineLayer.minNesX = -scanlineLayer.srcBaseX;
+                scanlineLayer.maxNesX = (image.width / prepared.backgroundScale) - 1 - scanlineLayer.srcBaseX;
+                if(scanlineLayer.minNesX <= scanlineLayer.maxNesX) {
+                    scanlineLayers.push_back(scanlineLayer);
+                }
+            }
+            return scanlineLayers;
+        };
+
+        const std::vector<ScanlineBackgroundLayer> lowPriorityScanlineLayers = buildScanlineLayers(lowPriorityBackgrounds);
+        const std::vector<ScanlineBackgroundLayer> midBeforeTileScanlineLayers = buildScanlineLayers(midBeforeTileBackgrounds);
+        const std::vector<ScanlineBackgroundLayer> midAfterTileScanlineLayers = buildScanlineLayers(midAfterTileBackgrounds);
+        const std::vector<ScanlineBackgroundLayer> highPriorityScanlineLayers = buildScanlineLayers(highPriorityBackgrounds);
+
         for(int nesX = 0; nesX < PPU::SCREEN_WIDTH; ++nesX) {
             const uint32_t baseColor = srcRow[nesX];
             const size_t pixelIndex = static_cast<size_t>(nesY) * PPU::SCREEN_WIDTH + static_cast<size_t>(nesX);
@@ -4269,42 +4300,38 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
 #if defined(GERANES_MOD_PROFILE)
             const auto backgroundResolveStart = ComposeClock::now();
 #endif
-            for(const ActiveBackgroundLayer& activeLayer : lowPriorityBackgrounds) {
+            for(const ScanlineBackgroundLayer& activeLayer : lowPriorityScanlineLayers) {
                 if(resolvedLowPriorityBackgroundCount >= resolvedLowPriorityBackgrounds.size()) {
                     break;
                 }
-                resolvedLowPriorityBackgrounds[resolvedLowPriorityBackgroundCount++] =
-                    resolveBackgroundLayer(activeLayer, nesX, nesY);
+                resolvedLowPriorityBackgrounds[resolvedLowPriorityBackgroundCount++] = resolveBackgroundLayer(activeLayer, nesX);
             }
 
             std::array<ResolvedBackgroundLayer, 10> resolvedMidBeforeTileBackgrounds = {};
             size_t resolvedMidBeforeTileBackgroundCount = 0;
-            for(const ActiveBackgroundLayer& activeLayer : midBeforeTileBackgrounds) {
+            for(const ScanlineBackgroundLayer& activeLayer : midBeforeTileScanlineLayers) {
                 if(resolvedMidBeforeTileBackgroundCount >= resolvedMidBeforeTileBackgrounds.size()) {
                     break;
                 }
-                resolvedMidBeforeTileBackgrounds[resolvedMidBeforeTileBackgroundCount++] =
-                    resolveBackgroundLayer(activeLayer, nesX, nesY);
+                resolvedMidBeforeTileBackgrounds[resolvedMidBeforeTileBackgroundCount++] = resolveBackgroundLayer(activeLayer, nesX);
             }
 
             std::array<ResolvedBackgroundLayer, 10> resolvedMidAfterTileBackgrounds = {};
             size_t resolvedMidAfterTileBackgroundCount = 0;
-            for(const ActiveBackgroundLayer& activeLayer : midAfterTileBackgrounds) {
+            for(const ScanlineBackgroundLayer& activeLayer : midAfterTileScanlineLayers) {
                 if(resolvedMidAfterTileBackgroundCount >= resolvedMidAfterTileBackgrounds.size()) {
                     break;
                 }
-                resolvedMidAfterTileBackgrounds[resolvedMidAfterTileBackgroundCount++] =
-                    resolveBackgroundLayer(activeLayer, nesX, nesY);
+                resolvedMidAfterTileBackgrounds[resolvedMidAfterTileBackgroundCount++] = resolveBackgroundLayer(activeLayer, nesX);
             }
 
             std::array<ResolvedBackgroundLayer, 10> resolvedHighPriorityBackgrounds = {};
             size_t resolvedHighPriorityBackgroundCount = 0;
-            for(const ActiveBackgroundLayer& activeLayer : highPriorityBackgrounds) {
+            for(const ScanlineBackgroundLayer& activeLayer : highPriorityScanlineLayers) {
                 if(resolvedHighPriorityBackgroundCount >= resolvedHighPriorityBackgrounds.size()) {
                     break;
                 }
-                resolvedHighPriorityBackgrounds[resolvedHighPriorityBackgroundCount++] =
-                    resolveBackgroundLayer(activeLayer, nesX, nesY);
+                resolvedHighPriorityBackgrounds[resolvedHighPriorityBackgroundCount++] = resolveBackgroundLayer(activeLayer, nesX);
             }
 #if defined(GERANES_MOD_PROFILE)
             backgroundResolveUs += static_cast<uint64_t>(
