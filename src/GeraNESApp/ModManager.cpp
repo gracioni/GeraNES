@@ -4026,6 +4026,9 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
         const uint32_t mappedColor =
             (snapshot.paletteColors[palette[static_cast<size_t>(paletteIndex)] & 0x3F] & 0x00FFFFFFu) |
             (static_cast<uint32_t>(sourceAlpha) << 24u);
+        if(sourceAlpha == 0xFF) {
+            return mappedColor;
+        }
         return blendPixel(baseColor, mappedColor, 255);
     };
 
@@ -4462,6 +4465,9 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
                         const uint32_t mappedColor =
                             (snapshot.paletteColors[snapshot.universalBgColor & 0x3F] & 0x00FFFFFFu) |
                             (static_cast<uint32_t>(sourceAlpha) << 24u);
+                        if(sourceAlpha == 0xFF) {
+                            return mappedColor;
+                        }
                         return blendPixel(color, mappedColor, 255);
                     }
 
@@ -4472,6 +4478,9 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
                     const uint32_t mappedColor =
                         (snapshot.paletteColors[backgroundPalette[static_cast<size_t>(paletteIndex)] & 0x3F] & 0x00FFFFFFu) |
                         (static_cast<uint32_t>(sourceAlpha) << 24u);
+                    if(sourceAlpha == 0xFF) {
+                        return mappedColor;
+                    }
                     return blendPixel(color, mappedColor, 255);
                 };
 
