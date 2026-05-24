@@ -29,11 +29,7 @@ add_compile_options(
 
 option(GERANES_ENABLE_WARNINGS_ALL "Enable broad compiler warnings for all targets" ON)
 option(GERANES_WEB_PTHREADS "Use Emscripten pthreads and the threaded emulation host in web builds" OFF)
-option(GERANES_MOD_PROFILE "Enable mod-system timing instrumentation" OFF)
 set(GERANES_WEB_PTHREADS_INITIAL_MEMORY_MB "512" CACHE STRING "Initial shared wasm memory for Emscripten pthread builds, in MiB")
-if(GERANES_MOD_PROFILE)
-    add_compile_definitions(GERANES_MOD_PROFILE=1)
-endif()
 add_library(geranes_warnings INTERFACE)
 if(GERANES_ENABLE_WARNINGS_ALL)
     if(MSVC)
