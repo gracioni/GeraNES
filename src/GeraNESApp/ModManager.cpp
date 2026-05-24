@@ -4246,6 +4246,7 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
             const PreparedOverride* backgroundOverride = nullptr;
             uint32_t backgroundFallbackColor = baseColor;
             std::array<uint8_t, 3> backgroundPalette = {};
+            std::array<uint32_t, 4> backgroundMappedPalette = {};
             const DecodedImage* backgroundOverrideImage = nullptr;
             int backgroundOverrideTileSrcX = 0;
             int backgroundOverrideTileSrcY = 0;
@@ -4340,6 +4341,10 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
                     }
                 }
                 backgroundFallbackColor = m_disableOriginalTiles ? 0x00000000u : snapshot.paletteColors[bgPixel->paletteIndex & 0x3F];
+                backgroundMappedPalette[0] = snapshot.paletteColors[snapshot.universalBgColor & 0x3F];
+                backgroundMappedPalette[1] = snapshot.paletteColors[backgroundPalette[0] & 0x3F];
+                backgroundMappedPalette[2] = snapshot.paletteColors[backgroundPalette[1] & 0x3F];
+                backgroundMappedPalette[3] = snapshot.paletteColors[backgroundPalette[2] & 0x3F];
             }
             const bool backgroundOpaque = bgPixel != nullptr && bgPixel->valid && bgPixel->colorLowBits != 0;
             bool hasAnyValidSpriteCandidate = false;
@@ -4534,7 +4539,7 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
                     const uint8_t sourcePaletteIndex = image->indexedPixels[sourcePixelIndex];
                     if(sourcePaletteIndex == 0) {
                         const uint32_t mappedColor =
-                            (snapshot.paletteColors[snapshot.universalBgColor & 0x3F] & 0x00FFFFFFu) |
+                            (backgroundMappedPalette[0] & 0x00FFFFFFu) |
                             (static_cast<uint32_t>(sourceAlpha) << 24u);
                         if(sourceAlpha == 0xFF) {
                             return mappedColor;
@@ -4547,7 +4552,7 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
                         return color;
                     }
                     const uint32_t mappedColor =
-                        (snapshot.paletteColors[backgroundPalette[static_cast<size_t>(paletteIndex)] & 0x3F] & 0x00FFFFFFu) |
+                        (backgroundMappedPalette[static_cast<size_t>(paletteIndex + 1)] & 0x00FFFFFFu) |
                         (static_cast<uint32_t>(sourceAlpha) << 24u);
                     if(sourceAlpha == 0xFF) {
                         return mappedColor;
@@ -4650,7 +4655,7 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
 
                     const uint8_t sourcePaletteIndex = image->indexedPixels[sourcePixelIndex];
                     if(sourcePaletteIndex == 0) {
-                        outColor = snapshot.paletteColors[snapshot.universalBgColor & 0x3F];
+                        outColor = backgroundMappedPalette[0];
                         return true;
                     }
 
@@ -4658,7 +4663,7 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
                     if(paletteIndex < 0 || paletteIndex >= static_cast<int>(backgroundPalette.size())) {
                         return false;
                     }
-                    outColor = snapshot.paletteColors[backgroundPalette[static_cast<size_t>(paletteIndex)] & 0x3F];
+                    outColor = backgroundMappedPalette[static_cast<size_t>(paletteIndex + 1)];
                     return true;
                 };
 
