@@ -1575,7 +1575,10 @@ bool GeraNESApp::openRomPath(const fs::path& path, bool updateRecentFiles, bool 
         }
     }
     if(m_emu.valid()) {
-        m_emu.closeRom();
+        m_emu.beginPresentationHoldUntilNextFrameReady();
+        m_emu.withExclusiveAccess([](GeraNESEmu& emu) {
+            emu.close();
+        });
     }
 
     const ModManager::LoadRequest modLoad = m_modManager.prepareRomLoad(path);
