@@ -4184,6 +4184,13 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
 #if defined(GERANES_MOD_PROFILE)
     const auto pixelLoopStart = ComposeClock::now();
 #endif
+    bool lastBackgroundOverrideCacheValid = false;
+    int lastBackgroundOverrideOriginX = 0;
+    int lastBackgroundOverrideOriginY = 0;
+    int lastBackgroundOverrideFullTileIndex = -1;
+    uint32_t lastBackgroundOverrideTileHash = 0;
+    std::array<uint8_t, 3> lastBackgroundOverridePalette = {};
+    const PreparedOverride* lastBackgroundOverride = nullptr;
     const int activeNesY0 = std::max(0, activeTop / scale);
     const int activeNesY1 = std::min(PPU::SCREEN_HEIGHT, (activeBottom + scale - 1) / scale);
     for(int nesY = activeNesY0; nesY < activeNesY1; ++nesY) {
@@ -4213,18 +4220,36 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
                 const int bgFullTileIndex = bgPixel->tileIndex != 0xFFFF ? static_cast<int>(bgPixel->tileIndex) : -1;
                 backgroundPalette = { bgPixel->palette[0], bgPixel->palette[1], bgPixel->palette[2] };
                 if(bgFullTileIndex >= 0) {
-                    const ConditionContext context = { nesX, nesY, bgPixel, nullptr };
+                    const int tileOriginX = nesX - static_cast<int>(bgPixel->offsetX);
+                    const int tileOriginY = nesY - static_cast<int>(bgPixel->offsetY);
+                    if(lastBackgroundOverrideCacheValid &&
+                        lastBackgroundOverrideOriginX == tileOriginX &&
+                        lastBackgroundOverrideOriginY == tileOriginY &&
+                        lastBackgroundOverrideFullTileIndex == bgFullTileIndex &&
+                        lastBackgroundOverrideTileHash == bgPixel->tileHash &&
+                        lastBackgroundOverridePalette == backgroundPalette) {
+                        backgroundOverride = lastBackgroundOverride;
+                    } else {
+                        const ConditionContext context = { nesX, nesY, bgPixel, nullptr };
 #if defined(GERANES_MOD_PROFILE)
-                    const auto overrideLookupStart = ComposeClock::now();
+                        const auto overrideLookupStart = ComposeClock::now();
 #endif
-                    backgroundOverride =
-                        onlyWholeChrOverrides && fastBackgroundOverride != nullptr
-                            ? fastBackgroundOverride
-                            : findOverride(ChrOverride::Target::Background, bgFullTileIndex & 0xFF, bgFullTileIndex, bgFullTileIndex / 256, backgroundPalette, false, false, false, context);
+                        backgroundOverride =
+                            onlyWholeChrOverrides && fastBackgroundOverride != nullptr
+                                ? fastBackgroundOverride
+                                : findOverride(ChrOverride::Target::Background, bgFullTileIndex & 0xFF, bgFullTileIndex, bgFullTileIndex / 256, backgroundPalette, false, false, false, context);
 #if defined(GERANES_MOD_PROFILE)
-                    overrideLookupUs += static_cast<uint64_t>(
-                        std::chrono::duration_cast<std::chrono::microseconds>(ComposeClock::now() - overrideLookupStart).count());
+                        overrideLookupUs += static_cast<uint64_t>(
+                            std::chrono::duration_cast<std::chrono::microseconds>(ComposeClock::now() - overrideLookupStart).count());
 #endif
+                        lastBackgroundOverrideCacheValid = true;
+                        lastBackgroundOverrideOriginX = tileOriginX;
+                        lastBackgroundOverrideOriginY = tileOriginY;
+                        lastBackgroundOverrideFullTileIndex = bgFullTileIndex;
+                        lastBackgroundOverrideTileHash = bgPixel->tileHash;
+                        lastBackgroundOverridePalette = backgroundPalette;
+                        lastBackgroundOverride = backgroundOverride;
+                    }
                 }
                 backgroundFallbackColor = m_disableOriginalTiles ? 0x00000000u : snapshot.paletteColors[bgPixel->paletteIndex & 0x3F];
             }
