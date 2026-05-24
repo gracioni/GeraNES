@@ -511,6 +511,7 @@ void ModManager::clear()
     m_originalRomPath.clear();
     m_effectiveRomPath.clear();
     m_modPath.clear();
+    m_modArchiveRoot.clear();
     m_active = false;
     m_scriptLoaded = false;
     m_resolutionMultiplier = 1;
@@ -569,9 +570,13 @@ bool ModManager::selectModSource(const std::filesystem::path& modSourcePath, std
     }
     if(isFile) {
         std::string extension = toLower(modSourcePath.extension().string());
-        if(extension != ".zip" && extension != ".mod") {
-            error = "Mod file must be a .zip or .mod archive.";
+        if(extension != ".zip") {
+            error = "Mod file must be a .zip archive.";
             return false;
+        }
+
+        if(const auto archiveRoot = findZipEntryRootForFile(modSourcePath, "hires.txt"); archiveRoot.has_value()) {
+            m_modArchiveRoot = *archiveRoot;
         }
     }
 
@@ -1585,6 +1590,58 @@ std::string ModManager::normalizeZipPath(std::string path)
     return path;
 }
 
+std::optional<std::string> ModManager::findZipEntryRootForFile(const std::filesystem::path& zipPath, const std::string& entryName)
+{
+    const std::string normalizedTarget = normalizeZipPath(entryName);
+    if(normalizedTarget.empty()) {
+        return std::nullopt;
+    }
+
+    const std::string lowerTarget = toLower(normalizedTarget);
+    zip_t* zip = zip_open(zipPath.string().c_str(), 0, 'r');
+    if(zip == nullptr) {
+        return std::nullopt;
+    }
+
+    std::optional<std::string> bestRoot;
+    const ssize_t totalEntries = zip_entries_total(zip);
+    for(ssize_t i = 0; i < totalEntries; ++i) {
+        if(zip_entry_openbyindex(zip, static_cast<size_t>(i)) != 0) {
+            continue;
+        }
+
+        const char* name = zip_entry_name(zip);
+        const bool isDirectory = zip_entry_isdir(zip) != 0;
+        std::string normalizedName = name != nullptr ? normalizeZipPath(name) : "";
+        zip_entry_close(zip);
+
+        if(isDirectory || normalizedName.empty()) {
+            continue;
+        }
+
+        const std::string lowerName = toLower(normalizedName);
+        if(lowerName != lowerTarget) {
+            const std::string suffix = "/" + lowerTarget;
+            if(lowerName.size() <= suffix.size() || lowerName.compare(lowerName.size() - suffix.size(), suffix.size(), suffix) != 0) {
+                continue;
+            }
+        }
+
+        const size_t lastSlash = normalizedName.find_last_of('/');
+        const std::string root = lastSlash == std::string::npos
+            ? std::string()
+            : normalizedName.substr(0, lastSlash + 1);
+        if(!bestRoot.has_value() ||
+           root.size() < bestRoot->size() ||
+           (root.size() == bestRoot->size() && root < *bestRoot)) {
+            bestRoot = root;
+        }
+    }
+
+    zip_close(zip);
+    return bestRoot;
+}
+
 std::optional<std::filesystem::path> ModManager::resolveFolderEntryPath(const std::filesystem::path& rootPath, const std::string& entryName)
 {
     if(rootPath.empty()) {
@@ -1606,6 +1663,18 @@ std::optional<std::filesystem::path> ModManager::resolveFolderEntryPath(const st
         }
     }
     return rootPath / relativePath;
+}
+
+std::string ModManager::resolveSourceEntryName(const std::string& entryName) const
+{
+    const std::string normalizedEntry = normalizeZipPath(entryName);
+    if(normalizedEntry.empty() || m_modArchiveRoot.empty()) {
+        return normalizedEntry;
+    }
+    if(normalizedEntry.rfind(m_modArchiveRoot, 0) == 0) {
+        return normalizedEntry;
+    }
+    return m_modArchiveRoot + normalizedEntry;
 }
 
 std::optional<std::vector<uint8_t>> ModManager::readFileEntry(const std::filesystem::path& rootPath, const std::string& entryName)
@@ -1635,15 +1704,19 @@ bool ModManager::sourceHasEntry(const std::string& entryName) const
     if(m_modPath.empty()) {
         return false;
     }
+    const std::string resolvedEntryName = resolveSourceEntryName(entryName);
+    if(resolvedEntryName.empty()) {
+        return false;
+    }
     if(isFolderSource()) {
-        const auto resolvedPath = resolveFolderEntryPath(m_modPath, entryName);
+        const auto resolvedPath = resolveFolderEntryPath(m_modPath, resolvedEntryName);
         if(!resolvedPath.has_value()) {
             return false;
         }
         std::error_code ec;
         return std::filesystem::exists(*resolvedPath, ec) && std::filesystem::is_regular_file(*resolvedPath, ec);
     }
-    return zipHasEntry(m_modPath, entryName);
+    return zipHasEntry(m_modPath, resolvedEntryName);
 }
 
 std::optional<std::vector<uint8_t>> ModManager::readSourceEntry(const std::string& entryName) const
@@ -1651,10 +1724,14 @@ std::optional<std::vector<uint8_t>> ModManager::readSourceEntry(const std::strin
     if(m_modPath.empty()) {
         return std::nullopt;
     }
-    if(isFolderSource()) {
-        return readFileEntry(m_modPath, entryName);
+    const std::string resolvedEntryName = resolveSourceEntryName(entryName);
+    if(resolvedEntryName.empty()) {
+        return std::nullopt;
     }
-    return readZipEntry(m_modPath, entryName);
+    if(isFolderSource()) {
+        return readFileEntry(m_modPath, resolvedEntryName);
+    }
+    return readZipEntry(m_modPath, resolvedEntryName);
 }
 
 std::optional<std::vector<uint8_t>> ModManager::readZipEntry(const std::filesystem::path& zipPath, const std::string& entryName)

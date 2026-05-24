@@ -2640,9 +2640,7 @@ void GeraNESApp::loadModArchive()
 
     nfdu8char_t* outPath = nullptr;
     nfdu8filteritem_t filterItem[] = {
-        { "Mod Archives", "zip,mod" },
-        { "ZIP", "zip" },
-        { "MOD", "mod" }
+        { "ZIP", "zip" }
     };
     nfdopendialogu8args_t args = {};
     args.filterList = filterItem;

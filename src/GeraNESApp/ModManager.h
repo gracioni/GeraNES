@@ -267,6 +267,7 @@ private:
     std::filesystem::path m_originalRomPath;
     std::filesystem::path m_effectiveRomPath;
     std::filesystem::path m_modPath;
+    std::string m_modArchiveRoot;
     bool m_active = false;
     bool m_scriptLoaded = false;
     int m_resolutionMultiplier = 1;
@@ -352,8 +353,10 @@ private:
     bool m_renderComposeCacheDirty = true;
 
     static std::string normalizeZipPath(std::string path);
+    static std::optional<std::string> findZipEntryRootForFile(const std::filesystem::path& zipPath, const std::string& entryName);
     static std::optional<std::filesystem::path> resolveFolderEntryPath(const std::filesystem::path& rootPath, const std::string& entryName);
     static std::optional<std::vector<uint8_t>> readFileEntry(const std::filesystem::path& rootPath, const std::string& entryName);
+    std::string resolveSourceEntryName(const std::string& entryName) const;
     bool isFolderSource() const;
     bool sourceHasEntry(const std::string& entryName) const;
     std::optional<std::vector<uint8_t>> readSourceEntry(const std::string& entryName) const;

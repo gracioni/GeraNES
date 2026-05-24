@@ -879,10 +879,10 @@ inline void GeraNESApp::menuBar() {
 
             if(ImGui::BeginMenu("Mod")) {
                 if(ImGui::BeginMenu("Load", !netplayRomChangeRestricted)) {
-                    if(ImGui::MenuItem("ZIP File...")) {
+                    if(ImGui::MenuItem("ZIP File")) {
                         loadModArchive();
                     }
-                    if(ImGui::MenuItem("Folder...")) {
+                    if(ImGui::MenuItem("Folder")) {
                         loadModFolder();
                     }
                     ImGui::EndMenu();
