@@ -4062,6 +4062,9 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
         int baseSrcY = 0;
         int minNesX = 0;
         int maxNesX = -1;
+        const uint32_t* row0 = nullptr;
+        const uint32_t* row1 = nullptr;
+        int maxSub = 0;
     };
 
     std::vector<ActiveBackgroundLayer> lowPriorityBackgrounds;
@@ -4235,6 +4238,10 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
                 scanlineLayer.baseSrcY = srcNesY * prepared.backgroundScale;
                 scanlineLayer.minNesX = -scanlineLayer.srcBaseX;
                 scanlineLayer.maxNesX = (image.width / prepared.backgroundScale) - 1 - scanlineLayer.srcBaseX;
+                scanlineLayer.maxSub = prepared.backgroundScale - 1;
+                scanlineLayer.row0 = image.rgba.data() + static_cast<size_t>(scanlineLayer.baseSrcY) * static_cast<size_t>(image.width);
+                const int row1Y = scanlineLayer.baseSrcY + std::clamp(1, 0, scanlineLayer.maxSub);
+                scanlineLayer.row1 = image.rgba.data() + static_cast<size_t>(row1Y) * static_cast<size_t>(image.width);
                 if(scanlineLayer.minNesX <= scanlineLayer.maxNesX) {
                     scanlineLayers.push_back(scanlineLayer);
                 }
@@ -4413,11 +4420,9 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
                         return;
                     }
                     const PreparedBackground& prepared = *layer.prepared;
-                    const DecodedImage& image = *prepared.image;
                     const int baseSrcX = (layer.srcBaseX + pixelX) * prepared.backgroundScale;
-                    const int baseSrcY = layer.baseSrcY;
                     if(prepared.backgroundScale == 1) {
-                        const uint32_t src = image.rgba[static_cast<size_t>(baseSrcY) * static_cast<size_t>(image.width) + static_cast<size_t>(baseSrcX)];
+                        const uint32_t src = layer.row0[static_cast<size_t>(baseSrcX)];
                         if(prepared.opaqueCopy && ((src >> 24u) & 0xFFu) == 0xFFu) {
                             block00 = src;
                             block01 = src;
@@ -4431,17 +4436,12 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
                         }
                         return;
                     }
-                    const int maxSub = prepared.backgroundScale - 1;
                     const int srcX0 = baseSrcX;
-                    const int srcX1 = baseSrcX + std::clamp(1, 0, maxSub);
-                    const int srcY0 = baseSrcY;
-                    const int srcY1 = baseSrcY + std::clamp(1, 0, maxSub);
-                    const size_t row0 = static_cast<size_t>(srcY0) * static_cast<size_t>(image.width);
-                    const size_t row1 = static_cast<size_t>(srcY1) * static_cast<size_t>(image.width);
-                    const uint32_t src00 = image.rgba[row0 + static_cast<size_t>(srcX0)];
-                    const uint32_t src01 = image.rgba[row0 + static_cast<size_t>(srcX1)];
-                    const uint32_t src10 = image.rgba[row1 + static_cast<size_t>(srcX0)];
-                    const uint32_t src11 = image.rgba[row1 + static_cast<size_t>(srcX1)];
+                    const int srcX1 = baseSrcX + std::clamp(1, 0, layer.maxSub);
+                    const uint32_t src00 = layer.row0[static_cast<size_t>(srcX0)];
+                    const uint32_t src01 = layer.row0[static_cast<size_t>(srcX1)];
+                    const uint32_t src10 = layer.row1[static_cast<size_t>(srcX0)];
+                    const uint32_t src11 = layer.row1[static_cast<size_t>(srcX1)];
                     if(prepared.opaqueCopy &&
                         ((src00 >> 24u) & 0xFFu) == 0xFFu &&
                         ((src01 >> 24u) & 0xFFu) == 0xFFu &&
@@ -4616,14 +4616,11 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
                                 continue;
                             }
                             const PreparedBackground& prepared = *layer.prepared;
-                            const DecodedImage& image = *prepared.image;
-                            const int baseSrcY = layer.baseSrcY;
                             if(prepared.backgroundScale == 1) {
-                                const size_t row = static_cast<size_t>(baseSrcY) * static_cast<size_t>(image.width);
                                 for(int tileOffsetX = startOffset; tileOffsetX <= endOffset; ++tileOffsetX) {
                                     auto& block = noSpriteDirectRowCacheBlocks[static_cast<size_t>(tileOffsetX)];
                                     const int srcX = layer.srcBaseX + tileOriginX + tileOffsetX;
-                                    const uint32_t src = image.rgba[row + static_cast<size_t>(srcX)];
+                                    const uint32_t src = layer.row0[static_cast<size_t>(srcX)];
                                     if(prepared.opaqueCopy && ((src >> 24u) & 0xFFu) == 0xFFu) {
                                         block[0] = src;
                                         block[1] = src;
@@ -4639,19 +4636,14 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
                                 continue;
                             }
 
-                            const int maxSub = prepared.backgroundScale - 1;
-                            const int srcY0 = baseSrcY;
-                            const int srcY1 = baseSrcY + std::clamp(1, 0, maxSub);
-                            const size_t row0 = static_cast<size_t>(srcY0) * static_cast<size_t>(image.width);
-                            const size_t row1 = static_cast<size_t>(srcY1) * static_cast<size_t>(image.width);
                             for(int tileOffsetX = startOffset; tileOffsetX <= endOffset; ++tileOffsetX) {
                                 auto& block = noSpriteDirectRowCacheBlocks[static_cast<size_t>(tileOffsetX)];
                                 const int srcX0 = (layer.srcBaseX + tileOriginX + tileOffsetX) * prepared.backgroundScale;
-                                const int srcX1 = srcX0 + std::clamp(1, 0, maxSub);
-                                const uint32_t src00 = image.rgba[row0 + static_cast<size_t>(srcX0)];
-                                const uint32_t src01 = image.rgba[row0 + static_cast<size_t>(srcX1)];
-                                const uint32_t src10 = image.rgba[row1 + static_cast<size_t>(srcX0)];
-                                const uint32_t src11 = image.rgba[row1 + static_cast<size_t>(srcX1)];
+                                const int srcX1 = srcX0 + std::clamp(1, 0, layer.maxSub);
+                                const uint32_t src00 = layer.row0[static_cast<size_t>(srcX0)];
+                                const uint32_t src01 = layer.row0[static_cast<size_t>(srcX1)];
+                                const uint32_t src10 = layer.row1[static_cast<size_t>(srcX0)];
+                                const uint32_t src11 = layer.row1[static_cast<size_t>(srcX1)];
                                 if(prepared.opaqueCopy &&
                                     ((src00 >> 24u) & 0xFFu) == 0xFFu &&
                                     ((src01 >> 24u) & 0xFFu) == 0xFFu &&
