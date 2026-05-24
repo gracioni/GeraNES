@@ -890,6 +890,9 @@ void GeraNESApp::closeRomAction()
         return;
     }
 
+    m_emu.setModFrameCaptureHook({});
+    m_modManager.clearModSource();
+    refreshModFrameCaptureHook();
     m_emu.closeRom();
     m_loadedRomPath.clear();
     setTitle("GeraNES");
@@ -1543,7 +1546,7 @@ void GeraNESApp::refreshModFrameCaptureHook()
     });
 }
 
-bool GeraNESApp::openRomPath(const fs::path& path, bool updateRecentFiles)
+bool GeraNESApp::openRomPath(const fs::path& path, bool updateRecentFiles, bool clearSelectedMod)
 {
     if(isNetplayRomChangeRestricted()) {
         notifyNetplayRomChangeRestrictedAction("Open ROM");
@@ -1551,6 +1554,18 @@ bool GeraNESApp::openRomPath(const fs::path& path, bool updateRecentFiles)
     }
 
     m_emu.setModFrameCaptureHook({});
+    if(clearSelectedMod) {
+        const bool hadSelectedMod = m_modManager.hasSelectedSource();
+        m_modManager.clearModSource();
+        refreshModFrameCaptureHook();
+        if(hadSelectedMod) {
+            Logger::instance().log("Mod cleared.", Logger::Type::USER);
+        }
+    }
+    if(m_emu.valid()) {
+        m_emu.closeRom();
+    }
+
     const ModManager::LoadRequest modLoad = m_modManager.prepareRomLoad(path);
     const std::string effectivePath = modLoad.effectiveRomPath.string();
 
@@ -2586,7 +2601,7 @@ void GeraNESApp::loadModArchive()
             Logger::instance().log("Mod selected: " + selectedPath.string(), Logger::Type::USER);
             AppSettings::instance().data.setLastFolder(selectedPath.string());
             if(!m_loadedRomPath.empty() && m_emu.valid()) {
-                openRomPath(m_loadedRomPath, false);
+                openRomPath(m_loadedRomPath, false, false);
             }
         } else {
             Logger::instance().log(error, Logger::Type::ERROR);
@@ -2647,7 +2662,7 @@ void GeraNESApp::loadModFolder()
             Logger::instance().log("Mod selected: " + selectedPath.string(), Logger::Type::USER);
             AppSettings::instance().data.setLastFolder(selectedPath.string());
             if(!m_loadedRomPath.empty() && m_emu.valid()) {
-                openRomPath(m_loadedRomPath, false);
+                openRomPath(m_loadedRomPath, false, false);
             }
         } else {
             Logger::instance().log(error, Logger::Type::ERROR);
@@ -2679,7 +2694,7 @@ void GeraNESApp::clearSelectedMod()
         Logger::instance().log("Mod cleared.", Logger::Type::USER);
     }
     if(!m_loadedRomPath.empty() && m_emu.valid()) {
-        openRomPath(m_loadedRomPath, false);
+        openRomPath(m_loadedRomPath, false, false);
     }
 }
 

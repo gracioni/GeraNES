@@ -439,7 +439,7 @@ private:
     void togglePauseAction();
     void resetAction();
     void closeRomAction();
-    bool openRomPath(const fs::path& path, bool updateRecentFiles = true);
+    bool openRomPath(const fs::path& path, bool updateRecentFiles = true, bool clearSelectedMod = true);
     void loadModArchive();
     void loadModFolder();
     void clearSelectedMod();
