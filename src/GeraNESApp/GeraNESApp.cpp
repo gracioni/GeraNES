@@ -3880,10 +3880,9 @@ void GeraNESApp::mainLoop()
     const uint32_t observedFrame = m_emu.exactEmulationFrame();
     uint32_t generatedFrames = 0u;
     if(m_hasLastObservedEmulationFrame) {
-        generatedFrames =
-            observedFrame >= m_lastObservedEmulationFrame
-                ? (observedFrame - m_lastObservedEmulationFrame)
-                : observedFrame;
+        if(observedFrame >= m_lastObservedEmulationFrame) {
+            generatedFrames = observedFrame - m_lastObservedEmulationFrame;
+        }
     }
     m_lastObservedEmulationFrame = observedFrame;
     m_hasLastObservedEmulationFrame = true;
