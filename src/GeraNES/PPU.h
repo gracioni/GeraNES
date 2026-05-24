@@ -271,6 +271,10 @@ private:
     std::vector<DebugModSpritePixel> m_debugModSpritePixels;
     std::vector<DebugModBackgroundPixel> m_debugModPresentedBackgroundPixels;
     std::vector<DebugModSpritePixel> m_debugModPresentedSpritePixels;
+    std::array<int, SCREEN_HEIGHT> m_debugModScanlineScrollX = {};
+    std::array<int, SCREEN_HEIGHT> m_debugModScanlineScrollY = {};
+    std::array<int, SCREEN_HEIGHT> m_debugModPresentedScanlineScrollX = {};
+    std::array<int, SCREEN_HEIGHT> m_debugModPresentedScanlineScrollY = {};
     std::array<DebugModBackgroundShiftPixel, 16> m_debugModBackgroundShift = {};
 
     int m_lastPPUSTATUSReadCycle; //record the cycle when ppustatus is read
@@ -817,6 +821,10 @@ public:
         m_debugModSpritePixels.clear();
         m_debugModPresentedBackgroundPixels.clear();
         m_debugModPresentedSpritePixels.clear();
+        m_debugModScanlineScrollX.fill(0);
+        m_debugModScanlineScrollY.fill(0);
+        m_debugModPresentedScanlineScrollX.fill(0);
+        m_debugModPresentedScanlineScrollY.fill(0);
 
         m_lastPPUSTATUSReadCycle = -1;
 
@@ -1060,8 +1068,22 @@ public:
         m_debugModSpritePixels[index] = {};
     }
 
+    GERANES_INLINE void captureModScanlineScroll()
+    {
+        if(!m_debugModRenderCaptureEnabled || m_currentX != 0 || m_currentY < 0 || m_currentY >= SCREEN_HEIGHT) {
+            return;
+        }
+
+        const uint16_t reg = m_reg_t;
+        m_debugModScanlineScrollX[static_cast<size_t>(m_currentY)] =
+            (((reg >> 10) & 0x01) << 8) | ((reg & 0x1F) << 3) | (m_reg_x & 0x07);
+        m_debugModScanlineScrollY[static_cast<size_t>(m_currentY)] =
+            ((((reg >> 5) & 0x1F) << 3) | ((reg >> 12) & 0x07)) + (((reg >> 11) & 0x01) ? 240 : 0);
+    }
+
     GERANES_INLINE_HOT void renderPixel()
     {
+        captureModScanlineScroll();
         m_currentPixelColorIndex = 0;
         const bool renderingEnabled = m_renderingEnabled;
 
@@ -1310,6 +1332,8 @@ yyy NN YYYYY XXXXX
             if(m_debugModSpritePixels.size() != pixelCount) {
                 m_debugModSpritePixels.assign(pixelCount, {});
             }
+            m_debugModScanlineScrollX.fill(0);
+            m_debugModScanlineScrollY.fill(0);
             m_debugModBackgroundShift = {};
         }
     }
@@ -1321,6 +1345,8 @@ yyy NN YYYYY XXXXX
         }
         m_debugModPresentedBackgroundPixels = m_debugModBackgroundPixels;
         m_debugModPresentedSpritePixels = m_debugModSpritePixels;
+        m_debugModPresentedScanlineScrollX = m_debugModScanlineScrollX;
+        m_debugModPresentedScanlineScrollY = m_debugModScanlineScrollY;
     }
 
     const DebugModBackgroundPixel& debugModBackgroundPixelAt(int x, int y) const
@@ -1401,6 +1427,22 @@ yyy NN YYYYY XXXXX
             return m_debugModPresentedSpritePixels.size();
         }
         return m_debugModSpritePixels.size();
+    }
+
+    int debugPresentedScanlineScrollX(int y) const
+    {
+        if(y < 0 || y >= SCREEN_HEIGHT) {
+            return 0;
+        }
+        return m_debugModPresentedScanlineScrollX[static_cast<size_t>(y)];
+    }
+
+    int debugPresentedScanlineScrollY(int y) const
+    {
+        if(y < 0 || y >= SCREEN_HEIGHT) {
+            return 0;
+        }
+        return m_debugModPresentedScanlineScrollY[static_cast<size_t>(y)];
     }
 
     void debugSetModBackgroundPixelForTest(int x, int y, const DebugModBackgroundPixel& pixel)

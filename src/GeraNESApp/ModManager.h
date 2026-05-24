@@ -175,6 +175,8 @@ public:
     struct ChrRenderSnapshot {
         int scrollX = 0;
         int scrollY = 0;
+        std::array<int, PPU::SCREEN_HEIGHT> scrollXByLine = {};
+        std::array<int, PPU::SCREEN_HEIGHT> scrollYByLine = {};
         uint8_t universalBgColor = 0;
         std::array<uint32_t, 64> paletteColors = {};
         std::array<uint32_t, 512> tileHashes = {};
@@ -279,6 +281,7 @@ private:
     std::shared_ptr<HdPackAudioRuntime> m_hdAudioRuntime;
     FrameConditionState m_frameConditionState;
     FrameConditionPlan m_frameConditionPlan;
+    uint32_t m_lastFrameConditionUpdate = UINT32_MAX;
     struct DecodedImage {
         int width = 0;
         int height = 0;
@@ -356,6 +359,7 @@ private:
         std::string& error);
     static std::string sha1Hex(const std::vector<uint8_t>& data);
     static uint64_t makeMemoryCacheKey(MemoryCondition::MemorySource source, uint32_t address, bool word, int scale);
+    void updateFrameConditionsForFrame(GeraNESEmu& emu);
 
     uint8_t readMemory(GeraNESEmu* emu, MemoryCondition::MemorySource source, uint32_t address) const;
     uint32_t readMemoryValue(const MemoryCondition& source, GeraNESEmu& emu) const;

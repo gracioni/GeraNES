@@ -526,6 +526,7 @@ void ModManager::clear()
     m_hdAudioRuntime->clearConfig();
     m_frameConditionState = {};
     m_frameConditionPlan = {};
+    m_lastFrameConditionUpdate = UINT32_MAX;
     m_imageCache.clear();
     invalidateRenderComposeCache();
 }
@@ -586,6 +587,8 @@ void ModManager::clearModSource()
 
 void ModManager::onEmulatorReset()
 {
+    m_lastFrameConditionUpdate = UINT32_MAX;
+    m_frameConditionState = {};
     if(m_hdAudioRuntime) {
         m_hdAudioRuntime->resetRuntime();
     }
@@ -605,10 +608,16 @@ bool ModManager::composeFrameOnEmuThread(
         return false;
     }
 
+    updateFrameConditionsForFrame(emu);
+
     PPU& ppu = emu.getConsole().ppu();
     snapshot = {};
-    snapshot.scrollX = ppu.getVirtualScrollX();
-    snapshot.scrollY = ppu.getVirtualScrollY();
+    for(int y = 0; y < PPU::SCREEN_HEIGHT; ++y) {
+        snapshot.scrollXByLine[static_cast<size_t>(y)] = ppu.debugPresentedScanlineScrollX(y);
+        snapshot.scrollYByLine[static_cast<size_t>(y)] = ppu.debugPresentedScanlineScrollY(y);
+    }
+    snapshot.scrollX = snapshot.scrollXByLine[0];
+    snapshot.scrollY = snapshot.scrollYByLine[0];
     snapshot.universalBgColor = static_cast<uint8_t>(ppu.debugPeekPpuMemory(0x3F00) & 0x3F);
     snapshot.backgroundPixelsView = ppu.debugPresentedBackgroundPixelsData();
     snapshot.backgroundPixelsViewCount = ppu.debugPresentedBackgroundPixelsCount();
@@ -781,6 +790,7 @@ bool ModManager::loadDefinitionForCurrentMod()
     m_chrOverrides.clear();
     m_backgroundReplacements.clear();
     m_frameConditionPlan = {};
+    m_lastFrameConditionUpdate = UINT32_MAX;
     m_imageCache.clear();
     invalidateRenderComposeCache();
 
@@ -1155,15 +1165,24 @@ bool ModManager::loadMesenHiresFile()
 
 void ModManager::onFrame(GeraNESEmu& emu)
 {
-
     if(!m_active || !m_scriptLoaded) return;
     const bool needsGraphicsCapture = !m_chrOverrides.empty() || !m_backgroundReplacements.empty();
     emu.getConsole().ppu().debugSetModRenderCaptureEnabled(needsGraphicsCapture);
     if(m_customPalette.has_value()) {
         emu.getConsole().ppu().setColorPalette(*m_customPalette);
     }
+    updateFrameConditionsForFrame(emu);
+}
+
+void ModManager::updateFrameConditionsForFrame(GeraNESEmu& emu)
+{
+    const uint32_t frameCount = emu.frameCount();
+    if(m_lastFrameConditionUpdate == frameCount) {
+        return;
+    }
+
     FrameConditionState frameConditionState;
-    frameConditionState.frameCount = emu.frameCount();
+    frameConditionState.frameCount = frameCount;
     frameConditionState.memoryValues.resize(m_frameConditionPlan.uniqueMemoryReads.size());
 
     auto memoryConditionMatchesCached = [&](const MemoryCondition& condition) {
@@ -1231,10 +1250,10 @@ void ModManager::onFrame(GeraNESEmu& emu)
         }
     }
     m_frameConditionState = std::move(frameConditionState);
+    m_lastFrameConditionUpdate = frameCount;
     if(renderComposeCacheChanged) {
         m_renderComposeCacheDirty = true;
     }
-
 }
 
 void ModManager::rebuildFrameConditionPlan()
@@ -1879,6 +1898,13 @@ std::optional<ModManager::DebugComposePixel> ModManager::debugComposePixel(const
         }
     };
 
+    auto scrollXForLine = [&](int y) {
+        return (y >= 0 && y < PPU::SCREEN_HEIGHT) ? snapshot.scrollXByLine[static_cast<size_t>(y)] : snapshot.scrollX;
+    };
+    auto scrollYForLine = [&](int y) {
+        return (y >= 0 && y < PPU::SCREEN_HEIGHT) ? snapshot.scrollYByLine[static_cast<size_t>(y)] : snapshot.scrollY;
+    };
+
     std::vector<const ChrOverride*> activeOverrides;
     activeOverrides.reserve(m_chrOverrides.size());
     for(const ChrOverride& override : m_chrOverrides) {
@@ -1990,8 +2016,8 @@ std::optional<ModManager::DebugComposePixel> ModManager::debugComposePixel(const
         prepared.backgroundScale = std::max(1, m_resolutionMultiplier);
         prepared.alphaScale = std::clamp(static_cast<int>(std::round(replacement.opacity * 255.0f)), 0, 255);
         prepared.opaqueCopy = prepared.alphaScale >= 255;
-        prepared.bgScrollX = static_cast<int>(snapshot.scrollX * replacement.parallaxX) + replacement.scrollX;
-        prepared.bgScrollY = static_cast<int>(snapshot.scrollY * replacement.parallaxY) + replacement.scrollY;
+        prepared.bgScrollX = static_cast<int>(scrollXForLine(0) * replacement.parallaxX) + replacement.scrollX;
+        prepared.bgScrollY = static_cast<int>(scrollYForLine(0) * replacement.parallaxY) + replacement.scrollY;
         appendRuntimeConditions(replacement.conditions, prepared.runtimeConditions);
         preparedBackgrounds.push_back(prepared);
     }
@@ -2579,8 +2605,8 @@ std::optional<ModManager::DebugComposePixel> ModManager::debugComposePixel(const
         }
 
         const int backgroundScale = std::max(1, m_resolutionMultiplier);
-        const int bgScrollX = static_cast<int>(snapshot.scrollX * replacement.parallaxX) + replacement.scrollX;
-        const int bgScrollY = static_cast<int>(snapshot.scrollY * replacement.parallaxY) + replacement.scrollY;
+        const int bgScrollX = static_cast<int>(scrollXForLine(nesY) * replacement.parallaxX) + replacement.scrollX;
+        const int bgScrollY = static_cast<int>(scrollYForLine(nesY) * replacement.parallaxY) + replacement.scrollY;
         const int srcNesX = replacement.sourceX + nesX + bgScrollX;
         const int srcNesY = replacement.sourceY + nesY + bgScrollY;
         if(srcNesX < 0 || srcNesY < 0) {
@@ -3318,6 +3344,13 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
         return &snapshot.spritePixels[index];
     };
 
+    auto scrollXForLine = [&](int y) {
+        return (y >= 0 && y < PPU::SCREEN_HEIGHT) ? snapshot.scrollXByLine[static_cast<size_t>(y)] : snapshot.scrollX;
+    };
+    auto scrollYForLine = [&](int y) {
+        return (y >= 0 && y < PPU::SCREEN_HEIGHT) ? snapshot.scrollYByLine[static_cast<size_t>(y)] : snapshot.scrollY;
+    };
+
     struct ConditionContext {
         int nesX = 0;
         int nesY = 0;
@@ -4021,8 +4054,8 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
             const BackgroundReplacement& replacement = *preparedBackground->replacement;
             ActiveBackgroundLayer activeLayer;
             activeLayer.prepared = preparedBackground;
-            activeLayer.bgScrollX = static_cast<int>(snapshot.scrollX * replacement.parallaxX) + replacement.scrollX;
-            activeLayer.bgScrollY = static_cast<int>(snapshot.scrollY * replacement.parallaxY) + replacement.scrollY;
+            activeLayer.bgScrollX = static_cast<int>(scrollXForLine(0) * replacement.parallaxX) + replacement.scrollX;
+            activeLayer.bgScrollY = static_cast<int>(scrollYForLine(0) * replacement.parallaxY) + replacement.scrollY;
             if(priority < 10) {
                 lowPriorityBackgrounds.push_back(activeLayer);
             } else if(priority < 20) {
@@ -4165,14 +4198,16 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
                 const PreparedBackground& prepared = *activeLayer.prepared;
                 const BackgroundReplacement& replacement = *prepared.replacement;
                 const DecodedImage& image = *prepared.image;
-                const int srcNesY = replacement.sourceY + nesY + activeLayer.bgScrollY;
+                const int bgScrollX = static_cast<int>(scrollXForLine(nesY) * replacement.parallaxX) + replacement.scrollX;
+                const int bgScrollY = static_cast<int>(scrollYForLine(nesY) * replacement.parallaxY) + replacement.scrollY;
+                const int srcNesY = replacement.sourceY + nesY + bgScrollY;
                 if(srcNesY < 0 || (srcNesY + 1) * prepared.backgroundScale > image.height) {
                     continue;
                 }
 
                 ScanlineBackgroundLayer scanlineLayer;
                 scanlineLayer.prepared = &prepared;
-                scanlineLayer.srcBaseX = replacement.sourceX + activeLayer.bgScrollX;
+                scanlineLayer.srcBaseX = replacement.sourceX + bgScrollX;
                 scanlineLayer.baseSrcY = srcNesY * prepared.backgroundScale;
                 scanlineLayer.minNesX = -scanlineLayer.srcBaseX;
                 scanlineLayer.maxNesX = (image.width / prepared.backgroundScale) - 1 - scanlineLayer.srcBaseX;
