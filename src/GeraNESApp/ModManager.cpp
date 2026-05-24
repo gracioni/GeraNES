@@ -4408,8 +4408,16 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
                 continue;
             }
 
-            std::array<std::array<uint32_t, 8>, 8> baseBlockColors = {};
+            const int blockWidth = blockX1 - blockX0;
+            std::array<uint32_t, 64> baseBlockColors = {};
+            std::array<uint32_t*, 8> dstRows = {};
             for(int subY = subYStart; subY < subYEnd; ++subY) {
+                const int outY = nesY * scale + subY;
+                dstRows[static_cast<size_t>(subY)] =
+                    framebuffer.data() + static_cast<size_t>(outY) * static_cast<size_t>(width) + static_cast<size_t>(blockX0);
+            }
+            for(int subY = subYStart; subY < subYEnd; ++subY) {
+                uint32_t* blockRow = baseBlockColors.data() + static_cast<size_t>(subY) * 8u;
                 for(int subX = 0; subX < scale; ++subX) {
 #if defined(GERANES_MOD_PROFILE)
                     const auto backgroundBlendStart = ComposeClock::now();
@@ -4463,22 +4471,23 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
                     backgroundBlendUs += static_cast<uint64_t>(
                         std::chrono::duration_cast<std::chrono::microseconds>(ComposeClock::now() - backgroundBlendStart).count());
 #endif
-                    baseBlockColors[static_cast<size_t>(subY)][static_cast<size_t>(subX)] = color;
+                    blockRow[static_cast<size_t>(subX)] = color;
                 }
             }
 
             if(!hasResolvedSprites) {
                 if(hasHighPriorityBackgrounds) {
                     for(int subY = subYStart; subY < subYEnd; ++subY) {
+                        uint32_t* blockRow = baseBlockColors.data() + static_cast<size_t>(subY) * 8u;
                         for(int subX = 0; subX < scale; ++subX) {
 #if defined(GERANES_MOD_PROFILE)
                             const auto highBackgroundBlendStart = ComposeClock::now();
 #endif
-                            uint32_t color = baseBlockColors[static_cast<size_t>(subY)][static_cast<size_t>(subX)];
+                            uint32_t color = blockRow[static_cast<size_t>(subX)];
                             for(size_t i = 0; i < resolvedHighPriorityBackgroundCount; ++i) {
                                 color = sampleResolvedBackgroundPixel(color, resolvedHighPriorityBackgrounds[i], subX, subY);
                             }
-                            baseBlockColors[static_cast<size_t>(subY)][static_cast<size_t>(subX)] = color;
+                            blockRow[static_cast<size_t>(subX)] = color;
 #if defined(GERANES_MOD_PROFILE)
                             backgroundBlendUs += static_cast<uint64_t>(
                                 std::chrono::duration_cast<std::chrono::microseconds>(ComposeClock::now() - highBackgroundBlendStart).count());
@@ -4488,26 +4497,25 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
                 }
 
                 for(int subY = subYStart; subY < subYEnd; ++subY) {
-                    const int outY = nesY * scale + subY;
-                    uint32_t* dstRow = framebuffer.data() + static_cast<size_t>(outY) * static_cast<size_t>(width);
-                    for(int subX = 0; subX < scale; ++subX) {
-                        const int outX = blockX0 + subX;
 #if defined(GERANES_MOD_PROFILE)
-                        const auto framebufferWriteStart = ComposeClock::now();
+                    const auto framebufferWriteStart = ComposeClock::now();
 #endif
-                        dstRow[outX] = baseBlockColors[static_cast<size_t>(subY)][static_cast<size_t>(subX)];
+                    std::memcpy(
+                        dstRows[static_cast<size_t>(subY)],
+                        baseBlockColors.data() + static_cast<size_t>(subY) * 8u,
+                        static_cast<size_t>(blockWidth) * sizeof(uint32_t));
 #if defined(GERANES_MOD_PROFILE)
-                        framebufferWriteUs += static_cast<uint64_t>(
-                            std::chrono::duration_cast<std::chrono::microseconds>(ComposeClock::now() - framebufferWriteStart).count());
+                    framebufferWriteUs += static_cast<uint64_t>(
+                        std::chrono::duration_cast<std::chrono::microseconds>(ComposeClock::now() - framebufferWriteStart).count());
 #endif
-                    }
                 }
                 continue;
             }
 
             for(int subY = subYStart; subY < subYEnd; ++subY) {
+                uint32_t* blockRow = baseBlockColors.data() + static_cast<size_t>(subY) * 8u;
                 for(int subX = 0; subX < scale; ++subX) {
-                    uint32_t color = baseBlockColors[static_cast<size_t>(subY)][static_cast<size_t>(subX)];
+                    uint32_t color = blockRow[static_cast<size_t>(subX)];
 #if defined(GERANES_MOD_PROFILE)
                     const auto spriteApplyStart = ComposeClock::now();
 #endif
@@ -4598,24 +4606,22 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
 #endif
                     }
 
-                    baseBlockColors[static_cast<size_t>(subY)][static_cast<size_t>(subX)] = color;
+                    blockRow[static_cast<size_t>(subX)] = color;
                 }
             }
 
             for(int subY = subYStart; subY < subYEnd; ++subY) {
-                const int outY = nesY * scale + subY;
-                uint32_t* dstRow = framebuffer.data() + static_cast<size_t>(outY) * static_cast<size_t>(width);
-                for(int subX = 0; subX < scale; ++subX) {
-                    const int outX = blockX0 + subX;
 #if defined(GERANES_MOD_PROFILE)
-                    const auto framebufferWriteStart = ComposeClock::now();
+                const auto framebufferWriteStart = ComposeClock::now();
 #endif
-                    dstRow[outX] = baseBlockColors[static_cast<size_t>(subY)][static_cast<size_t>(subX)];
+                std::memcpy(
+                    dstRows[static_cast<size_t>(subY)],
+                    baseBlockColors.data() + static_cast<size_t>(subY) * 8u,
+                    static_cast<size_t>(blockWidth) * sizeof(uint32_t));
 #if defined(GERANES_MOD_PROFILE)
-                    framebufferWriteUs += static_cast<uint64_t>(
-                        std::chrono::duration_cast<std::chrono::microseconds>(ComposeClock::now() - framebufferWriteStart).count());
+                framebufferWriteUs += static_cast<uint64_t>(
+                    std::chrono::duration_cast<std::chrono::microseconds>(ComposeClock::now() - framebufferWriteStart).count());
 #endif
-                }
             }
         }
     }
