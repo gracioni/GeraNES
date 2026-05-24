@@ -4512,117 +4512,138 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
                 continue;
             }
 
-            for(int subY = subYStart; subY < subYEnd; ++subY) {
-                uint32_t* blockRow = baseBlockColors.data() + static_cast<size_t>(subY) * 8u;
-                for(int subX = 0; subX < scale; ++subX) {
-                    uint32_t color = blockRow[static_cast<size_t>(subX)];
+            auto applySpriteLayersToBlock = [&]() {
+                for(int subY = subYStart; subY < subYEnd; ++subY) {
+                    uint32_t* blockRow = baseBlockColors.data() + static_cast<size_t>(subY) * 8u;
+                    for(int subX = 0; subX < scale; ++subX) {
+                        uint32_t color = blockRow[static_cast<size_t>(subX)];
 #if defined(GERANES_MOD_PROFILE)
-                    const auto spriteApplyStart = ComposeClock::now();
+                        const auto spriteApplyStart = ComposeClock::now();
 #endif
-                    if(applyBehindSprites) {
-                        for(size_t i = 0; i < resolvedBehindSpriteCandidateCount; ++i) {
-                            const ResolvedSpriteCandidate& resolvedCandidate = resolvedBehindSpriteCandidates[i];
-                            const PPU::DebugModSpriteCandidate& candidate = *resolvedCandidate.candidate;
-                            const uint32_t spriteFallbackColor =
-                                resolvedCandidate.fallbackUsesCurrentColor ? color : resolvedCandidate.fixedFallbackColor;
-                            if(resolvedCandidate.spriteOverride != nullptr) {
+                        if(applyBehindSprites) {
+                            for(size_t i = 0; i < resolvedBehindSpriteCandidateCount; ++i) {
+                                const ResolvedSpriteCandidate& resolvedCandidate = resolvedBehindSpriteCandidates[i];
+                                const PPU::DebugModSpriteCandidate& candidate = *resolvedCandidate.candidate;
+                                const uint32_t spriteFallbackColor =
+                                    resolvedCandidate.fallbackUsesCurrentColor ? color : resolvedCandidate.fixedFallbackColor;
+                                if(resolvedCandidate.spriteOverride != nullptr) {
 #if defined(GERANES_MOD_PROFILE)
-                                const auto spriteOverrideSampleStart = ComposeClock::now();
+                                    const auto spriteOverrideSampleStart = ComposeClock::now();
 #endif
-                                color = sampleOverridePixel(
-                                    color,
-                                    spriteFallbackColor,
-                                    resolvedCandidate.spriteOverride,
-                                    candidate.tileIndex,
-                                    candidate.offsetX,
-                                    candidate.offsetY,
-                                    subX,
-                                    subY,
-                                    candidate.colorLowBits,
-                                    resolvedCandidate.spritePalette,
-                                    candidate.horizontalMirror,
-                                    candidate.verticalMirror,
-                                    true
-                                );
+                                    color = sampleOverridePixel(
+                                        color,
+                                        spriteFallbackColor,
+                                        resolvedCandidate.spriteOverride,
+                                        candidate.tileIndex,
+                                        candidate.offsetX,
+                                        candidate.offsetY,
+                                        subX,
+                                        subY,
+                                        candidate.colorLowBits,
+                                        resolvedCandidate.spritePalette,
+                                        candidate.horizontalMirror,
+                                        candidate.verticalMirror,
+                                        true
+                                    );
 #if defined(GERANES_MOD_PROFILE)
-                                spriteOverrideSampleUs += static_cast<uint64_t>(
-                                    std::chrono::duration_cast<std::chrono::microseconds>(ComposeClock::now() - spriteOverrideSampleStart).count());
+                                    spriteOverrideSampleUs += static_cast<uint64_t>(
+                                        std::chrono::duration_cast<std::chrono::microseconds>(ComposeClock::now() - spriteOverrideSampleStart).count());
 #endif
-                            } else if(!m_disableOriginalTiles && candidate.colorLowBits != 0) {
-                                color = spriteFallbackColor;
+                                } else if(!m_disableOriginalTiles && candidate.colorLowBits != 0) {
+                                    color = spriteFallbackColor;
+                                }
                             }
                         }
-                    }
 
-                    if(applyFrontSprites) {
-                        for(size_t i = 0; i < resolvedFrontSpriteCandidateCount; ++i) {
-                            const ResolvedSpriteCandidate& resolvedCandidate = resolvedFrontSpriteCandidates[i];
-                            const PPU::DebugModSpriteCandidate& candidate = *resolvedCandidate.candidate;
-                            const uint32_t spriteFallbackColor =
-                                resolvedCandidate.fallbackUsesCurrentColor ? color : resolvedCandidate.fixedFallbackColor;
-                            if(resolvedCandidate.spriteOverride != nullptr) {
+                        if(applyFrontSprites) {
+                            for(size_t i = 0; i < resolvedFrontSpriteCandidateCount; ++i) {
+                                const ResolvedSpriteCandidate& resolvedCandidate = resolvedFrontSpriteCandidates[i];
+                                const PPU::DebugModSpriteCandidate& candidate = *resolvedCandidate.candidate;
+                                const uint32_t spriteFallbackColor =
+                                    resolvedCandidate.fallbackUsesCurrentColor ? color : resolvedCandidate.fixedFallbackColor;
+                                if(resolvedCandidate.spriteOverride != nullptr) {
 #if defined(GERANES_MOD_PROFILE)
-                                const auto spriteOverrideSampleStart = ComposeClock::now();
+                                    const auto spriteOverrideSampleStart = ComposeClock::now();
 #endif
-                                color = sampleOverridePixel(
-                                    color,
-                                    spriteFallbackColor,
-                                    resolvedCandidate.spriteOverride,
-                                    candidate.tileIndex,
-                                    candidate.offsetX,
-                                    candidate.offsetY,
-                                    subX,
-                                    subY,
-                                    candidate.colorLowBits,
-                                    resolvedCandidate.spritePalette,
-                                    candidate.horizontalMirror,
-                                    candidate.verticalMirror,
-                                    true
-                                );
+                                    color = sampleOverridePixel(
+                                        color,
+                                        spriteFallbackColor,
+                                        resolvedCandidate.spriteOverride,
+                                        candidate.tileIndex,
+                                        candidate.offsetX,
+                                        candidate.offsetY,
+                                        subX,
+                                        subY,
+                                        candidate.colorLowBits,
+                                        resolvedCandidate.spritePalette,
+                                        candidate.horizontalMirror,
+                                        candidate.verticalMirror,
+                                        true
+                                    );
 #if defined(GERANES_MOD_PROFILE)
-                                spriteOverrideSampleUs += static_cast<uint64_t>(
-                                    std::chrono::duration_cast<std::chrono::microseconds>(ComposeClock::now() - spriteOverrideSampleStart).count());
+                                    spriteOverrideSampleUs += static_cast<uint64_t>(
+                                        std::chrono::duration_cast<std::chrono::microseconds>(ComposeClock::now() - spriteOverrideSampleStart).count());
 #endif
-                            } else if(!m_disableOriginalTiles && candidate.colorLowBits != 0) {
-                                color = spriteFallbackColor;
+                                } else if(!m_disableOriginalTiles && candidate.colorLowBits != 0) {
+                                    color = spriteFallbackColor;
+                                }
                             }
                         }
-                    }
 #if defined(GERANES_MOD_PROFILE)
-                    spriteApplyUs += static_cast<uint64_t>(
-                        std::chrono::duration_cast<std::chrono::microseconds>(ComposeClock::now() - spriteApplyStart).count());
+                        spriteApplyUs += static_cast<uint64_t>(
+                            std::chrono::duration_cast<std::chrono::microseconds>(ComposeClock::now() - spriteApplyStart).count());
 #endif
+                        blockRow[static_cast<size_t>(subX)] = color;
+                    }
+                }
+            };
 
-                    if(hasHighPriorityBackgrounds) {
+            auto applyHighPriorityLayersToBlock = [&]() {
+                for(int subY = subYStart; subY < subYEnd; ++subY) {
+                    uint32_t* blockRow = baseBlockColors.data() + static_cast<size_t>(subY) * 8u;
+                    for(int subX = 0; subX < scale; ++subX) {
 #if defined(GERANES_MOD_PROFILE)
                         const auto highBackgroundBlendStart = ComposeClock::now();
 #endif
+                        uint32_t color = blockRow[static_cast<size_t>(subX)];
                         for(size_t i = 0; i < resolvedHighPriorityBackgroundCount; ++i) {
                             color = sampleResolvedBackgroundPixel(color, resolvedHighPriorityBackgrounds[i], subX, subY);
                         }
+                        blockRow[static_cast<size_t>(subX)] = color;
 #if defined(GERANES_MOD_PROFILE)
                         backgroundBlendUs += static_cast<uint64_t>(
                             std::chrono::duration_cast<std::chrono::microseconds>(ComposeClock::now() - highBackgroundBlendStart).count());
 #endif
                     }
-
-                    blockRow[static_cast<size_t>(subX)] = color;
                 }
+            };
+
+            auto writeBlockRows = [&]() {
+                for(int subY = subYStart; subY < subYEnd; ++subY) {
+#if defined(GERANES_MOD_PROFILE)
+                    const auto framebufferWriteStart = ComposeClock::now();
+#endif
+                    std::memcpy(
+                        dstRows[static_cast<size_t>(subY)],
+                        baseBlockColors.data() + static_cast<size_t>(subY) * 8u,
+                        static_cast<size_t>(blockWidth) * sizeof(uint32_t));
+#if defined(GERANES_MOD_PROFILE)
+                    framebufferWriteUs += static_cast<uint64_t>(
+                        std::chrono::duration_cast<std::chrono::microseconds>(ComposeClock::now() - framebufferWriteStart).count());
+#endif
+                }
+            };
+
+            if(!hasHighPriorityBackgrounds) {
+                applySpriteLayersToBlock();
+                writeBlockRows();
+                continue;
             }
 
-            for(int subY = subYStart; subY < subYEnd; ++subY) {
-#if defined(GERANES_MOD_PROFILE)
-                const auto framebufferWriteStart = ComposeClock::now();
-#endif
-                std::memcpy(
-                    dstRows[static_cast<size_t>(subY)],
-                    baseBlockColors.data() + static_cast<size_t>(subY) * 8u,
-                    static_cast<size_t>(blockWidth) * sizeof(uint32_t));
-#if defined(GERANES_MOD_PROFILE)
-                framebufferWriteUs += static_cast<uint64_t>(
-                    std::chrono::duration_cast<std::chrono::microseconds>(ComposeClock::now() - framebufferWriteStart).count());
-#endif
-            }
+            applySpriteLayersToBlock();
+            applyHighPriorityLayersToBlock();
+
+            writeBlockRows();
         }
     }
 
