@@ -4602,20 +4602,66 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
                     const bool hasRowOverrideCache = backgroundOverride != nullptr && ensureBackgroundOverrideRowCache();
                     auto applyLayerListToRow = [&](const std::vector<ScanlineBackgroundLayer>& layers) {
                         for(const ScanlineBackgroundLayer& layer : layers) {
+                            if(layer.prepared == nullptr || layer.prepared->image == nullptr) {
+                                continue;
+                            }
                             const int startOffset = std::max(0, layer.minNesX - tileOriginX);
                             const int endOffset = std::min(7, layer.maxNesX - tileOriginX);
                             if(startOffset > endOffset) {
                                 continue;
                             }
+                            const PreparedBackground& prepared = *layer.prepared;
+                            const DecodedImage& image = *prepared.image;
+                            const int baseSrcY = layer.baseSrcY;
+                            if(prepared.backgroundScale == 1) {
+                                const size_t row = static_cast<size_t>(baseSrcY) * static_cast<size_t>(image.width);
+                                for(int tileOffsetX = startOffset; tileOffsetX <= endOffset; ++tileOffsetX) {
+                                    auto& block = noSpriteDirectRowCacheBlocks[static_cast<size_t>(tileOffsetX)];
+                                    const int srcX = layer.srcBaseX + tileOriginX + tileOffsetX;
+                                    const uint32_t src = image.rgba[row + static_cast<size_t>(srcX)];
+                                    if(prepared.opaqueCopy && ((src >> 24u) & 0xFFu) == 0xFFu) {
+                                        block[0] = src;
+                                        block[1] = src;
+                                        block[2] = src;
+                                        block[3] = src;
+                                    } else {
+                                        block[0] = blendPixel(block[0], src, prepared.alphaScale);
+                                        block[1] = blendPixel(block[1], src, prepared.alphaScale);
+                                        block[2] = blendPixel(block[2], src, prepared.alphaScale);
+                                        block[3] = blendPixel(block[3], src, prepared.alphaScale);
+                                    }
+                                }
+                                continue;
+                            }
+
+                            const int maxSub = prepared.backgroundScale - 1;
+                            const int srcY0 = baseSrcY;
+                            const int srcY1 = baseSrcY + std::clamp(1, 0, maxSub);
+                            const size_t row0 = static_cast<size_t>(srcY0) * static_cast<size_t>(image.width);
+                            const size_t row1 = static_cast<size_t>(srcY1) * static_cast<size_t>(image.width);
                             for(int tileOffsetX = startOffset; tileOffsetX <= endOffset; ++tileOffsetX) {
                                 auto& block = noSpriteDirectRowCacheBlocks[static_cast<size_t>(tileOffsetX)];
-                                applyScanlineLayerScale2(
-                                    layer,
-                                    tileOriginX + tileOffsetX,
-                                    block[0],
-                                    block[1],
-                                    block[2],
-                                    block[3]);
+                                const int srcX0 = (layer.srcBaseX + tileOriginX + tileOffsetX) * prepared.backgroundScale;
+                                const int srcX1 = srcX0 + std::clamp(1, 0, maxSub);
+                                const uint32_t src00 = image.rgba[row0 + static_cast<size_t>(srcX0)];
+                                const uint32_t src01 = image.rgba[row0 + static_cast<size_t>(srcX1)];
+                                const uint32_t src10 = image.rgba[row1 + static_cast<size_t>(srcX0)];
+                                const uint32_t src11 = image.rgba[row1 + static_cast<size_t>(srcX1)];
+                                if(prepared.opaqueCopy &&
+                                    ((src00 >> 24u) & 0xFFu) == 0xFFu &&
+                                    ((src01 >> 24u) & 0xFFu) == 0xFFu &&
+                                    ((src10 >> 24u) & 0xFFu) == 0xFFu &&
+                                    ((src11 >> 24u) & 0xFFu) == 0xFFu) {
+                                    block[0] = src00;
+                                    block[1] = src01;
+                                    block[2] = src10;
+                                    block[3] = src11;
+                                } else {
+                                    block[0] = blendPixel(block[0], src00, prepared.alphaScale);
+                                    block[1] = blendPixel(block[1], src01, prepared.alphaScale);
+                                    block[2] = blendPixel(block[2], src10, prepared.alphaScale);
+                                    block[3] = blendPixel(block[3], src11, prepared.alphaScale);
+                                }
                             }
                         }
                     };
