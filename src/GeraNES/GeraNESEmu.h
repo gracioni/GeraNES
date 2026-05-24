@@ -2226,6 +2226,7 @@ public:
     void loadStateFromMemory(const std::vector<uint8_t>& data) override
     {
         loadStateFromMemoryWithAudioPolicy(data, StateLoadAudioPolicy::ResetOutput);
+        signalLoadExecuted(m_frameCounter);
     }
 
     void loadStateFromMemoryWithAudioPolicy(
