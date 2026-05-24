@@ -155,20 +155,6 @@ bool HdPackAudioRuntime::preloadClip(const std::string& assetPath)
     return clip && !clip->monoSamples.empty();
 }
 
-void HdPackAudioRuntime::pinClip(const std::string& assetPath)
-{
-    std::scoped_lock lock(m_mutex);
-    const auto clip = loadClip(assetPath);
-    if(!clip) {
-        return;
-    }
-    auto it = m_clipCache.find(assetPath);
-    if(it != m_clipCache.end()) {
-        it->second.pinned = true;
-        it->second.lastUsedFrame = m_cacheFrame;
-    }
-}
-
 void HdPackAudioRuntime::setCacheFrame(uint32_t frameCount)
 {
     std::scoped_lock lock(m_mutex);
@@ -293,7 +279,7 @@ std::shared_ptr<const HdPackAudioRuntime::DecodedClip> HdPackAudioRuntime::loadC
     const std::optional<std::vector<uint8_t>> assetData = m_assetReader ? m_assetReader(assetPath) : std::nullopt;
     if(!assetData.has_value() || assetData->empty()) {
         Logger::instance().log("HD audio asset missing: " + assetPath, Logger::Type::WARNING);
-        m_clipCache[assetPath] = { nullptr, m_cacheFrame, false };
+        m_clipCache[assetPath] = { nullptr, m_cacheFrame, shouldPinClip(assetPath) };
         return nullptr;
     }
 
@@ -308,7 +294,7 @@ std::shared_ptr<const HdPackAudioRuntime::DecodedClip> HdPackAudioRuntime::loadC
         Logger::instance().log(
             "Failed to decode HD audio asset: " + assetPath + " (stb_vorbis error " + std::to_string(error) + ")",
             Logger::Type::WARNING);
-        m_clipCache[assetPath] = { nullptr, m_cacheFrame, false };
+        m_clipCache[assetPath] = { nullptr, m_cacheFrame, shouldPinClip(assetPath) };
         return nullptr;
     }
 
@@ -320,7 +306,7 @@ std::shared_ptr<const HdPackAudioRuntime::DecodedClip> HdPackAudioRuntime::loadC
     if(channels <= 0 || sampleRate <= 0) {
         Logger::instance().log("Failed to decode HD audio asset: " + assetPath, Logger::Type::WARNING);
         stb_vorbis_close(vorbis);
-        m_clipCache[assetPath] = { nullptr, m_cacheFrame, false };
+        m_clipCache[assetPath] = { nullptr, m_cacheFrame, shouldPinClip(assetPath) };
         return nullptr;
     }
 
@@ -359,12 +345,20 @@ std::shared_ptr<const HdPackAudioRuntime::DecodedClip> HdPackAudioRuntime::loadC
 
     if(clip->monoSamples.empty()) {
         Logger::instance().log("Failed to decode HD audio asset: " + assetPath, Logger::Type::WARNING);
-        m_clipCache[assetPath] = { nullptr, m_cacheFrame, false };
+        m_clipCache[assetPath] = { nullptr, m_cacheFrame, shouldPinClip(assetPath) };
         return nullptr;
     }
 
-    m_clipCache[assetPath] = { clip, m_cacheFrame, false };
+    m_clipCache[assetPath] = { clip, m_cacheFrame, shouldPinClip(assetPath) };
     return clip;
+}
+
+bool HdPackAudioRuntime::shouldPinClip(const std::string& assetPath) const
+{
+    return std::any_of(
+        m_config.sfxFilesById.begin(),
+        m_config.sfxFilesById.end(),
+        [&](const auto& entry) { return entry.second == assetPath; });
 }
 
 bool HdPackAudioRuntime::playBgmTrack(int trackId)

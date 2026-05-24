@@ -39,7 +39,6 @@ public:
     bool handleCpuWrite(uint16_t addr, uint8_t value);
     std::optional<uint8_t> handleCpuRead(uint16_t addr) const;
     bool preloadClip(const std::string& assetPath);
-    void pinClip(const std::string& assetPath);
     void setCacheFrame(uint32_t frameCount);
     void rebaseCacheFrame(uint32_t frameCount);
     void evictUnusedDynamicClips(uint32_t maxUnusedFrames);
@@ -91,6 +90,7 @@ private:
     uint32_t m_cacheFrame = 0;
 
     std::shared_ptr<const DecodedClip> loadClip(const std::string& assetPath);
+    bool shouldPinClip(const std::string& assetPath) const;
     bool playBgmTrack(int trackId);
     bool playSfxTrack(uint8_t sfxNumber);
     float mixClipSample(ActiveClip& clip, uint8_t volume) const;

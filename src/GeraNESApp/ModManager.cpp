@@ -602,6 +602,7 @@ void ModManager::onStateLoaded(uint32_t frameCount)
         entry.lastUsedFrame = frameCount;
     }
     if(m_hdAudioRuntime) {
+        m_hdAudioRuntime->resetRuntime();
         m_hdAudioRuntime->rebaseCacheFrame(frameCount);
     }
 }
@@ -944,7 +945,6 @@ void ModManager::preloadStartupAssets()
     audioAssets.erase(std::unique(audioAssets.begin(), audioAssets.end()), audioAssets.end());
     for(const std::string& assetPath : audioAssets) {
         m_hdAudioRuntime->preloadClip(assetPath);
-        m_hdAudioRuntime->pinClip(assetPath);
     }
 }
 
