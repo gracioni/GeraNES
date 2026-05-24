@@ -865,42 +865,14 @@ void ModManager::preloadStartupAssets()
         if(!override.enabled || override.assetPath.empty()) {
             continue;
         }
-
-        const bool hasOnlyGlobalConditions = std::none_of(
-            override.conditions.begin(),
-            override.conditions.end(),
-            [](const MemoryCondition& condition) {
-                return condition.kind == MemoryCondition::Kind::TileAtPosition ||
-                       condition.kind == MemoryCondition::Kind::TileNearby ||
-                       condition.kind == MemoryCondition::Kind::SpriteAtPosition ||
-                       condition.kind == MemoryCondition::Kind::SpriteNearby;
-            });
-
-        if(hasOnlyGlobalConditions) {
-            addImageAsset(override.assetPath);
-        }
+        addImageAsset(override.assetPath);
     }
 
     for(const BackgroundReplacement& replacement : m_backgroundReplacements) {
         if(!replacement.enabled || replacement.assetPath.empty()) {
             continue;
         }
-
-        const bool alwaysOn = std::none_of(
-            replacement.conditions.begin(),
-            replacement.conditions.end(),
-            [](const MemoryCondition& condition) {
-                return condition.kind == MemoryCondition::Kind::MemoryCheck ||
-                       condition.kind == MemoryCondition::Kind::FrameRange ||
-                       condition.kind == MemoryCondition::Kind::TileAtPosition ||
-                       condition.kind == MemoryCondition::Kind::TileNearby ||
-                       condition.kind == MemoryCondition::Kind::SpriteAtPosition ||
-                       condition.kind == MemoryCondition::Kind::SpriteNearby;
-            });
-
-        if(alwaysOn) {
-            addImageAsset(replacement.assetPath);
-        }
+        addImageAsset(replacement.assetPath);
     }
 
     for(const std::string& assetPath : imageAssets) {
@@ -918,26 +890,16 @@ void ModManager::preloadStartupAssets()
     std::vector<std::string> audioAssets;
     audioAssets.reserve(m_hdAudioConfig.bgmFilesById.size() + m_hdAudioConfig.sfxFilesById.size());
 
-    if(!m_hdAudioConfig.bgmFilesById.empty()) {
-        auto firstBgm = std::min_element(
-            m_hdAudioConfig.bgmFilesById.begin(),
-            m_hdAudioConfig.bgmFilesById.end(),
-            [](const auto& a, const auto& b) { return a.first < b.first; });
-        if(firstBgm != m_hdAudioConfig.bgmFilesById.end() && !firstBgm->second.assetPath.empty()) {
-            audioAssets.push_back(normalizeZipPath(firstBgm->second.assetPath));
+    for(const auto& [_, track] : m_hdAudioConfig.bgmFilesById) {
+        if(!track.assetPath.empty()) {
+            audioAssets.push_back(normalizeZipPath(track.assetPath));
         }
     }
 
-    std::vector<std::pair<int, std::string>> sortedSfx;
-    sortedSfx.reserve(m_hdAudioConfig.sfxFilesById.size());
-    for(const auto& [trackId, assetPath] : m_hdAudioConfig.sfxFilesById) {
-        sortedSfx.emplace_back(trackId, normalizeZipPath(assetPath));
-    }
-    std::sort(sortedSfx.begin(), sortedSfx.end(), [](const auto& a, const auto& b) { return a.first < b.first; });
-    constexpr size_t MaxStartupSfxPreload = 8;
-    for(size_t i = 0; i < sortedSfx.size() && i < MaxStartupSfxPreload; ++i) {
-        if(!sortedSfx[i].second.empty()) {
-            audioAssets.push_back(sortedSfx[i].second);
+    for(const auto& [_, assetPath] : m_hdAudioConfig.sfxFilesById) {
+        const std::string normalizedPath = normalizeZipPath(assetPath);
+        if(!normalizedPath.empty()) {
+            audioAssets.push_back(normalizedPath);
         }
     }
 

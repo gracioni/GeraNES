@@ -1558,6 +1558,13 @@ bool GeraNESApp::openRomPath(const fs::path& path, bool updateRecentFiles, bool 
         return false;
     }
 
+    m_emu.setSimulationSuspended(true);
+    m_emu.withExclusiveAccess([](auto&) {});
+    m_emu.discardQueuedAudio();
+    if(const auto mixer = m_audioOutput.getExternalAudioMixer()) {
+        mixer->resetRuntime();
+    }
+
     m_emu.setModFrameCaptureHook({});
     if(clearSelectedMod) {
         const bool hadSelectedMod = m_modManager.hasSelectedSource();
@@ -1579,14 +1586,18 @@ bool GeraNESApp::openRomPath(const fs::path& path, bool updateRecentFiles, bool 
         AppSettings::instance().data.setLastFolder(path.string());
     }
     m_hasLastModObservedFrame = false;
-    if(m_emu.open(effectivePath)) {
+    bool modDefinitionLoaded = true;
+    if(modLoad.modLoaded) {
+        modDefinitionLoaded = m_modManager.loadDefinitionForCurrentMod();
+    }
+
+    if(modDefinitionLoaded && m_emu.open(effectivePath)) {
         const int effectiveMaxRewindTime = shouldSuppressRewindForNetplay()
             ? 0
             : std::max(0, AppSettings::instance().data.improvements.maxRewindTime);
         m_emu.setupRewindSystem(effectiveMaxRewindTime > 0, effectiveMaxRewindTime);
 
         if(modLoad.modLoaded) {
-            m_modManager.loadDefinitionForCurrentMod();
             Logger::instance().log(modLoad.message + " " + modLoad.modPath.string(), Logger::Type::USER);
         }
         refreshModFrameCaptureHook();
@@ -1601,11 +1612,37 @@ bool GeraNESApp::openRomPath(const fs::path& path, bool updateRecentFiles, bool 
         if(ImGui::GetCurrentContext() != nullptr) {
             ImGui::SetWindowFocus(nullptr);
         }
+        m_emu.discardQueuedAudio();
+        if(const auto mixer = m_audioOutput.getExternalAudioMixer()) {
+            mixer->resetRuntime();
+        }
+        const auto netplayMenu = GeraNESNetplay::menuSnapshot(m_netplayRuntime);
+        const bool deferObserverResume =
+            netplayMenu.inputManaged &&
+            !netplayMenu.hosting &&
+            netplayMenu.localAssignments.empty();
+        if(!m_webVisibilitySuspended && !deferObserverResume) {
+            m_emu.setSimulationSuspended(false);
+        }
         return true;
     } else {
         refreshModFrameCaptureHook();
         m_loadedRomPath.clear();
-        Logger::instance().log("Failed to load ROM", Logger::Type::USER);
+        if(modDefinitionLoaded) {
+            Logger::instance().log("Failed to load ROM", Logger::Type::USER);
+        }
+        m_emu.discardQueuedAudio();
+        if(const auto mixer = m_audioOutput.getExternalAudioMixer()) {
+            mixer->resetRuntime();
+        }
+        const auto netplayMenu = GeraNESNetplay::menuSnapshot(m_netplayRuntime);
+        const bool deferObserverResume =
+            netplayMenu.inputManaged &&
+            !netplayMenu.hosting &&
+            netplayMenu.localAssignments.empty();
+        if(!m_webVisibilitySuspended && !deferObserverResume) {
+            m_emu.setSimulationSuspended(false);
+        }
         return false;
     }
 }
