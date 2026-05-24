@@ -4538,15 +4538,113 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
                     }
                 };
 
+                auto getOpaqueBackgroundOverrideColorScale2 = [&](int subX, int subY, uint32_t& outColor) {
+                    if(backgroundOverride == nullptr || bgPixel == nullptr) {
+                        return false;
+                    }
+
+                    const ChrOverride* override = backgroundOverride->override;
+                    const DecodedImage* image = backgroundOverride->image;
+                    if(override == nullptr || image == nullptr) {
+                        return false;
+                    }
+
+                    const int localOffsetX = bgPixel->offsetX & 0x07;
+                    const int localOffsetY = bgPixel->offsetY & 0x07;
+                    const int sourceScale = backgroundOverride->sourceScale;
+                    const int sourceSubX = std::clamp((subX * sourceScale) / 2, 0, sourceScale - 1);
+                    const int sourceSubY = std::clamp((subY * sourceScale) / 2, 0, sourceScale - 1);
+                    int srcX = (override->hasSourcePosition() ? override->sourceX : 0) + localOffsetX * sourceScale + sourceSubX;
+                    int srcY = (override->hasSourcePosition() ? override->sourceY : 0) + localOffsetY * sourceScale + sourceSubY;
+                    const int tilePixelSize = 8 * sourceScale;
+                    const bool atlasImage =
+                        !override->hasSourcePosition() &&
+                        (override->wholeChr() ||
+                         override->sourceTileOffset > 0 ||
+                         (image->width >= override->columns * tilePixelSize && image->height > tilePixelSize));
+                    if(atlasImage) {
+                        int sourceColumn = 0;
+                        int sourceRow = 0;
+                        if(override->wholeChr()) {
+                            const int tileIndex = static_cast<int>(bgPixel->tileIndex);
+                            if(tileIndex < 0) {
+                                return false;
+                            }
+                            const int sourceTile = tileIndex + override->sourceTileOffset;
+                            if(backgroundOverride->wholeChrLayout == ChrOverride::SourceLayout::PatternTables) {
+                                const int table = sourceTile / 256;
+                                const int tileInTable = sourceTile & 0xFF;
+                                sourceColumn = (table * 16) + (tileInTable & 0x0F);
+                                sourceRow = tileInTable >> 4;
+                            } else {
+                                sourceColumn = sourceTile % override->columns;
+                                sourceRow = sourceTile / override->columns;
+                            }
+                        } else if(override->sourceLayout == ChrOverride::SourceLayout::PatternTables) {
+                            const int sourceTile = override->sourceTileOffset;
+                            const int table = sourceTile / 256;
+                            const int tileInTable = sourceTile & 0xFF;
+                            sourceColumn = (table * 16) + (tileInTable & 0x0F);
+                            sourceRow = tileInTable >> 4;
+                        } else {
+                            const int sourceTile = override->sourceTileOffset;
+                            sourceColumn = sourceTile % override->columns;
+                            sourceRow = sourceTile / override->columns;
+                        }
+                        srcX += sourceColumn * tilePixelSize;
+                        srcY += sourceRow * tilePixelSize;
+                    }
+
+                    if(srcX < 0 || srcY < 0 || srcX >= image->width || srcY >= image->height) {
+                        return false;
+                    }
+
+                    const size_t sourcePixelIndex =
+                        static_cast<size_t>(srcY) * static_cast<size_t>(image->width) + static_cast<size_t>(srcX);
+                    const uint32_t sourcePixel = image->rgba[sourcePixelIndex];
+                    const uint8_t sourceAlpha = static_cast<uint8_t>((sourcePixel >> 24u) & 0xFFu);
+                    if(sourceAlpha != 0xFF) {
+                        return false;
+                    }
+
+                    if(override->ignorePalette) {
+                        outColor = (sourcePixel & 0x00FFFFFFu) | 0xFF000000u;
+                        return true;
+                    }
+                    if(!image->indexedFourColor || image->indexedPixels.size() != image->rgba.size()) {
+                        return false;
+                    }
+
+                    const uint8_t sourcePaletteIndex = image->indexedPixels[sourcePixelIndex];
+                    if(sourcePaletteIndex == 0) {
+                        outColor = snapshot.paletteColors[snapshot.universalBgColor & 0x3F];
+                        return true;
+                    }
+
+                    const int paletteIndex = static_cast<int>(sourcePaletteIndex) - 1;
+                    if(paletteIndex < 0 || paletteIndex >= static_cast<int>(backgroundPalette.size())) {
+                        return false;
+                    }
+                    outColor = snapshot.paletteColors[backgroundPalette[static_cast<size_t>(paletteIndex)] & 0x3F];
+                    return true;
+                };
+
                 uint32_t block00 = canPrecomposeBeforeBg ? precomposedBeforeBgColor : initialColor;
                 uint32_t block01 = block00;
                 uint32_t block10 = block00;
                 uint32_t block11 = block00;
+                const bool opaqueOverrideBlock =
+                    bgValid &&
+                    backgroundOverride != nullptr &&
+                    getOpaqueBackgroundOverrideColorScale2(0, 0, block00) &&
+                    getOpaqueBackgroundOverrideColorScale2(1, 0, block01) &&
+                    getOpaqueBackgroundOverrideColorScale2(0, 1, block10) &&
+                    getOpaqueBackgroundOverrideColorScale2(1, 1, block11);
 
 #if defined(GERANES_MOD_PROFILE)
                 const auto blockBuildStart = ComposeClock::now();
 #endif
-                if(!canPrecomposeBeforeBg) {
+                if(!opaqueOverrideBlock && !canPrecomposeBeforeBg) {
                     for(size_t i = 0; i < resolvedLowPriorityBackgroundCount; ++i) {
                         applyResolvedLayerScale2(resolvedLowPriorityBackgrounds[i], block00, block01, block10, block11);
                     }
@@ -4555,7 +4653,7 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
                     }
                 }
 
-                if(bgValid) {
+                if(!opaqueOverrideBlock && bgValid) {
                     if(backgroundOverride != nullptr) {
 #if defined(GERANES_MOD_PROFILE)
                         const auto backgroundOverrideSampleStart = ComposeClock::now();
