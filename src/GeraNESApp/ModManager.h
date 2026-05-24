@@ -336,9 +336,34 @@ private:
         std::vector<RenderPreparedBackground> preparedBackgrounds;
     };
 
+    struct ComposeTimingProfile {
+        uint64_t frames = 0;
+        uint64_t totalUs = 0;
+        uint64_t cacheRebuildUs = 0;
+        uint64_t preLoopSetupUs = 0;
+        uint64_t pixelLoopUs = 0;
+        uint64_t backgroundResolveUs = 0;
+        uint64_t backgroundBlendUs = 0;
+        uint64_t overrideLookupUs = 0;
+        uint64_t spriteApplyUs = 0;
+        uint64_t backgroundOverrideSampleUs = 0;
+        uint64_t spriteOverrideSampleUs = 0;
+        uint64_t framebufferWriteUs = 0;
+    };
+
+    struct OnFrameTimingProfile {
+        uint64_t frames = 0;
+        uint64_t totalUs = 0;
+        uint64_t memoryReadUs = 0;
+        uint64_t chrEvalUs = 0;
+        uint64_t bgEvalUs = 0;
+    };
+
     std::unordered_map<std::string, std::optional<DecodedImage>> m_imageCache;
     RenderComposeCache m_renderComposeCache;
     bool m_renderComposeCacheDirty = true;
+    ComposeTimingProfile m_composeTimingProfile;
+    OnFrameTimingProfile m_onFrameTimingProfile;
 
     static std::string normalizeZipPath(std::string path);
     static std::optional<std::filesystem::path> resolveFolderEntryPath(const std::filesystem::path& rootPath, const std::string& entryName);
@@ -366,6 +391,8 @@ private:
     void rebuildFrameConditionPlan();
     void invalidateRenderComposeCache();
     void rebuildRenderComposeCache();
+    void logComposeTimingProfileIfNeeded(int scale);
+    void logOnFrameTimingProfileIfNeeded();
     static uint32_t blendPixel(uint32_t dst, uint32_t src, int alphaScale);
     static uint32_t hashChrTile(PPU& ppu, int tileIndex);
 };

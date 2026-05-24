@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <array>
 #include <cctype>
+#include <chrono>
 #include <cmath>
 #include <cstring>
 #include <cstdlib>
@@ -23,6 +24,12 @@ using mz_ulong = unsigned long;
 extern "C" int mz_uncompress(unsigned char* pDest, mz_ulong* pDest_len, const unsigned char* pSource, mz_ulong source_len);
 constexpr int MZ_OK = 0;
 constexpr uint8_t kPngSignature[8] = { 0x89u, 'P', 'N', 'G', '\r', '\n', 0x1Au, '\n' };
+
+#if defined(GERANES_MOD_PROFILE)
+constexpr bool kModProfileEnabled = true;
+#else
+constexpr bool kModProfileEnabled = false;
+#endif
 
 bool evaluateMemoryCondition(const ModManager::MemoryCondition& condition, uint32_t actual)
 {
@@ -1154,6 +1161,14 @@ bool ModManager::loadMesenHiresFile()
 
 void ModManager::onFrame(GeraNESEmu& emu)
 {
+    uint64_t memoryReadUs = 0;
+    uint64_t chrEvalUs = 0;
+    uint64_t bgEvalUs = 0;
+#if defined(GERANES_MOD_PROFILE)
+    using OnFrameClock = std::chrono::steady_clock;
+    const auto onFrameStart = OnFrameClock::now();
+#endif
+
     if(!m_active || !m_scriptLoaded) return;
     const bool needsGraphicsCapture = !m_chrOverrides.empty() || !m_backgroundReplacements.empty();
     emu.getConsole().ppu().debugSetModRenderCaptureEnabled(needsGraphicsCapture);
@@ -1192,14 +1207,24 @@ void ModManager::onFrame(GeraNESEmu& emu)
         return true;
     };
 
+#if defined(GERANES_MOD_PROFILE)
+    const auto memoryReadStart = OnFrameClock::now();
+#endif
     for(const FrameConditionPlan::CachedMemoryRead& cachedRead : m_frameConditionPlan.uniqueMemoryReads) {
         if(cachedRead.readIndex < frameConditionState.memoryValues.size()) {
             frameConditionState.memoryValues[cachedRead.readIndex] = readMemoryValue(cachedRead.condition, emu);
         }
     }
+#if defined(GERANES_MOD_PROFILE)
+    memoryReadUs = static_cast<uint64_t>(
+        std::chrono::duration_cast<std::chrono::microseconds>(OnFrameClock::now() - memoryReadStart).count());
+#endif
 
     bool renderComposeCacheChanged = false;
     const size_t chrCount = std::min(m_chrOverrides.size(), m_frameConditionPlan.chrOverrideGlobalConditions.size());
+#if defined(GERANES_MOD_PROFILE)
+    const auto chrEvalStart = OnFrameClock::now();
+#endif
     for(size_t i = 0; i < chrCount; ++i) {
         const bool enabled = globalConditionsMatch(m_frameConditionPlan.chrOverrideGlobalConditions[i]);
         if(m_chrOverrides[i].enabled != enabled) {
@@ -1213,8 +1238,15 @@ void ModManager::onFrame(GeraNESEmu& emu)
             m_chrOverrides[i].enabled = true;
         }
     }
+#if defined(GERANES_MOD_PROFILE)
+    chrEvalUs = static_cast<uint64_t>(
+        std::chrono::duration_cast<std::chrono::microseconds>(OnFrameClock::now() - chrEvalStart).count());
+#endif
 
     const size_t bgCount = std::min(m_backgroundReplacements.size(), m_frameConditionPlan.backgroundGlobalConditions.size());
+#if defined(GERANES_MOD_PROFILE)
+    const auto bgEvalStart = OnFrameClock::now();
+#endif
     for(size_t i = 0; i < bgCount; ++i) {
         const bool enabled = globalConditionsMatch(m_frameConditionPlan.backgroundGlobalConditions[i]);
         if(m_backgroundReplacements[i].enabled != enabled) {
@@ -1228,10 +1260,24 @@ void ModManager::onFrame(GeraNESEmu& emu)
             m_backgroundReplacements[i].enabled = true;
         }
     }
+#if defined(GERANES_MOD_PROFILE)
+    bgEvalUs = static_cast<uint64_t>(
+        std::chrono::duration_cast<std::chrono::microseconds>(OnFrameClock::now() - bgEvalStart).count());
+#endif
     m_frameConditionState = std::move(frameConditionState);
     if(renderComposeCacheChanged) {
         m_renderComposeCacheDirty = true;
     }
+
+#if defined(GERANES_MOD_PROFILE)
+    m_onFrameTimingProfile.frames += 1;
+    m_onFrameTimingProfile.totalUs += static_cast<uint64_t>(
+        std::chrono::duration_cast<std::chrono::microseconds>(OnFrameClock::now() - onFrameStart).count());
+    m_onFrameTimingProfile.memoryReadUs += memoryReadUs;
+    m_onFrameTimingProfile.chrEvalUs += chrEvalUs;
+    m_onFrameTimingProfile.bgEvalUs += bgEvalUs;
+    logOnFrameTimingProfileIfNeeded();
+#endif
 }
 
 void ModManager::rebuildFrameConditionPlan()
@@ -1287,6 +1333,9 @@ void ModManager::rebuildFrameConditionPlan()
 
 void ModManager::rebuildRenderComposeCache()
 {
+    using ComposeClock = std::chrono::steady_clock;
+    const auto rebuildStart = ComposeClock::now();
+
     m_renderComposeCache = {};
     m_renderComposeCache.scale = std::max(1, m_resolutionMultiplier);
     m_renderComposeCache.needsTileHashes = false;
@@ -1452,6 +1501,8 @@ void ModManager::rebuildRenderComposeCache()
 
     m_renderComposeCache.valid = true;
     m_renderComposeCacheDirty = false;
+    m_composeTimingProfile.cacheRebuildUs += static_cast<uint64_t>(
+        std::chrono::duration_cast<std::chrono::microseconds>(ComposeClock::now() - rebuildStart).count());
 }
 
 std::optional<std::vector<uint8_t>> ModManager::readAsset(const std::string& assetPath) const
@@ -2962,6 +3013,18 @@ std::optional<ModManager::DecodedImage> ModManager::decodeImage(const std::vecto
 
 void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, int height, int activeTop, int activeBottom, int scale, const uint32_t* sourceFramebuffer, const ChrRenderSnapshot& snapshot, const std::vector<const ChrOverride*>* activeOverrideFilter)
 {
+    uint64_t backgroundResolveUs = 0;
+    uint64_t backgroundBlendUs = 0;
+    uint64_t overrideLookupUs = 0;
+    uint64_t spriteApplyUs = 0;
+    uint64_t backgroundOverrideSampleUs = 0;
+    uint64_t spriteOverrideSampleUs = 0;
+    uint64_t framebufferWriteUs = 0;
+#if defined(GERANES_MOD_PROFILE)
+    using ComposeClock = std::chrono::steady_clock;
+    const auto composeStart = ComposeClock::now();
+#endif
+
     if(sourceFramebuffer == nullptr || framebuffer.empty() || width <= 0 || height <= 0 || scale <= 0) {
         return;
     }
@@ -4082,27 +4145,32 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
     };
 
     const bool onlyWholeChrOverrides = std::all_of(activeOverrides.begin(), activeOverrides.end(), [](const ChrOverride* override) {
-        return override->wholeChr() && !override->hasChrHash && override->paletteIndices.empty() &&
-               override->patternTable < 0 && !override->defaultTile && !override->absoluteTile;
+        return override != nullptr &&
+               override->wholeChr() &&
+               !override->hasChrHash &&
+               override->paletteIndices.empty() &&
+               override->patternTable < 0 &&
+               !override->defaultTile &&
+               !override->absoluteTile;
     });
     const PreparedOverride* fastBackgroundOverride = nullptr;
-    const PreparedOverride* fastSpriteOverride = nullptr;
     if(onlyWholeChrOverrides) {
         for(const PreparedOverride& prepared : preparedOverrides) {
             const ChrOverride* override = prepared.override;
+            if(override == nullptr) {
+                continue;
+            }
             if(!prepared.hasDynamicConditions &&
                (override->target == ChrOverride::Target::Both || override->target == ChrOverride::Target::Background) &&
                fastBackgroundOverride == nullptr) {
                 fastBackgroundOverride = &prepared;
             }
-            if(!prepared.hasDynamicConditions &&
-               (override->target == ChrOverride::Target::Both || override->target == ChrOverride::Target::Sprite) &&
-               fastSpriteOverride == nullptr) {
-                fastSpriteOverride = &prepared;
-            }
         }
     }
 
+#if defined(GERANES_MOD_PROFILE)
+    const auto pixelLoopStart = ComposeClock::now();
+#endif
     const int activeNesY0 = std::max(0, activeTop / scale);
     const int activeNesY1 = std::min(PPU::SCREEN_HEIGHT, (activeBottom + scale - 1) / scale);
     for(int nesY = activeNesY0; nesY < activeNesY1; ++nesY) {
@@ -4140,10 +4208,17 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
                 backgroundPalette = { bgPixel->palette[0], bgPixel->palette[1], bgPixel->palette[2] };
                 if(bgFullTileIndex >= 0) {
                     const ConditionContext context = { nesX, nesY, bgPixel, nullptr };
+#if defined(GERANES_MOD_PROFILE)
+                    const auto overrideLookupStart = ComposeClock::now();
+#endif
                     backgroundOverride =
                         onlyWholeChrOverrides && fastBackgroundOverride != nullptr
                             ? fastBackgroundOverride
                             : findOverride(ChrOverride::Target::Background, bgFullTileIndex & 0xFF, bgFullTileIndex, bgFullTileIndex / 256, backgroundPalette, false, false, false, context);
+#if defined(GERANES_MOD_PROFILE)
+                    overrideLookupUs += static_cast<uint64_t>(
+                        std::chrono::duration_cast<std::chrono::microseconds>(ComposeClock::now() - overrideLookupStart).count());
+#endif
                 }
                 backgroundFallbackColor = m_disableOriginalTiles ? 0x00000000u : snapshot.paletteColors[bgPixel->paletteIndex & 0x3F];
             }
@@ -4190,19 +4265,24 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
                     const int spriteFullTileIndex = candidate.tileIndex != 0xFFFF ? static_cast<int>(candidate.tileIndex) : -1;
                     if(spriteFullTileIndex >= 0) {
                         const ConditionContext context = { nesX, nesY, bgPixel, &candidate };
+#if defined(GERANES_MOD_PROFILE)
+                        const auto overrideLookupStart = ComposeClock::now();
+#endif
                         resolvedCandidate.spriteOverride =
-                            (onlyWholeChrOverrides && fastSpriteOverride != nullptr)
-                                ? fastSpriteOverride
-                                : findOverride(
-                                    ChrOverride::Target::Sprite,
-                                    spriteFullTileIndex & 0xFF,
-                                    spriteFullTileIndex,
-                                    spriteFullTileIndex / 256,
-                                    resolvedCandidate.spritePalette,
-                                    candidate.horizontalMirror,
-                                    candidate.verticalMirror,
-                                    candidate.behindBackground,
-                                    context);
+                            findOverride(
+                                ChrOverride::Target::Sprite,
+                                spriteFullTileIndex & 0xFF,
+                                spriteFullTileIndex,
+                                spriteFullTileIndex / 256,
+                                resolvedCandidate.spritePalette,
+                                candidate.horizontalMirror,
+                                candidate.verticalMirror,
+                                candidate.behindBackground,
+                                context);
+#if defined(GERANES_MOD_PROFILE)
+                        overrideLookupUs += static_cast<uint64_t>(
+                            std::chrono::duration_cast<std::chrono::microseconds>(ComposeClock::now() - overrideLookupStart).count());
+#endif
                     }
 
                     if(candidate.behindBackground) {
@@ -4219,6 +4299,9 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
 
             std::array<ResolvedBackgroundLayer, 10> resolvedLowPriorityBackgrounds = {};
             size_t resolvedLowPriorityBackgroundCount = 0;
+#if defined(GERANES_MOD_PROFILE)
+            const auto backgroundResolveStart = ComposeClock::now();
+#endif
             for(const ActiveBackgroundLayer& activeLayer : lowPriorityBackgrounds) {
                 if(resolvedLowPriorityBackgroundCount >= resolvedLowPriorityBackgrounds.size()) {
                     break;
@@ -4256,6 +4339,10 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
                 resolvedHighPriorityBackgrounds[resolvedHighPriorityBackgroundCount++] =
                     resolveBackgroundLayer(activeLayer, nesX, nesY);
             }
+#if defined(GERANES_MOD_PROFILE)
+            backgroundResolveUs += static_cast<uint64_t>(
+                std::chrono::duration_cast<std::chrono::microseconds>(ComposeClock::now() - backgroundResolveStart).count());
+#endif
 
             const int blockX0 = nesX * scale;
             const int blockX1 = std::min(width, blockX0 + scale);
@@ -4280,16 +4367,29 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
                         resolvedMidBeforeTileBackgrounds,
                         resolvedMidBeforeTileBackgroundCount)
                     : initialColor;
+            const bool bgValid = bgPixel != nullptr && bgPixel->valid;
+            const bool applyBackgroundFallback = bgValid && (backgroundOpaque || !m_disableOriginalTiles);
+            const bool hasMidAfterBackgrounds = resolvedMidAfterTileBackgroundCount > 0;
+            const bool hasHighPriorityBackgrounds = resolvedHighPriorityBackgroundCount > 0;
+            const bool hasResolvedSprites = resolvedBehindSpriteCandidateCount > 0 || resolvedFrontSpriteCandidateCount > 0;
             if(canFillUniformBlock) {
+#if defined(GERANES_MOD_PROFILE)
+                const auto backgroundBlendStart = ComposeClock::now();
+#endif
                 uint32_t color = precomposedBeforeBgColor;
-                if(bgPixel != nullptr && bgPixel->valid) {
-                    if(backgroundOpaque || !m_disableOriginalTiles) {
-                        color = backgroundFallbackColor;
-                    }
+                if(applyBackgroundFallback) {
+                    color = backgroundFallbackColor;
                 }
                 color = composeUniformBackgroundLayers(color, resolvedMidAfterTileBackgrounds, resolvedMidAfterTileBackgroundCount);
                 color = composeUniformBackgroundLayers(color, resolvedHighPriorityBackgrounds, resolvedHighPriorityBackgroundCount);
+#if defined(GERANES_MOD_PROFILE)
+                backgroundBlendUs += static_cast<uint64_t>(
+                    std::chrono::duration_cast<std::chrono::microseconds>(ComposeClock::now() - backgroundBlendStart).count());
+#endif
 
+#if defined(GERANES_MOD_PROFILE)
+                const auto framebufferWriteStart = ComposeClock::now();
+#endif
                 for(int outY = blockY0; outY < blockY1; ++outY) {
                     uint32_t* dstRow = framebuffer.data() + static_cast<size_t>(outY) * static_cast<size_t>(width);
                     for(int outX = blockX0; outX < blockX1; ++outX) {
@@ -4298,29 +4398,258 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
                         }
                     }
                 }
+#if defined(GERANES_MOD_PROFILE)
+                framebufferWriteUs += static_cast<uint64_t>(
+                    std::chrono::duration_cast<std::chrono::microseconds>(ComposeClock::now() - framebufferWriteStart).count());
+#endif
                 continue;
             }
             for(int subY = 0; subY < scale; ++subY) {
                 const int outY = nesY * scale + subY;
                 if(outY < activeTop || outY >= activeBottom || outY < 0 || outY >= height) continue;
                 uint32_t* dstRow = framebuffer.data() + static_cast<size_t>(outY) * static_cast<size_t>(width);
-                for(int subX = 0; subX < scale; ++subX) {
-                    const int outX = blockX0 + subX;
-                    if(outX < 0 || outX >= width) continue;
-                    uint32_t color = canPrecomposeBeforeBg ? precomposedBeforeBgColor : initialColor;
+                if(!hasResolvedSprites) {
+                    if(!hasHighPriorityBackgrounds) {
+                        if(backgroundOverride == nullptr) {
+                            if(canPrecomposeBeforeBg) {
+                                for(int subX = 0; subX < scale; ++subX) {
+                                    const int outX = blockX0 + subX;
+                                    if(outX < 0 || outX >= width) continue;
+#if defined(GERANES_MOD_PROFILE)
+                                    const auto backgroundBlendStart = ComposeClock::now();
+#endif
+                                    uint32_t color = applyBackgroundFallback ? backgroundFallbackColor : precomposedBeforeBgColor;
+                                    if(hasMidAfterBackgrounds) {
+                                        for(size_t i = 0; i < resolvedMidAfterTileBackgroundCount; ++i) {
+                                            color = sampleResolvedBackgroundPixel(color, resolvedMidAfterTileBackgrounds[i], subX, subY);
+                                        }
+                                    }
+#if defined(GERANES_MOD_PROFILE)
+                                    backgroundBlendUs += static_cast<uint64_t>(
+                                        std::chrono::duration_cast<std::chrono::microseconds>(ComposeClock::now() - backgroundBlendStart).count());
+                                    const auto framebufferWriteStart = ComposeClock::now();
+#endif
+                                    dstRow[outX] = color;
+#if defined(GERANES_MOD_PROFILE)
+                                    framebufferWriteUs += static_cast<uint64_t>(
+                                        std::chrono::duration_cast<std::chrono::microseconds>(ComposeClock::now() - framebufferWriteStart).count());
+#endif
+                                }
+                                continue;
+                            }
 
-                    if(!canPrecomposeBeforeBg) {
-                        for(size_t i = 0; i < resolvedLowPriorityBackgroundCount; ++i) {
-                            color = sampleResolvedBackgroundPixel(color, resolvedLowPriorityBackgrounds[i], subX, subY);
+                            for(int subX = 0; subX < scale; ++subX) {
+                                const int outX = blockX0 + subX;
+                                if(outX < 0 || outX >= width) continue;
+#if defined(GERANES_MOD_PROFILE)
+                                const auto backgroundBlendStart = ComposeClock::now();
+#endif
+                                uint32_t color = initialColor;
+                                for(size_t i = 0; i < resolvedLowPriorityBackgroundCount; ++i) {
+                                    color = sampleResolvedBackgroundPixel(color, resolvedLowPriorityBackgrounds[i], subX, subY);
+                                }
+                                for(size_t i = 0; i < resolvedMidBeforeTileBackgroundCount; ++i) {
+                                    color = sampleResolvedBackgroundPixel(color, resolvedMidBeforeTileBackgrounds[i], subX, subY);
+                                }
+                                if(applyBackgroundFallback) {
+                                    color = backgroundFallbackColor;
+                                }
+                                if(hasMidAfterBackgrounds) {
+                                    for(size_t i = 0; i < resolvedMidAfterTileBackgroundCount; ++i) {
+                                        color = sampleResolvedBackgroundPixel(color, resolvedMidAfterTileBackgrounds[i], subX, subY);
+                                    }
+                                }
+#if defined(GERANES_MOD_PROFILE)
+                                backgroundBlendUs += static_cast<uint64_t>(
+                                    std::chrono::duration_cast<std::chrono::microseconds>(ComposeClock::now() - backgroundBlendStart).count());
+                                const auto framebufferWriteStart = ComposeClock::now();
+#endif
+                                dstRow[outX] = color;
+#if defined(GERANES_MOD_PROFILE)
+                                framebufferWriteUs += static_cast<uint64_t>(
+                                    std::chrono::duration_cast<std::chrono::microseconds>(ComposeClock::now() - framebufferWriteStart).count());
+#endif
+                            }
+                            continue;
                         }
 
-                        for(size_t i = 0; i < resolvedMidBeforeTileBackgroundCount; ++i) {
-                            color = sampleResolvedBackgroundPixel(color, resolvedMidBeforeTileBackgrounds[i], subX, subY);
+                        if(canPrecomposeBeforeBg) {
+                            for(int subX = 0; subX < scale; ++subX) {
+                                const int outX = blockX0 + subX;
+                                if(outX < 0 || outX >= width) continue;
+#if defined(GERANES_MOD_PROFILE)
+                                const auto backgroundBlendStart = ComposeClock::now();
+#endif
+                                uint32_t color = precomposedBeforeBgColor;
+                                if(bgValid) {
+#if defined(GERANES_MOD_PROFILE)
+                                    const auto backgroundOverrideSampleStart = ComposeClock::now();
+#endif
+                                    color = sampleOverridePixel(
+                                        color,
+                                        backgroundFallbackColor,
+                                        backgroundOverride,
+                                        bgPixel->tileIndex,
+                                        bgPixel->offsetX,
+                                        bgPixel->offsetY,
+                                        subX,
+                                        subY,
+                                        bgPixel->colorLowBits,
+                                        backgroundPalette,
+                                        false,
+                                        false
+                                    );
+#if defined(GERANES_MOD_PROFILE)
+                                    backgroundOverrideSampleUs += static_cast<uint64_t>(
+                                        std::chrono::duration_cast<std::chrono::microseconds>(ComposeClock::now() - backgroundOverrideSampleStart).count());
+#endif
+                                }
+                                if(hasMidAfterBackgrounds) {
+                                    for(size_t i = 0; i < resolvedMidAfterTileBackgroundCount; ++i) {
+                                        color = sampleResolvedBackgroundPixel(color, resolvedMidAfterTileBackgrounds[i], subX, subY);
+                                    }
+                                }
+#if defined(GERANES_MOD_PROFILE)
+                                backgroundBlendUs += static_cast<uint64_t>(
+                                    std::chrono::duration_cast<std::chrono::microseconds>(ComposeClock::now() - backgroundBlendStart).count());
+                                const auto framebufferWriteStart = ComposeClock::now();
+#endif
+                                dstRow[outX] = color;
+#if defined(GERANES_MOD_PROFILE)
+                                framebufferWriteUs += static_cast<uint64_t>(
+                                    std::chrono::duration_cast<std::chrono::microseconds>(ComposeClock::now() - framebufferWriteStart).count());
+#endif
+                            }
+                            continue;
                         }
+
+                        for(int subX = 0; subX < scale; ++subX) {
+                            const int outX = blockX0 + subX;
+                            if(outX < 0 || outX >= width) continue;
+#if defined(GERANES_MOD_PROFILE)
+                            const auto backgroundBlendStart = ComposeClock::now();
+#endif
+                            uint32_t color = initialColor;
+                            for(size_t i = 0; i < resolvedLowPriorityBackgroundCount; ++i) {
+                                color = sampleResolvedBackgroundPixel(color, resolvedLowPriorityBackgrounds[i], subX, subY);
+                            }
+                            for(size_t i = 0; i < resolvedMidBeforeTileBackgroundCount; ++i) {
+                                color = sampleResolvedBackgroundPixel(color, resolvedMidBeforeTileBackgrounds[i], subX, subY);
+                            }
+                            if(bgValid) {
+#if defined(GERANES_MOD_PROFILE)
+                                const auto backgroundOverrideSampleStart = ComposeClock::now();
+#endif
+                                color = sampleOverridePixel(
+                                    color,
+                                    backgroundFallbackColor,
+                                    backgroundOverride,
+                                    bgPixel->tileIndex,
+                                    bgPixel->offsetX,
+                                    bgPixel->offsetY,
+                                    subX,
+                                    subY,
+                                    bgPixel->colorLowBits,
+                                    backgroundPalette,
+                                    false,
+                                    false
+                                );
+#if defined(GERANES_MOD_PROFILE)
+                                backgroundOverrideSampleUs += static_cast<uint64_t>(
+                                    std::chrono::duration_cast<std::chrono::microseconds>(ComposeClock::now() - backgroundOverrideSampleStart).count());
+#endif
+                            }
+                            if(hasMidAfterBackgrounds) {
+                                for(size_t i = 0; i < resolvedMidAfterTileBackgroundCount; ++i) {
+                                    color = sampleResolvedBackgroundPixel(color, resolvedMidAfterTileBackgrounds[i], subX, subY);
+                                }
+                            }
+#if defined(GERANES_MOD_PROFILE)
+                            backgroundBlendUs += static_cast<uint64_t>(
+                                std::chrono::duration_cast<std::chrono::microseconds>(ComposeClock::now() - backgroundBlendStart).count());
+                            const auto framebufferWriteStart = ComposeClock::now();
+#endif
+                            dstRow[outX] = color;
+#if defined(GERANES_MOD_PROFILE)
+                            framebufferWriteUs += static_cast<uint64_t>(
+                                std::chrono::duration_cast<std::chrono::microseconds>(ComposeClock::now() - framebufferWriteStart).count());
+#endif
+                        }
+                        continue;
                     }
 
-                    if(bgPixel != nullptr && bgPixel->valid) {
-                        if(backgroundOverride != nullptr) {
+                    if(backgroundOverride == nullptr) {
+                        for(int subX = 0; subX < scale; ++subX) {
+                            const int outX = blockX0 + subX;
+                            if(outX < 0 || outX >= width) continue;
+#if defined(GERANES_MOD_PROFILE)
+                            const auto backgroundBlendStart = ComposeClock::now();
+#endif
+                            uint32_t color = canPrecomposeBeforeBg ? precomposedBeforeBgColor : initialColor;
+
+                            if(!canPrecomposeBeforeBg) {
+                                for(size_t i = 0; i < resolvedLowPriorityBackgroundCount; ++i) {
+                                    color = sampleResolvedBackgroundPixel(color, resolvedLowPriorityBackgrounds[i], subX, subY);
+                                }
+                                for(size_t i = 0; i < resolvedMidBeforeTileBackgroundCount; ++i) {
+                                    color = sampleResolvedBackgroundPixel(color, resolvedMidBeforeTileBackgrounds[i], subX, subY);
+                                }
+                            }
+
+                            if(applyBackgroundFallback) {
+                                color = backgroundFallbackColor;
+                            }
+
+                            if(hasMidAfterBackgrounds) {
+                                for(size_t i = 0; i < resolvedMidAfterTileBackgroundCount; ++i) {
+                                    color = sampleResolvedBackgroundPixel(color, resolvedMidAfterTileBackgrounds[i], subX, subY);
+                                }
+                            }
+#if defined(GERANES_MOD_PROFILE)
+                            backgroundBlendUs += static_cast<uint64_t>(
+                                std::chrono::duration_cast<std::chrono::microseconds>(ComposeClock::now() - backgroundBlendStart).count());
+                            const auto highBackgroundBlendStart = ComposeClock::now();
+#endif
+                            if(hasHighPriorityBackgrounds) {
+                                for(size_t i = 0; i < resolvedHighPriorityBackgroundCount; ++i) {
+                                    color = sampleResolvedBackgroundPixel(color, resolvedHighPriorityBackgrounds[i], subX, subY);
+                                }
+                            }
+#if defined(GERANES_MOD_PROFILE)
+                            backgroundBlendUs += static_cast<uint64_t>(
+                                std::chrono::duration_cast<std::chrono::microseconds>(ComposeClock::now() - highBackgroundBlendStart).count());
+                            const auto framebufferWriteStart = ComposeClock::now();
+#endif
+                            dstRow[outX] = color;
+#if defined(GERANES_MOD_PROFILE)
+                            framebufferWriteUs += static_cast<uint64_t>(
+                                std::chrono::duration_cast<std::chrono::microseconds>(ComposeClock::now() - framebufferWriteStart).count());
+#endif
+                        }
+                        continue;
+                    }
+
+                    for(int subX = 0; subX < scale; ++subX) {
+                        const int outX = blockX0 + subX;
+                        if(outX < 0 || outX >= width) continue;
+#if defined(GERANES_MOD_PROFILE)
+                        const auto backgroundBlendStart = ComposeClock::now();
+#endif
+                        uint32_t color = canPrecomposeBeforeBg ? precomposedBeforeBgColor : initialColor;
+
+                        if(!canPrecomposeBeforeBg) {
+                            for(size_t i = 0; i < resolvedLowPriorityBackgroundCount; ++i) {
+                                color = sampleResolvedBackgroundPixel(color, resolvedLowPriorityBackgrounds[i], subX, subY);
+                            }
+                            for(size_t i = 0; i < resolvedMidBeforeTileBackgroundCount; ++i) {
+                                color = sampleResolvedBackgroundPixel(color, resolvedMidBeforeTileBackgrounds[i], subX, subY);
+                            }
+                        }
+
+                        if(bgValid) {
+#if defined(GERANES_MOD_PROFILE)
+                            const auto backgroundOverrideSampleStart = ComposeClock::now();
+#endif
                             color = sampleOverridePixel(
                                 color,
                                 backgroundFallbackColor,
@@ -4335,6 +4664,223 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
                                 false,
                                 false
                             );
+#if defined(GERANES_MOD_PROFILE)
+                            backgroundOverrideSampleUs += static_cast<uint64_t>(
+                                std::chrono::duration_cast<std::chrono::microseconds>(ComposeClock::now() - backgroundOverrideSampleStart).count());
+#endif
+                        }
+
+                        if(hasMidAfterBackgrounds) {
+                            for(size_t i = 0; i < resolvedMidAfterTileBackgroundCount; ++i) {
+                                color = sampleResolvedBackgroundPixel(color, resolvedMidAfterTileBackgrounds[i], subX, subY);
+                            }
+                        }
+#if defined(GERANES_MOD_PROFILE)
+                        backgroundBlendUs += static_cast<uint64_t>(
+                            std::chrono::duration_cast<std::chrono::microseconds>(ComposeClock::now() - backgroundBlendStart).count());
+                        const auto highBackgroundBlendStart = ComposeClock::now();
+#endif
+                        if(hasHighPriorityBackgrounds) {
+                            for(size_t i = 0; i < resolvedHighPriorityBackgroundCount; ++i) {
+                                color = sampleResolvedBackgroundPixel(color, resolvedHighPriorityBackgrounds[i], subX, subY);
+                            }
+                        }
+#if defined(GERANES_MOD_PROFILE)
+                        backgroundBlendUs += static_cast<uint64_t>(
+                            std::chrono::duration_cast<std::chrono::microseconds>(ComposeClock::now() - highBackgroundBlendStart).count());
+                            const auto framebufferWriteStart = ComposeClock::now();
+#endif
+                        dstRow[outX] = color;
+#if defined(GERANES_MOD_PROFILE)
+                        framebufferWriteUs += static_cast<uint64_t>(
+                            std::chrono::duration_cast<std::chrono::microseconds>(ComposeClock::now() - framebufferWriteStart).count());
+#endif
+                    }
+                    continue;
+                }
+                const bool applyBehindSprites = !backgroundOpaque && resolvedBehindSpriteCandidateCount > 0;
+                const bool applyFrontSprites = resolvedFrontSpriteCandidateCount > 0;
+                if(!hasHighPriorityBackgrounds) {
+                    for(int subX = 0; subX < scale; ++subX) {
+                        const int outX = blockX0 + subX;
+                        if(outX < 0 || outX >= width) continue;
+#if defined(GERANES_MOD_PROFILE)
+                        const auto backgroundBlendStart = ComposeClock::now();
+#endif
+                        uint32_t color = canPrecomposeBeforeBg ? precomposedBeforeBgColor : initialColor;
+
+                        if(!canPrecomposeBeforeBg) {
+                            for(size_t i = 0; i < resolvedLowPriorityBackgroundCount; ++i) {
+                                color = sampleResolvedBackgroundPixel(color, resolvedLowPriorityBackgrounds[i], subX, subY);
+                            }
+
+                            for(size_t i = 0; i < resolvedMidBeforeTileBackgroundCount; ++i) {
+                                color = sampleResolvedBackgroundPixel(color, resolvedMidBeforeTileBackgrounds[i], subX, subY);
+                            }
+                        }
+
+                        if(bgValid) {
+                            if(backgroundOverride != nullptr) {
+#if defined(GERANES_MOD_PROFILE)
+                                const auto backgroundOverrideSampleStart = ComposeClock::now();
+#endif
+                                color = sampleOverridePixel(
+                                    color,
+                                    backgroundFallbackColor,
+                                    backgroundOverride,
+                                    bgPixel->tileIndex,
+                                    bgPixel->offsetX,
+                                    bgPixel->offsetY,
+                                    subX,
+                                    subY,
+                                    bgPixel->colorLowBits,
+                                    backgroundPalette,
+                                    false,
+                                    false
+                                );
+#if defined(GERANES_MOD_PROFILE)
+                                backgroundOverrideSampleUs += static_cast<uint64_t>(
+                                    std::chrono::duration_cast<std::chrono::microseconds>(ComposeClock::now() - backgroundOverrideSampleStart).count());
+#endif
+                            } else if(applyBackgroundFallback) {
+                                color = backgroundFallbackColor;
+                            }
+                        }
+
+                        if(hasMidAfterBackgrounds) {
+                            for(size_t i = 0; i < resolvedMidAfterTileBackgroundCount; ++i) {
+                                color = sampleResolvedBackgroundPixel(color, resolvedMidAfterTileBackgrounds[i], subX, subY);
+                            }
+                        }
+#if defined(GERANES_MOD_PROFILE)
+                        backgroundBlendUs += static_cast<uint64_t>(
+                            std::chrono::duration_cast<std::chrono::microseconds>(ComposeClock::now() - backgroundBlendStart).count());
+                        const auto spriteApplyStart = ComposeClock::now();
+#endif
+                        if(applyBehindSprites) {
+                            for(size_t i = 0; i < resolvedBehindSpriteCandidateCount; ++i) {
+                                const ResolvedSpriteCandidate& resolvedCandidate = resolvedBehindSpriteCandidates[i];
+                                const PPU::DebugModSpriteCandidate& candidate = *resolvedCandidate.candidate;
+                                const uint32_t spriteFallbackColor =
+                                    resolvedCandidate.fallbackUsesCurrentColor ? color : resolvedCandidate.fixedFallbackColor;
+                                if(resolvedCandidate.spriteOverride != nullptr) {
+#if defined(GERANES_MOD_PROFILE)
+                                    const auto spriteOverrideSampleStart = ComposeClock::now();
+#endif
+                                    color = sampleOverridePixel(
+                                        color,
+                                        spriteFallbackColor,
+                                        resolvedCandidate.spriteOverride,
+                                        candidate.tileIndex,
+                                        candidate.offsetX,
+                                        candidate.offsetY,
+                                        subX,
+                                        subY,
+                                        candidate.colorLowBits,
+                                        resolvedCandidate.spritePalette,
+                                        candidate.horizontalMirror,
+                                        candidate.verticalMirror,
+                                        true
+                                    );
+#if defined(GERANES_MOD_PROFILE)
+                                    spriteOverrideSampleUs += static_cast<uint64_t>(
+                                        std::chrono::duration_cast<std::chrono::microseconds>(ComposeClock::now() - spriteOverrideSampleStart).count());
+#endif
+                                } else if(!m_disableOriginalTiles && candidate.colorLowBits != 0) {
+                                    color = spriteFallbackColor;
+                                }
+                            }
+                        }
+
+                        if(applyFrontSprites) {
+                            for(size_t i = 0; i < resolvedFrontSpriteCandidateCount; ++i) {
+                                const ResolvedSpriteCandidate& resolvedCandidate = resolvedFrontSpriteCandidates[i];
+                                const PPU::DebugModSpriteCandidate& candidate = *resolvedCandidate.candidate;
+                                const uint32_t spriteFallbackColor =
+                                    resolvedCandidate.fallbackUsesCurrentColor ? color : resolvedCandidate.fixedFallbackColor;
+                                if(resolvedCandidate.spriteOverride != nullptr) {
+#if defined(GERANES_MOD_PROFILE)
+                                    const auto spriteOverrideSampleStart = ComposeClock::now();
+#endif
+                                    color = sampleOverridePixel(
+                                        color,
+                                        spriteFallbackColor,
+                                        resolvedCandidate.spriteOverride,
+                                        candidate.tileIndex,
+                                        candidate.offsetX,
+                                        candidate.offsetY,
+                                        subX,
+                                        subY,
+                                        candidate.colorLowBits,
+                                        resolvedCandidate.spritePalette,
+                                        candidate.horizontalMirror,
+                                        candidate.verticalMirror,
+                                        true
+                                    );
+#if defined(GERANES_MOD_PROFILE)
+                                    spriteOverrideSampleUs += static_cast<uint64_t>(
+                                        std::chrono::duration_cast<std::chrono::microseconds>(ComposeClock::now() - spriteOverrideSampleStart).count());
+#endif
+                                } else if(!m_disableOriginalTiles && candidate.colorLowBits != 0) {
+                                    color = spriteFallbackColor;
+                                }
+                            }
+                        }
+#if defined(GERANES_MOD_PROFILE)
+                        spriteApplyUs += static_cast<uint64_t>(
+                            std::chrono::duration_cast<std::chrono::microseconds>(ComposeClock::now() - spriteApplyStart).count());
+                        const auto framebufferWriteStart = ComposeClock::now();
+#endif
+                        dstRow[outX] = color;
+#if defined(GERANES_MOD_PROFILE)
+                        framebufferWriteUs += static_cast<uint64_t>(
+                            std::chrono::duration_cast<std::chrono::microseconds>(ComposeClock::now() - framebufferWriteStart).count());
+#endif
+                    }
+                    continue;
+                }
+
+                for(int subX = 0; subX < scale; ++subX) {
+                    const int outX = blockX0 + subX;
+                    if(outX < 0 || outX >= width) continue;
+#if defined(GERANES_MOD_PROFILE)
+                    const auto backgroundBlendStart = ComposeClock::now();
+#endif
+                    uint32_t color = canPrecomposeBeforeBg ? precomposedBeforeBgColor : initialColor;
+
+                    if(!canPrecomposeBeforeBg) {
+                        for(size_t i = 0; i < resolvedLowPriorityBackgroundCount; ++i) {
+                            color = sampleResolvedBackgroundPixel(color, resolvedLowPriorityBackgrounds[i], subX, subY);
+                        }
+
+                        for(size_t i = 0; i < resolvedMidBeforeTileBackgroundCount; ++i) {
+                            color = sampleResolvedBackgroundPixel(color, resolvedMidBeforeTileBackgrounds[i], subX, subY);
+                        }
+                    }
+
+                    if(bgPixel != nullptr && bgPixel->valid) {
+                        if(backgroundOverride != nullptr) {
+#if defined(GERANES_MOD_PROFILE)
+                            const auto backgroundOverrideSampleStart = ComposeClock::now();
+#endif
+                            color = sampleOverridePixel(
+                                color,
+                                backgroundFallbackColor,
+                                backgroundOverride,
+                                bgPixel->tileIndex,
+                                bgPixel->offsetX,
+                                bgPixel->offsetY,
+                                subX,
+                                subY,
+                                bgPixel->colorLowBits,
+                                backgroundPalette,
+                                false,
+                                false
+                            );
+#if defined(GERANES_MOD_PROFILE)
+                            backgroundOverrideSampleUs += static_cast<uint64_t>(
+                                std::chrono::duration_cast<std::chrono::microseconds>(ComposeClock::now() - backgroundOverrideSampleStart).count());
+#endif
                         } else if(backgroundOpaque || !m_disableOriginalTiles) {
                             color = backgroundFallbackColor;
                         }
@@ -4343,13 +4889,24 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
                     for(size_t i = 0; i < resolvedMidAfterTileBackgroundCount; ++i) {
                         color = sampleResolvedBackgroundPixel(color, resolvedMidAfterTileBackgrounds[i], subX, subY);
                     }
+#if defined(GERANES_MOD_PROFILE)
+                    backgroundBlendUs += static_cast<uint64_t>(
+                        std::chrono::duration_cast<std::chrono::microseconds>(ComposeClock::now() - backgroundBlendStart).count());
+#endif
 
-                    if(resolvedBehindSpriteCandidateCount > 0 || resolvedFrontSpriteCandidateCount > 0) {
-                        auto applyResolvedSpriteCandidate = [&](const ResolvedSpriteCandidate& resolvedCandidate) {
+#if defined(GERANES_MOD_PROFILE)
+                        const auto spriteApplyStart = ComposeClock::now();
+#endif
+                    if(applyBehindSprites) {
+                            for(size_t i = 0; i < resolvedBehindSpriteCandidateCount; ++i) {
+                            const ResolvedSpriteCandidate& resolvedCandidate = resolvedBehindSpriteCandidates[i];
                             const PPU::DebugModSpriteCandidate& candidate = *resolvedCandidate.candidate;
                             const uint32_t spriteFallbackColor =
                                 resolvedCandidate.fallbackUsesCurrentColor ? color : resolvedCandidate.fixedFallbackColor;
                             if(resolvedCandidate.spriteOverride != nullptr) {
+#if defined(GERANES_MOD_PROFILE)
+                                const auto spriteOverrideSampleStart = ComposeClock::now();
+#endif
                                 color = sampleOverridePixel(
                                     color,
                                     spriteFallbackColor,
@@ -4365,30 +4922,166 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
                                     candidate.verticalMirror,
                                     true
                                 );
+#if defined(GERANES_MOD_PROFILE)
+                                spriteOverrideSampleUs += static_cast<uint64_t>(
+                                    std::chrono::duration_cast<std::chrono::microseconds>(ComposeClock::now() - spriteOverrideSampleStart).count());
+#endif
                             } else if(!m_disableOriginalTiles && candidate.colorLowBits != 0) {
                                 color = spriteFallbackColor;
                             }
-                        };
+                        }
+                    }
 
-                        if(!backgroundOpaque) {
-                            for(size_t i = 0; i < resolvedBehindSpriteCandidateCount; ++i) {
-                                applyResolvedSpriteCandidate(resolvedBehindSpriteCandidates[i]);
+                    if(applyFrontSprites) {
+                        for(size_t i = 0; i < resolvedFrontSpriteCandidateCount; ++i) {
+                            const ResolvedSpriteCandidate& resolvedCandidate = resolvedFrontSpriteCandidates[i];
+                            const PPU::DebugModSpriteCandidate& candidate = *resolvedCandidate.candidate;
+                            const uint32_t spriteFallbackColor =
+                                resolvedCandidate.fallbackUsesCurrentColor ? color : resolvedCandidate.fixedFallbackColor;
+                            if(resolvedCandidate.spriteOverride != nullptr) {
+#if defined(GERANES_MOD_PROFILE)
+                                const auto spriteOverrideSampleStart = ComposeClock::now();
+#endif
+                                color = sampleOverridePixel(
+                                    color,
+                                    spriteFallbackColor,
+                                    resolvedCandidate.spriteOverride,
+                                    candidate.tileIndex,
+                                    candidate.offsetX,
+                                    candidate.offsetY,
+                                    subX,
+                                    subY,
+                                    candidate.colorLowBits,
+                                    resolvedCandidate.spritePalette,
+                                    candidate.horizontalMirror,
+                                    candidate.verticalMirror,
+                                    true
+                                );
+#if defined(GERANES_MOD_PROFILE)
+                                spriteOverrideSampleUs += static_cast<uint64_t>(
+                                    std::chrono::duration_cast<std::chrono::microseconds>(ComposeClock::now() - spriteOverrideSampleStart).count());
+#endif
+                            } else if(!m_disableOriginalTiles && candidate.colorLowBits != 0) {
+                                color = spriteFallbackColor;
                             }
                         }
+                    }
+#if defined(GERANES_MOD_PROFILE)
+                    spriteApplyUs += static_cast<uint64_t>(
+                        std::chrono::duration_cast<std::chrono::microseconds>(ComposeClock::now() - spriteApplyStart).count());
+#endif
 
-                        for(size_t i = 0; i < resolvedFrontSpriteCandidateCount; ++i) {
-                            applyResolvedSpriteCandidate(resolvedFrontSpriteCandidates[i]);
+#if defined(GERANES_MOD_PROFILE)
+                    const auto highBackgroundBlendStart = ComposeClock::now();
+#endif
+                    if(hasHighPriorityBackgrounds) {
+                        for(size_t i = 0; i < resolvedHighPriorityBackgroundCount; ++i) {
+                            color = sampleResolvedBackgroundPixel(color, resolvedHighPriorityBackgrounds[i], subX, subY);
                         }
                     }
-
-                    for(size_t i = 0; i < resolvedHighPriorityBackgroundCount; ++i) {
-                        color = sampleResolvedBackgroundPixel(color, resolvedHighPriorityBackgrounds[i], subX, subY);
-                    }
+#if defined(GERANES_MOD_PROFILE)
+                    backgroundBlendUs += static_cast<uint64_t>(
+                        std::chrono::duration_cast<std::chrono::microseconds>(ComposeClock::now() - highBackgroundBlendStart).count());
+                    const auto framebufferWriteStart = ComposeClock::now();
+#endif
                     dstRow[outX] = color;
+#if defined(GERANES_MOD_PROFILE)
+                    framebufferWriteUs += static_cast<uint64_t>(
+                        std::chrono::duration_cast<std::chrono::microseconds>(ComposeClock::now() - framebufferWriteStart).count());
+#endif
                 }
             }
         }
     }
+
+#if defined(GERANES_MOD_PROFILE)
+    const uint64_t pixelLoopUs = static_cast<uint64_t>(
+        std::chrono::duration_cast<std::chrono::microseconds>(ComposeClock::now() - pixelLoopStart).count());
+    const uint64_t totalUs = static_cast<uint64_t>(
+        std::chrono::duration_cast<std::chrono::microseconds>(ComposeClock::now() - composeStart).count());
+    const uint64_t preLoopSetupUs = totalUs >= pixelLoopUs ? (totalUs - pixelLoopUs) : 0u;
+    m_composeTimingProfile.frames += 1;
+    m_composeTimingProfile.totalUs += totalUs;
+    m_composeTimingProfile.preLoopSetupUs += preLoopSetupUs;
+    m_composeTimingProfile.pixelLoopUs += pixelLoopUs;
+    m_composeTimingProfile.backgroundResolveUs += backgroundResolveUs;
+    m_composeTimingProfile.backgroundBlendUs += backgroundBlendUs;
+    m_composeTimingProfile.overrideLookupUs += overrideLookupUs;
+    m_composeTimingProfile.spriteApplyUs += spriteApplyUs;
+    m_composeTimingProfile.backgroundOverrideSampleUs += backgroundOverrideSampleUs;
+    m_composeTimingProfile.spriteOverrideSampleUs += spriteOverrideSampleUs;
+    m_composeTimingProfile.framebufferWriteUs += framebufferWriteUs;
+    logComposeTimingProfileIfNeeded(scale);
+#endif
+}
+
+void ModManager::logComposeTimingProfileIfNeeded(int scale)
+{
+    constexpr uint64_t kComposeTimingLogFrames = 120;
+    if(m_composeTimingProfile.frames < kComposeTimingLogFrames) {
+        return;
+    }
+
+    const double frameCount = static_cast<double>(m_composeTimingProfile.frames);
+    const double totalAvgMs = static_cast<double>(m_composeTimingProfile.totalUs) / (1000.0 * frameCount);
+    const double cacheRebuildAvgMs = static_cast<double>(m_composeTimingProfile.cacheRebuildUs) / (1000.0 * frameCount);
+    const double preLoopSetupAvgMs = static_cast<double>(m_composeTimingProfile.preLoopSetupUs) / (1000.0 * frameCount);
+    const double pixelLoopAvgMs = static_cast<double>(m_composeTimingProfile.pixelLoopUs) / (1000.0 * frameCount);
+    const double resolveAvgMs = static_cast<double>(m_composeTimingProfile.backgroundResolveUs) / (1000.0 * frameCount);
+    const double blendAvgMs = static_cast<double>(m_composeTimingProfile.backgroundBlendUs) / (1000.0 * frameCount);
+    const double overrideAvgMs = static_cast<double>(m_composeTimingProfile.overrideLookupUs) / (1000.0 * frameCount);
+    const double spriteAvgMs = static_cast<double>(m_composeTimingProfile.spriteApplyUs) / (1000.0 * frameCount);
+    const double bgOverrideSampleAvgMs = static_cast<double>(m_composeTimingProfile.backgroundOverrideSampleUs) / (1000.0 * frameCount);
+    const double spriteOverrideSampleAvgMs = static_cast<double>(m_composeTimingProfile.spriteOverrideSampleUs) / (1000.0 * frameCount);
+    const double writeAvgMs = static_cast<double>(m_composeTimingProfile.framebufferWriteUs) / (1000.0 * frameCount);
+    const double measuredPixelWorkAvgMs =
+        resolveAvgMs + blendAvgMs + overrideAvgMs + spriteAvgMs +
+        bgOverrideSampleAvgMs + spriteOverrideSampleAvgMs + writeAvgMs;
+    const double loopOverheadAvgMs = std::max(0.0, pixelLoopAvgMs - measuredPixelWorkAvgMs);
+
+    std::ostringstream out;
+    out << std::fixed << std::setprecision(3)
+        << "Mod compose timing (" << m_composeTimingProfile.frames << " frames, scale " << scale << "): "
+        << "total=" << totalAvgMs << "ms, "
+        << "cacheRebuild=" << cacheRebuildAvgMs << "ms, "
+        << "preLoopSetup=" << preLoopSetupAvgMs << "ms, "
+        << "pixelLoop=" << pixelLoopAvgMs << "ms, "
+        << "loopOverhead=" << loopOverheadAvgMs << "ms, "
+        << "bgResolve=" << resolveAvgMs << "ms, "
+        << "bgBlend=" << blendAvgMs << "ms, "
+        << "overrideLookup=" << overrideAvgMs << "ms, "
+        << "sprite=" << spriteAvgMs << "ms, "
+        << "bgOverrideSample=" << bgOverrideSampleAvgMs << "ms, "
+        << "spriteOverrideSample=" << spriteOverrideSampleAvgMs << "ms, "
+        << "write=" << writeAvgMs << "ms";
+    Logger::instance().log(out.str(), Logger::Type::INFO);
+
+    m_composeTimingProfile = {};
+}
+
+void ModManager::logOnFrameTimingProfileIfNeeded()
+{
+    constexpr uint64_t kOnFrameTimingLogFrames = 120;
+    if(m_onFrameTimingProfile.frames < kOnFrameTimingLogFrames) {
+        return;
+    }
+
+    const double frameCount = static_cast<double>(m_onFrameTimingProfile.frames);
+    const double totalAvgMs = static_cast<double>(m_onFrameTimingProfile.totalUs) / (1000.0 * frameCount);
+    const double memoryReadAvgMs = static_cast<double>(m_onFrameTimingProfile.memoryReadUs) / (1000.0 * frameCount);
+    const double chrEvalAvgMs = static_cast<double>(m_onFrameTimingProfile.chrEvalUs) / (1000.0 * frameCount);
+    const double bgEvalAvgMs = static_cast<double>(m_onFrameTimingProfile.bgEvalUs) / (1000.0 * frameCount);
+
+    std::ostringstream out;
+    out << std::fixed << std::setprecision(3)
+        << "Mod onFrame timing (" << m_onFrameTimingProfile.frames << " frames): "
+        << "total=" << totalAvgMs << "ms, "
+        << "memoryRead=" << memoryReadAvgMs << "ms, "
+        << "chrEval=" << chrEvalAvgMs << "ms, "
+        << "bgEval=" << bgEvalAvgMs << "ms";
+    Logger::instance().log(out.str(), Logger::Type::INFO);
+
+    m_onFrameTimingProfile = {};
 }
 
 uint32_t ModManager::blendPixel(uint32_t dst, uint32_t src, int alphaScale)
