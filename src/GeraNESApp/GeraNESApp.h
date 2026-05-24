@@ -362,6 +362,8 @@ private:
     uint32_t m_displayLoopCounter = 0;
     uint32_t m_lastObservedEmulationFrame = 0;
     bool m_hasLastObservedEmulationFrame = false;
+    uint32_t m_lastModObservedFrame = 0;
+    bool m_hasLastModObservedFrame = false;
     uint32_t m_lastMainLoopDtMs = 0;
     uint64_t m_presenterFrameAccumScaled = 0;
     uint32_t m_presenterStepRemainder = 0;

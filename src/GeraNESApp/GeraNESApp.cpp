@@ -1509,7 +1509,7 @@ void GeraNESApp::onEmuLoadForModAssets(uint32_t frame)
 void GeraNESApp::refreshModFrameCaptureHook()
 {
     m_emu.setModFrameCaptureHook([this](GeraNESEmu& emu, IEmulationHost::ModRenderSnapshot& snapshot, std::vector<uint32_t>& framebuffer) {
-        if(!m_modManager.active()) {
+        if(!m_modManager.active() || emu.isRewinding()) {
             snapshot = {};
             framebuffer.clear();
             return false;
@@ -1578,6 +1578,7 @@ bool GeraNESApp::openRomPath(const fs::path& path, bool updateRecentFiles, bool 
         AppSettings::instance().data.addRecentFile(path.string());
         AppSettings::instance().data.setLastFolder(path.string());
     }
+    m_hasLastModObservedFrame = false;
     if(m_emu.open(effectivePath)) {
         const int effectiveMaxRewindTime = shouldSuppressRewindForNetplay()
             ? 0
@@ -1947,6 +1948,14 @@ GeraNESApp::GeraNESApp()
             runtimeSettings
         );
         cfg.inputDelayFrames = static_cast<int>(updateResult.inputDelayFrames);
+
+        const uint32_t modObservedFrame = emu.frameCount();
+        if(m_hasLastModObservedFrame && modObservedFrame < m_lastModObservedFrame) {
+            m_modManager.onStateLoaded(modObservedFrame);
+        }
+        m_lastModObservedFrame = modObservedFrame;
+        m_hasLastModObservedFrame = true;
+
         m_modManager.onFrame(emu);
     });
     refreshModFrameCaptureHook();

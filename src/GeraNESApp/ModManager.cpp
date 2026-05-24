@@ -1279,7 +1279,9 @@ bool ModManager::loadMesenHiresFile()
 void ModManager::onFrame(GeraNESEmu& emu)
 {
     if(!m_active || !m_scriptLoaded) return;
-    const bool needsGraphicsCapture = !m_chrOverrides.empty() || !m_backgroundReplacements.empty();
+    const bool needsGraphicsCapture =
+        !emu.isRewinding() &&
+        (!m_chrOverrides.empty() || !m_backgroundReplacements.empty());
     emu.getConsole().ppu().debugSetModRenderCaptureEnabled(needsGraphicsCapture);
     if(m_customPalette.has_value()) {
         emu.getConsole().ppu().setColorPalette(*m_customPalette);
