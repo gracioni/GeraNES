@@ -4246,6 +4246,11 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
             const PreparedOverride* backgroundOverride = nullptr;
             uint32_t backgroundFallbackColor = baseColor;
             std::array<uint8_t, 3> backgroundPalette = {};
+            const DecodedImage* backgroundOverrideImage = nullptr;
+            int backgroundOverrideTileSrcX = 0;
+            int backgroundOverrideTileSrcY = 0;
+            int backgroundOverrideSourceScale = 1;
+            bool backgroundOverrideTileSrcValid = false;
 
             if(bgPixel != nullptr && bgPixel->valid) {
                 const int bgFullTileIndex = bgPixel->tileIndex != 0xFFFF ? static_cast<int>(bgPixel->tileIndex) : -1;
@@ -4280,6 +4285,58 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
                         lastBackgroundOverrideTileHash = bgPixel->tileHash;
                         lastBackgroundOverridePalette = backgroundPalette;
                         lastBackgroundOverride = backgroundOverride;
+                    }
+                    if(backgroundOverride != nullptr) {
+                        const ChrOverride* override = backgroundOverride->override;
+                        backgroundOverrideImage = backgroundOverride->image;
+                        if(override != nullptr && backgroundOverrideImage != nullptr) {
+                            backgroundOverrideSourceScale = backgroundOverride->sourceScale;
+                            if(override->hasSourcePosition()) {
+                                backgroundOverrideTileSrcX = override->sourceX;
+                                backgroundOverrideTileSrcY = override->sourceY;
+                                backgroundOverrideTileSrcValid = true;
+                            } else {
+                                const int tilePixelSize = 8 * backgroundOverrideSourceScale;
+                                const bool atlasImage =
+                                    override->wholeChr() ||
+                                    override->sourceTileOffset > 0 ||
+                                    (backgroundOverrideImage->width >= override->columns * tilePixelSize &&
+                                     backgroundOverrideImage->height > tilePixelSize);
+                                if(atlasImage) {
+                                    int sourceColumn = 0;
+                                    int sourceRow = 0;
+                                    if(override->wholeChr()) {
+                                        const int sourceTile = bgFullTileIndex + override->sourceTileOffset;
+                                        if(backgroundOverride->wholeChrLayout == ChrOverride::SourceLayout::PatternTables) {
+                                            const int table = sourceTile / 256;
+                                            const int tileInTable = sourceTile & 0xFF;
+                                            sourceColumn = (table * 16) + (tileInTable & 0x0F);
+                                            sourceRow = tileInTable >> 4;
+                                        } else {
+                                            sourceColumn = sourceTile % override->columns;
+                                            sourceRow = sourceTile / override->columns;
+                                        }
+                                    } else if(override->sourceLayout == ChrOverride::SourceLayout::PatternTables) {
+                                        const int sourceTile = override->sourceTileOffset;
+                                        const int table = sourceTile / 256;
+                                        const int tileInTable = sourceTile & 0xFF;
+                                        sourceColumn = (table * 16) + (tileInTable & 0x0F);
+                                        sourceRow = tileInTable >> 4;
+                                    } else {
+                                        const int sourceTile = override->sourceTileOffset;
+                                        sourceColumn = sourceTile % override->columns;
+                                        sourceRow = sourceTile / override->columns;
+                                    }
+                                    backgroundOverrideTileSrcX = sourceColumn * tilePixelSize;
+                                    backgroundOverrideTileSrcY = sourceRow * tilePixelSize;
+                                    backgroundOverrideTileSrcValid = true;
+                                } else {
+                                    backgroundOverrideTileSrcX = 0;
+                                    backgroundOverrideTileSrcY = 0;
+                                    backgroundOverrideTileSrcValid = true;
+                                }
+                            }
+                        }
                     }
                 }
                 backgroundFallbackColor = m_disableOriginalTiles ? 0x00000000u : snapshot.paletteColors[bgPixel->paletteIndex & 0x3F];
@@ -4434,61 +4491,23 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
                     static_cast<uint64_t>(resolvedHighPriorityBackgroundCount) * 4u;
 #endif
                 auto sampleBackgroundOverrideScale2 = [&](uint32_t color, int subX, int subY) {
-                    if(backgroundOverride == nullptr || bgPixel == nullptr) {
+                    if(backgroundOverride == nullptr || bgPixel == nullptr || !backgroundOverrideTileSrcValid || backgroundOverrideImage == nullptr) {
                         return color;
                     }
 
                     const ChrOverride* override = backgroundOverride->override;
-                    const DecodedImage* image = backgroundOverride->image;
-                    if(override == nullptr || image == nullptr) {
+                    const DecodedImage* image = backgroundOverrideImage;
+                    if(override == nullptr) {
                         return color;
                     }
 
                     const int localOffsetX = bgPixel->offsetX & 0x07;
                     const int localOffsetY = bgPixel->offsetY & 0x07;
-                    const int sourceScale = backgroundOverride->sourceScale;
+                    const int sourceScale = backgroundOverrideSourceScale;
                     const int sourceSubX = std::clamp((subX * sourceScale) / 2, 0, sourceScale - 1);
                     const int sourceSubY = std::clamp((subY * sourceScale) / 2, 0, sourceScale - 1);
-                    int srcX = (override->hasSourcePosition() ? override->sourceX : 0) + localOffsetX * sourceScale + sourceSubX;
-                    int srcY = (override->hasSourcePosition() ? override->sourceY : 0) + localOffsetY * sourceScale + sourceSubY;
-                    const int tilePixelSize = 8 * sourceScale;
-                    const bool atlasImage =
-                        !override->hasSourcePosition() &&
-                        (override->wholeChr() ||
-                         override->sourceTileOffset > 0 ||
-                         (image->width >= override->columns * tilePixelSize && image->height > tilePixelSize));
-                    if(atlasImage) {
-                        int sourceColumn = 0;
-                        int sourceRow = 0;
-                        if(override->wholeChr()) {
-                            const int tileIndex = static_cast<int>(bgPixel->tileIndex);
-                            if(tileIndex < 0) {
-                                return color;
-                            }
-                            const int sourceTile = tileIndex + override->sourceTileOffset;
-                            if(backgroundOverride->wholeChrLayout == ChrOverride::SourceLayout::PatternTables) {
-                                const int table = sourceTile / 256;
-                                const int tileInTable = sourceTile & 0xFF;
-                                sourceColumn = (table * 16) + (tileInTable & 0x0F);
-                                sourceRow = tileInTable >> 4;
-                            } else {
-                                sourceColumn = sourceTile % override->columns;
-                                sourceRow = sourceTile / override->columns;
-                            }
-                        } else if(override->sourceLayout == ChrOverride::SourceLayout::PatternTables) {
-                            const int sourceTile = override->sourceTileOffset;
-                            const int table = sourceTile / 256;
-                            const int tileInTable = sourceTile & 0xFF;
-                            sourceColumn = (table * 16) + (tileInTable & 0x0F);
-                            sourceRow = tileInTable >> 4;
-                        } else {
-                            const int sourceTile = override->sourceTileOffset;
-                            sourceColumn = sourceTile % override->columns;
-                            sourceRow = sourceTile / override->columns;
-                        }
-                        srcX += sourceColumn * tilePixelSize;
-                        srcY += sourceRow * tilePixelSize;
-                    }
+                    const int srcX = backgroundOverrideTileSrcX + localOffsetX * sourceScale + sourceSubX;
+                    const int srcY = backgroundOverrideTileSrcY + localOffsetY * sourceScale + sourceSubY;
 
                     if(srcX < 0 || srcY < 0 || srcX >= image->width || srcY >= image->height) {
                         return color;
@@ -4591,61 +4610,23 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
                 };
 
                 auto getOpaqueBackgroundOverrideColorScale2 = [&](int subX, int subY, uint32_t& outColor) {
-                    if(backgroundOverride == nullptr || bgPixel == nullptr) {
+                    if(backgroundOverride == nullptr || bgPixel == nullptr || !backgroundOverrideTileSrcValid || backgroundOverrideImage == nullptr) {
                         return false;
                     }
 
                     const ChrOverride* override = backgroundOverride->override;
-                    const DecodedImage* image = backgroundOverride->image;
-                    if(override == nullptr || image == nullptr) {
+                    const DecodedImage* image = backgroundOverrideImage;
+                    if(override == nullptr) {
                         return false;
                     }
 
                     const int localOffsetX = bgPixel->offsetX & 0x07;
                     const int localOffsetY = bgPixel->offsetY & 0x07;
-                    const int sourceScale = backgroundOverride->sourceScale;
+                    const int sourceScale = backgroundOverrideSourceScale;
                     const int sourceSubX = std::clamp((subX * sourceScale) / 2, 0, sourceScale - 1);
                     const int sourceSubY = std::clamp((subY * sourceScale) / 2, 0, sourceScale - 1);
-                    int srcX = (override->hasSourcePosition() ? override->sourceX : 0) + localOffsetX * sourceScale + sourceSubX;
-                    int srcY = (override->hasSourcePosition() ? override->sourceY : 0) + localOffsetY * sourceScale + sourceSubY;
-                    const int tilePixelSize = 8 * sourceScale;
-                    const bool atlasImage =
-                        !override->hasSourcePosition() &&
-                        (override->wholeChr() ||
-                         override->sourceTileOffset > 0 ||
-                         (image->width >= override->columns * tilePixelSize && image->height > tilePixelSize));
-                    if(atlasImage) {
-                        int sourceColumn = 0;
-                        int sourceRow = 0;
-                        if(override->wholeChr()) {
-                            const int tileIndex = static_cast<int>(bgPixel->tileIndex);
-                            if(tileIndex < 0) {
-                                return false;
-                            }
-                            const int sourceTile = tileIndex + override->sourceTileOffset;
-                            if(backgroundOverride->wholeChrLayout == ChrOverride::SourceLayout::PatternTables) {
-                                const int table = sourceTile / 256;
-                                const int tileInTable = sourceTile & 0xFF;
-                                sourceColumn = (table * 16) + (tileInTable & 0x0F);
-                                sourceRow = tileInTable >> 4;
-                            } else {
-                                sourceColumn = sourceTile % override->columns;
-                                sourceRow = sourceTile / override->columns;
-                            }
-                        } else if(override->sourceLayout == ChrOverride::SourceLayout::PatternTables) {
-                            const int sourceTile = override->sourceTileOffset;
-                            const int table = sourceTile / 256;
-                            const int tileInTable = sourceTile & 0xFF;
-                            sourceColumn = (table * 16) + (tileInTable & 0x0F);
-                            sourceRow = tileInTable >> 4;
-                        } else {
-                            const int sourceTile = override->sourceTileOffset;
-                            sourceColumn = sourceTile % override->columns;
-                            sourceRow = sourceTile / override->columns;
-                        }
-                        srcX += sourceColumn * tilePixelSize;
-                        srcY += sourceRow * tilePixelSize;
-                    }
+                    const int srcX = backgroundOverrideTileSrcX + localOffsetX * sourceScale + sourceSubX;
+                    const int srcY = backgroundOverrideTileSrcY + localOffsetY * sourceScale + sourceSubY;
 
                     if(srcX < 0 || srcY < 0 || srcX >= image->width || srcY >= image->height) {
                         return false;
