@@ -4356,6 +4356,201 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
                     }
                 }
             }
+            const int blockX0 = nesX * scale;
+            const int blockX1 = std::min(width, blockX0 + scale);
+            if(blockX0 >= blockX1) continue;
+            const int subYStart = std::max(0, blockY0 - nesY * scale);
+            const int subYEnd = std::min(scale, blockY1 - nesY * scale);
+            if(subYStart >= subYEnd) continue;
+            const int blockWidth = blockX1 - blockX0;
+            std::array<uint32_t*, 8> dstRows = {};
+            for(int subY = subYStart; subY < subYEnd; ++subY) {
+                const int outY = nesY * scale + subY;
+                dstRows[static_cast<size_t>(subY)] =
+                    framebuffer.data() + static_cast<size_t>(outY) * static_cast<size_t>(width) + static_cast<size_t>(blockX0);
+            }
+
+            const bool canUseScale2NoSpriteDirectScanlinePath =
+                scale == 2 &&
+                blockWidth == 2 &&
+                subYStart == 0 &&
+                subYEnd == 2 &&
+                !hasAnyValidSpriteCandidate;
+            if(canUseScale2NoSpriteDirectScanlinePath) {
+#if defined(GERANES_MOD_PROFILE)
+                m_composeTimingProfile.totalBlocks += 1;
+                m_composeTimingProfile.noSpriteBlocks += 1;
+                m_composeTimingProfile.noSpriteSubpixels += 4;
+                m_composeTimingProfile.baseBgLayerSamples +=
+                    static_cast<uint64_t>(lowPriorityScanlineLayers.size() + midBeforeTileScanlineLayers.size() + midAfterTileScanlineLayers.size()) * 4u;
+                m_composeTimingProfile.noSpriteHighLayerSamples +=
+                    static_cast<uint64_t>(highPriorityScanlineLayers.size()) * 4u;
+#endif
+                auto applyScanlineLayerScale2 = [&](const ScanlineBackgroundLayer& layer,
+                                                    uint32_t& block00,
+                                                    uint32_t& block01,
+                                                    uint32_t& block10,
+                                                    uint32_t& block11) {
+                    if(nesX < layer.minNesX || nesX > layer.maxNesX || layer.prepared == nullptr) {
+                        return;
+                    }
+                    const PreparedBackground& prepared = *layer.prepared;
+                    const DecodedImage& image = *prepared.image;
+                    const int baseSrcX = (layer.srcBaseX + nesX) * prepared.backgroundScale;
+                    const int baseSrcY = layer.baseSrcY;
+                    if(prepared.backgroundScale == 1) {
+                        const uint32_t src = image.rgba[static_cast<size_t>(baseSrcY) * static_cast<size_t>(image.width) + static_cast<size_t>(baseSrcX)];
+                        if(prepared.opaqueCopy && ((src >> 24u) & 0xFFu) == 0xFFu) {
+                            block00 = src;
+                            block01 = src;
+                            block10 = src;
+                            block11 = src;
+                        } else {
+                            block00 = blendPixel(block00, src, prepared.alphaScale);
+                            block01 = blendPixel(block01, src, prepared.alphaScale);
+                            block10 = blendPixel(block10, src, prepared.alphaScale);
+                            block11 = blendPixel(block11, src, prepared.alphaScale);
+                        }
+                        return;
+                    }
+                    const int maxSub = prepared.backgroundScale - 1;
+                    const int srcX0 = baseSrcX;
+                    const int srcX1 = baseSrcX + std::clamp(1, 0, maxSub);
+                    const int srcY0 = baseSrcY;
+                    const int srcY1 = baseSrcY + std::clamp(1, 0, maxSub);
+                    const size_t row0 = static_cast<size_t>(srcY0) * static_cast<size_t>(image.width);
+                    const size_t row1 = static_cast<size_t>(srcY1) * static_cast<size_t>(image.width);
+                    const uint32_t src00 = image.rgba[row0 + static_cast<size_t>(srcX0)];
+                    const uint32_t src01 = image.rgba[row0 + static_cast<size_t>(srcX1)];
+                    const uint32_t src10 = image.rgba[row1 + static_cast<size_t>(srcX0)];
+                    const uint32_t src11 = image.rgba[row1 + static_cast<size_t>(srcX1)];
+                    if(prepared.opaqueCopy &&
+                        ((src00 >> 24u) & 0xFFu) == 0xFFu &&
+                        ((src01 >> 24u) & 0xFFu) == 0xFFu &&
+                        ((src10 >> 24u) & 0xFFu) == 0xFFu &&
+                        ((src11 >> 24u) & 0xFFu) == 0xFFu) {
+                        block00 = src00;
+                        block01 = src01;
+                        block10 = src10;
+                        block11 = src11;
+                    } else {
+                        block00 = blendPixel(block00, src00, prepared.alphaScale);
+                        block01 = blendPixel(block01, src01, prepared.alphaScale);
+                        block10 = blendPixel(block10, src10, prepared.alphaScale);
+                        block11 = blendPixel(block11, src11, prepared.alphaScale);
+                    }
+                };
+
+                auto sampleBackgroundOverrideScale2 = [&](uint32_t color, int subX, int subY) {
+                    if(backgroundOverride == nullptr || bgPixel == nullptr || !backgroundOverrideTileSrcValid || backgroundOverrideImage == nullptr) {
+                        return color;
+                    }
+                    const ChrOverride* override = backgroundOverride->override;
+                    if(override == nullptr) {
+                        return color;
+                    }
+                    const int localOffsetX = bgPixel->offsetX & 0x07;
+                    const int localOffsetY = bgPixel->offsetY & 0x07;
+                    const int sourceSubX = std::clamp((subX * backgroundOverrideSourceScale) / 2, 0, backgroundOverrideSourceScale - 1);
+                    const int sourceSubY = std::clamp((subY * backgroundOverrideSourceScale) / 2, 0, backgroundOverrideSourceScale - 1);
+                    const int srcX = backgroundOverrideTileSrcX + localOffsetX * backgroundOverrideSourceScale + sourceSubX;
+                    const int srcY = backgroundOverrideTileSrcY + localOffsetY * backgroundOverrideSourceScale + sourceSubY;
+                    if(srcX < 0 || srcY < 0 || srcX >= backgroundOverrideImage->width || srcY >= backgroundOverrideImage->height) {
+                        return color;
+                    }
+                    const size_t sourcePixelIndex =
+                        static_cast<size_t>(srcY) * static_cast<size_t>(backgroundOverrideImage->width) + static_cast<size_t>(srcX);
+                    const uint32_t sourcePixel = backgroundOverrideImage->rgba[sourcePixelIndex];
+                    const uint8_t sourceAlpha = static_cast<uint8_t>((sourcePixel >> 24u) & 0xFFu);
+                    if(override->ignorePalette) {
+                        if(sourceAlpha == 0) {
+                            return color;
+                        }
+                        const uint32_t opaqueSource = (sourcePixel & 0x00FFFFFFu) | 0xFF000000u;
+                        return sourceAlpha == 0xFF ? opaqueSource : blendPixel(color, opaqueSource, sourceAlpha);
+                    }
+                    if(sourceAlpha == 0 || !backgroundOverrideImage->indexedFourColor || backgroundOverrideImage->indexedPixels.size() != backgroundOverrideImage->rgba.size()) {
+                        return color;
+                    }
+                    const uint8_t sourcePaletteIndex = backgroundOverrideImage->indexedPixels[sourcePixelIndex];
+                    const uint32_t mappedColor =
+                        ((sourcePaletteIndex == 0 ? backgroundMappedPalette[0] : backgroundMappedPalette[static_cast<size_t>(sourcePaletteIndex)]) & 0x00FFFFFFu) |
+                        (static_cast<uint32_t>(sourceAlpha) << 24u);
+                    return sourceAlpha == 0xFF ? mappedColor : blendPixel(color, mappedColor, 255);
+                };
+
+                uint32_t block00 = m_disableOriginalTiles ? 0x00000000u : baseColor;
+                uint32_t block01 = block00;
+                uint32_t block10 = block00;
+                uint32_t block11 = block00;
+
+#if defined(GERANES_MOD_PROFILE)
+                const auto blockBuildStart = ComposeClock::now();
+#endif
+                for(const ScanlineBackgroundLayer& layer : lowPriorityScanlineLayers) {
+                    applyScanlineLayerScale2(layer, block00, block01, block10, block11);
+                }
+                for(const ScanlineBackgroundLayer& layer : midBeforeTileScanlineLayers) {
+                    applyScanlineLayerScale2(layer, block00, block01, block10, block11);
+                }
+
+                if(bgPixel != nullptr && bgPixel->valid) {
+                    if(backgroundOverride != nullptr) {
+#if defined(GERANES_MOD_PROFILE)
+                        const auto backgroundOverrideSampleStart = ComposeClock::now();
+                        m_composeTimingProfile.bgOverrideSampleCount += 4;
+#endif
+                        block00 = sampleBackgroundOverrideScale2(block00, 0, 0);
+                        block01 = sampleBackgroundOverrideScale2(block01, 1, 0);
+                        block10 = sampleBackgroundOverrideScale2(block10, 0, 1);
+                        block11 = sampleBackgroundOverrideScale2(block11, 1, 1);
+#if defined(GERANES_MOD_PROFILE)
+                        backgroundOverrideSampleUs += static_cast<uint64_t>(
+                            std::chrono::duration_cast<std::chrono::microseconds>(ComposeClock::now() - backgroundOverrideSampleStart).count());
+#endif
+                    } else if(backgroundOpaque || !m_disableOriginalTiles) {
+                        block00 = backgroundFallbackColor;
+                        block01 = backgroundFallbackColor;
+                        block10 = backgroundFallbackColor;
+                        block11 = backgroundFallbackColor;
+                    }
+                }
+
+                for(const ScanlineBackgroundLayer& layer : midAfterTileScanlineLayers) {
+                    applyScanlineLayerScale2(layer, block00, block01, block10, block11);
+                }
+#if defined(GERANES_MOD_PROFILE)
+                m_composeTimingProfile.blockBuildUs += static_cast<uint64_t>(
+                    std::chrono::duration_cast<std::chrono::microseconds>(ComposeClock::now() - blockBuildStart).count());
+#endif
+
+                if(!highPriorityScanlineLayers.empty()) {
+#if defined(GERANES_MOD_PROFILE)
+                    const auto noSpriteHighStart = ComposeClock::now();
+#endif
+                    for(const ScanlineBackgroundLayer& layer : highPriorityScanlineLayers) {
+                        applyScanlineLayerScale2(layer, block00, block01, block10, block11);
+                    }
+#if defined(GERANES_MOD_PROFILE)
+                    m_composeTimingProfile.noSpriteHighUs += static_cast<uint64_t>(
+                        std::chrono::duration_cast<std::chrono::microseconds>(ComposeClock::now() - noSpriteHighStart).count());
+#endif
+                }
+
+#if defined(GERANES_MOD_PROFILE)
+                const auto framebufferWriteStart = ComposeClock::now();
+#endif
+                dstRows[0][0] = block00;
+                dstRows[0][1] = block01;
+                dstRows[1][0] = block10;
+                dstRows[1][1] = block11;
+#if defined(GERANES_MOD_PROFILE)
+                m_composeTimingProfile.rowCopies += 2;
+                framebufferWriteUs += static_cast<uint64_t>(
+                    std::chrono::duration_cast<std::chrono::microseconds>(ComposeClock::now() - framebufferWriteStart).count());
+#endif
+                continue;
+            }
 
             std::array<ResolvedBackgroundLayer, 10> resolvedLowPriorityBackgrounds = {};
             size_t resolvedLowPriorityBackgroundCount = 0;
@@ -4400,12 +4595,6 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
                 std::chrono::duration_cast<std::chrono::microseconds>(ComposeClock::now() - backgroundResolveStart).count());
 #endif
 
-            const int blockX0 = nesX * scale;
-            const int blockX1 = std::min(width, blockX0 + scale);
-            if(blockX0 >= blockX1) continue;
-            const int subYStart = std::max(0, blockY0 - nesY * scale);
-            const int subYEnd = std::min(scale, blockY1 - nesY * scale);
-            if(subYStart >= subYEnd) continue;
             const bool lowUniform = blockIsUniform(resolvedLowPriorityBackgrounds, resolvedLowPriorityBackgroundCount);
             const bool midBeforeUniform = blockIsUniform(resolvedMidBeforeTileBackgrounds, resolvedMidBeforeTileBackgroundCount);
             const bool midAfterUniform = blockIsUniform(resolvedMidAfterTileBackgrounds, resolvedMidAfterTileBackgroundCount);
@@ -4471,13 +4660,6 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
                 continue;
             }
 
-            const int blockWidth = blockX1 - blockX0;
-            std::array<uint32_t*, 8> dstRows = {};
-            for(int subY = subYStart; subY < subYEnd; ++subY) {
-                const int outY = nesY * scale + subY;
-                dstRows[static_cast<size_t>(subY)] =
-                    framebuffer.data() + static_cast<size_t>(outY) * static_cast<size_t>(width) + static_cast<size_t>(blockX0);
-            }
             const bool canUseScale2NoSpriteFastPath =
                 scale == 2 &&
                 blockWidth == 2 &&
