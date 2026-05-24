@@ -79,7 +79,6 @@ private:
     Cartridge& m_cartridge;
 
     uint32_t m_framebuffer[SCREEN_WIDTH*SCREEN_HEIGHT];
-    uint32_t m_framebufferFriendly[SCREEN_WIDTH*SCREEN_HEIGHT];
     std::array<uint32_t, 64> m_colorPalette = {};
 
     uint8_t m_currentPixelColorIndex;
@@ -1855,7 +1854,6 @@ yyy NN YYYYY XXXXX
         else if(m_scanline == 241){
             decayOpenBus();
             debugPublishModRenderCapture();
-            memcpy(m_framebufferFriendly,m_framebuffer,SCREEN_WIDTH*SCREEN_HEIGHT*sizeof(uint32_t));
             signalFrameReady();
 
             if(m_overclockFrame){
@@ -2650,7 +2648,6 @@ yyy NNYY YYYX XXXX
         uint32_t* end = &m_framebuffer[SCREEN_WIDTH*SCREEN_HEIGHT];
         while(start != end) *start++ = color;
 
-        memcpy(m_framebufferFriendly,m_framebuffer,SCREEN_WIDTH*SCREEN_HEIGHT*sizeof(uint32_t));
     }
 
     GERANES_INLINE void clearFramebuffer()
@@ -2660,7 +2657,7 @@ yyy NNYY YYYX XXXX
 
     GERANES_INLINE const uint32_t* getFramebuffer() const
     {
-        return m_framebufferFriendly;
+        return m_framebuffer;
     }
 
     GERANES_INLINE uint32_t getZapperPixel(int x, int y)

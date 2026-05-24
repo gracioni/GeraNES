@@ -4466,6 +4466,46 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
                 }
             }
 
+            if(!hasResolvedSprites) {
+                if(hasHighPriorityBackgrounds) {
+                    for(int subY = 0; subY < scale; ++subY) {
+                        for(int subX = 0; subX < scale; ++subX) {
+#if defined(GERANES_MOD_PROFILE)
+                            const auto highBackgroundBlendStart = ComposeClock::now();
+#endif
+                            uint32_t color = baseBlockColors[static_cast<size_t>(subY)][static_cast<size_t>(subX)];
+                            for(size_t i = 0; i < resolvedHighPriorityBackgroundCount; ++i) {
+                                color = sampleResolvedBackgroundPixel(color, resolvedHighPriorityBackgrounds[i], subX, subY);
+                            }
+                            baseBlockColors[static_cast<size_t>(subY)][static_cast<size_t>(subX)] = color;
+#if defined(GERANES_MOD_PROFILE)
+                            backgroundBlendUs += static_cast<uint64_t>(
+                                std::chrono::duration_cast<std::chrono::microseconds>(ComposeClock::now() - highBackgroundBlendStart).count());
+#endif
+                        }
+                    }
+                }
+
+                for(int subY = 0; subY < scale; ++subY) {
+                    const int outY = nesY * scale + subY;
+                    if(outY < activeTop || outY >= activeBottom || outY < 0 || outY >= height) continue;
+                    uint32_t* dstRow = framebuffer.data() + static_cast<size_t>(outY) * static_cast<size_t>(width);
+                    for(int subX = 0; subX < scale; ++subX) {
+                        const int outX = blockX0 + subX;
+                        if(outX < 0 || outX >= width) continue;
+#if defined(GERANES_MOD_PROFILE)
+                        const auto framebufferWriteStart = ComposeClock::now();
+#endif
+                        dstRow[outX] = baseBlockColors[static_cast<size_t>(subY)][static_cast<size_t>(subX)];
+#if defined(GERANES_MOD_PROFILE)
+                        framebufferWriteUs += static_cast<uint64_t>(
+                            std::chrono::duration_cast<std::chrono::microseconds>(ComposeClock::now() - framebufferWriteStart).count());
+#endif
+                    }
+                }
+                continue;
+            }
+
             for(int subY = 0; subY < scale; ++subY) {
                 const int outY = nesY * scale + subY;
                 if(outY < activeTop || outY >= activeBottom || outY < 0 || outY >= height) continue;
@@ -4474,21 +4514,10 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
                     const int outX = blockX0 + subX;
                     if(outX < 0 || outX >= width) continue;
                     uint32_t color = baseBlockColors[static_cast<size_t>(subY)][static_cast<size_t>(subX)];
-                    if(!hasResolvedSprites && !hasHighPriorityBackgrounds) {
-#if defined(GERANES_MOD_PROFILE)
-                        const auto framebufferWriteStart = ComposeClock::now();
-#endif
-                        dstRow[outX] = color;
-#if defined(GERANES_MOD_PROFILE)
-                        framebufferWriteUs += static_cast<uint64_t>(
-                            std::chrono::duration_cast<std::chrono::microseconds>(ComposeClock::now() - framebufferWriteStart).count());
-#endif
-                        continue;
-                    }
 #if defined(GERANES_MOD_PROFILE)
                     const auto spriteApplyStart = ComposeClock::now();
 #endif
-                    if(hasResolvedSprites && applyBehindSprites) {
+                    if(applyBehindSprites) {
                             for(size_t i = 0; i < resolvedBehindSpriteCandidateCount; ++i) {
                             const ResolvedSpriteCandidate& resolvedCandidate = resolvedBehindSpriteCandidates[i];
                             const PPU::DebugModSpriteCandidate& candidate = *resolvedCandidate.candidate;
@@ -4523,7 +4552,7 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
                         }
                     }
 
-                    if(hasResolvedSprites && applyFrontSprites) {
+                    if(applyFrontSprites) {
                         for(size_t i = 0; i < resolvedFrontSpriteCandidateCount; ++i) {
                             const ResolvedSpriteCandidate& resolvedCandidate = resolvedFrontSpriteCandidates[i];
                             const PPU::DebugModSpriteCandidate& candidate = *resolvedCandidate.candidate;

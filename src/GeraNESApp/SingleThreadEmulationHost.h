@@ -204,7 +204,6 @@ private:
     void refreshPresentedFramebuffer();
     void refreshPpuViewerSnapshot();
     void refreshPpuEventViewerSnapshot();
-    void refreshModRenderSnapshot();
 
 public:
     explicit SingleThreadEmulationHost(IAudioOutput& audioOutput);

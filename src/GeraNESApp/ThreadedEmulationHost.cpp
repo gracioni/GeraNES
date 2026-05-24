@@ -255,17 +255,15 @@ void ThreadedEmulationHost::refreshPpuEventViewerSnapshotLocked(uint32_t frameCo
     snapshot.frameCount = frameCount;
     snapshot.events = m_emu.ppuRegisterAccessEvents();
     if(snapshot.valid) {
-        const uint32_t* framebuffer = m_emu.getConsole().ppu().getFramebuffer();
-        snapshot.framebuffer.assign(
-            framebuffer,
-            framebuffer + (PPU::SCREEN_WIDTH * PPU::SCREEN_HEIGHT)
-        );
+        std::scoped_lock framebufferLock(m_framebufferMutex);
+        const auto& framebuffer = m_framebuffers[m_frontFramebufferIndex.load(std::memory_order_acquire)];
+        snapshot.framebuffer.assign(framebuffer.begin(), framebuffer.end());
     }
 
     m_ppuEventViewerSnapshot = std::move(snapshot);
 }
 
-void ThreadedEmulationHost::refreshModRenderSnapshotLocked(uint32_t frameCount)
+void ThreadedEmulationHost::refreshModRenderSnapshotLocked()
 {
     ModFrameCaptureHook hook;
     {
@@ -343,31 +341,6 @@ void ThreadedEmulationHost::refreshSnapshotLocked()
         m_lastSlowSnapshotRefresh = now;
     }
 
-    const bool holdPresentedFramebuffer =
-        m_holdPresentedFramebufferUntilFrameReady.load(std::memory_order_acquire);
-    if(!holdPresentedFramebuffer && m_framebufferDirty) {
-        {
-            std::scoped_lock framebufferLock(m_framebufferMutex);
-            if(valid) {
-                const int backIndex = 1 - m_frontFramebufferIndex.load(std::memory_order_relaxed);
-                std::memcpy(
-                    m_framebuffers[backIndex].data(),
-                    m_emu.getFramebuffer(),
-                    m_framebuffers[backIndex].size() * sizeof(uint32_t)
-                );
-                m_frontFramebufferIndex.store(backIndex, std::memory_order_release);
-            } else {
-                for(auto& framebuffer : m_framebuffers) {
-                    std::fill(framebuffer.begin(), framebuffer.end(), 0u);
-                }
-                m_frontFramebufferIndex.store(0, std::memory_order_release);
-            }
-        }
-        m_framebufferDirty = false;
-    }
-
-    refreshModRenderSnapshotLocked(frameCount);
-
     {
         std::scoped_lock snapshotLock(m_snapshotMutex);
         m_snapshot.valid = valid;
@@ -411,7 +384,26 @@ void ThreadedEmulationHost::onFrameReadyLocked()
 {
     recordFrameReadyNetplayState(m_emu);
     m_holdPresentedFramebufferUntilFrameReady.store(false, std::memory_order_release);
-    m_framebufferDirty = true;
+    {
+        std::scoped_lock framebufferLock(m_framebufferMutex);
+        if(m_emu.valid()) {
+            const int backIndex = 1 - m_frontFramebufferIndex.load(std::memory_order_relaxed);
+            std::memcpy(
+                m_framebuffers[backIndex].data(),
+                m_emu.getFramebuffer(),
+                m_framebuffers[backIndex].size() * sizeof(uint32_t)
+            );
+            m_frontFramebufferIndex.store(backIndex, std::memory_order_release);
+        } else {
+            for(auto& framebuffer : m_framebuffers) {
+                std::fill(framebuffer.begin(), framebuffer.end(), 0u);
+            }
+            m_frontFramebufferIndex.store(0, std::memory_order_release);
+        }
+    }
+    refreshPpuViewerSnapshotLocked(m_emu.frameCount());
+    refreshPpuEventViewerSnapshotLocked(m_emu.frameCount());
+    refreshModRenderSnapshotLocked();
     {
         std::scoped_lock snapshotLock(m_snapshotMutex);
         m_snapshot.lastFrameReadyFrame = m_lastFrameReadyFrameValue;
@@ -618,9 +610,15 @@ void ThreadedEmulationHost::setPreAdvanceHook(std::function<void(GeraNESEmu&)> h
 
 void ThreadedEmulationHost::setModFrameCaptureHook(ModFrameCaptureHook hook)
 {
+    const bool clearSnapshot = !hook;
     {
         std::scoped_lock hookLock(m_modFrameCaptureHookMutex);
         m_modFrameCaptureHook = std::move(hook);
+    }
+    if(clearSnapshot) {
+        std::scoped_lock snapshotLock(m_modRenderSnapshotMutex);
+        m_modRenderSnapshot = {};
+        m_presentedModFramebuffer.clear();
     }
     m_workerWakeRequested.store(true, std::memory_order_release);
     m_presenterCv.notify_one();

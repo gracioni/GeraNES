@@ -194,7 +194,6 @@ private:
     std::atomic<int> m_frontFramebufferIndex{0};
     mutable std::mutex m_framebufferMutex;
     std::atomic<bool> m_holdPresentedFramebufferUntilFrameReady{false};
-    bool m_framebufferDirty = true;
     std::array<std::vector<uint32_t>, 2> m_framebuffers{
         std::vector<uint32_t>(PPU::SCREEN_WIDTH * PPU::SCREEN_HEIGHT, 0),
         std::vector<uint32_t>(PPU::SCREEN_WIDTH * PPU::SCREEN_HEIGHT, 0)
@@ -229,7 +228,7 @@ private:
     void refreshSnapshotLocked();
     void refreshPpuViewerSnapshotLocked(uint32_t frameCount);
     void refreshPpuEventViewerSnapshotLocked(uint32_t frameCount);
-    void refreshModRenderSnapshotLocked(uint32_t frameCount);
+    void refreshModRenderSnapshotLocked();
     void onFrameReadyLocked();
     void workerLoop(std::stop_token stopToken);
     static thread_local const ThreadedEmulationHost* t_directAccessHost;
@@ -466,9 +465,8 @@ public:
 
     void setColorPalette(const std::array<uint32_t, 64>& palette) override
     {
-        postCommand([palette, this](GeraNESEmu& emu) {
+        postCommand([palette](GeraNESEmu& emu) {
             emu.getConsole().ppu().setColorPalette(palette);
-            m_framebufferDirty = true;
         });
     }
 

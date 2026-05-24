@@ -218,12 +218,12 @@ void SingleThreadEmulationHost::onFrameReady()
 {
     recordFrameReadyNetplayState(m_emu);
     m_holdPresentedFramebufferUntilFrameReady = false;
-    refreshPpuViewerSnapshot();
-    refreshPpuEventViewerSnapshot();
     if(!m_emu.valid()) {
         std::fill(m_presentedFramebuffer.begin(), m_presentedFramebuffer.end(), 0u);
         m_modRenderSnapshot = {};
         m_presentedModFramebuffer.clear();
+        refreshPpuViewerSnapshot();
+        refreshPpuEventViewerSnapshot();
         return;
     }
     std::memcpy(
@@ -231,6 +231,9 @@ void SingleThreadEmulationHost::onFrameReady()
         m_emu.getFramebuffer(),
         m_presentedFramebuffer.size() * sizeof(uint32_t)
     );
+
+    refreshPpuViewerSnapshot();
+    refreshPpuEventViewerSnapshot();
 
     m_modRenderSnapshot = {};
     m_presentedModFramebuffer.clear();
@@ -244,13 +247,7 @@ void SingleThreadEmulationHost::refreshPresentedFramebuffer()
     if(m_holdPresentedFramebufferUntilFrameReady) return;
     if(!m_emu.valid()) {
         std::fill(m_presentedFramebuffer.begin(), m_presentedFramebuffer.end(), 0u);
-        return;
     }
-    std::memcpy(
-        m_presentedFramebuffer.data(),
-        m_emu.getFramebuffer(),
-        m_presentedFramebuffer.size() * sizeof(uint32_t)
-    );
 }
 
 void SingleThreadEmulationHost::refreshPpuViewerSnapshot()
@@ -319,17 +316,11 @@ void SingleThreadEmulationHost::refreshPpuEventViewerSnapshot()
     m_ppuEventViewerSnapshot.frameCount = frameCount;
     m_ppuEventViewerSnapshot.events = m_emu.ppuRegisterAccessEvents();
     if(m_ppuEventViewerSnapshot.valid) {
-        const uint32_t* framebuffer = m_emu.getConsole().ppu().getFramebuffer();
         m_ppuEventViewerSnapshot.framebuffer.assign(
-            framebuffer,
-            framebuffer + (PPU::SCREEN_WIDTH * PPU::SCREEN_HEIGHT)
+            m_presentedFramebuffer.begin(),
+            m_presentedFramebuffer.end()
         );
     }
-}
-
-void SingleThreadEmulationHost::refreshModRenderSnapshot()
-{
-    m_modRenderSnapshot = {};
 }
 
 SingleThreadEmulationHost::SingleThreadEmulationHost(IAudioOutput& audioOutput)
