@@ -4465,6 +4465,42 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
                     return blendPixel(color, mappedColor, 255);
                 };
 
+                auto applyResolvedLayerScale2 = [&](const ResolvedBackgroundLayer& resolved,
+                                                   uint32_t& block00,
+                                                   uint32_t& block01,
+                                                   uint32_t& block10,
+                                                   uint32_t& block11) {
+                    if(!resolved.valid || resolved.prepared == nullptr) {
+                        return;
+                    }
+
+                    const PreparedBackground& prepared = *resolved.prepared;
+                    if(resolved.uniformBlock) {
+                        block00 = blendPixel(block00, resolved.uniformColor, prepared.alphaScale);
+                        block01 = blendPixel(block01, resolved.uniformColor, prepared.alphaScale);
+                        block10 = blendPixel(block10, resolved.uniformColor, prepared.alphaScale);
+                        block11 = blendPixel(block11, resolved.uniformColor, prepared.alphaScale);
+                        return;
+                    }
+
+                    const DecodedImage& image = *prepared.image;
+                    const int maxSub = prepared.backgroundScale - 1;
+                    const int srcX0 = resolved.baseSrcX;
+                    const int srcX1 = resolved.baseSrcX + std::clamp(1, 0, maxSub);
+                    const int srcY0 = resolved.baseSrcY;
+                    const int srcY1 = resolved.baseSrcY + std::clamp(1, 0, maxSub);
+                    const size_t row0 = static_cast<size_t>(srcY0) * static_cast<size_t>(image.width);
+                    const size_t row1 = static_cast<size_t>(srcY1) * static_cast<size_t>(image.width);
+                    const uint32_t src00 = image.rgba[row0 + static_cast<size_t>(srcX0)];
+                    const uint32_t src01 = image.rgba[row0 + static_cast<size_t>(srcX1)];
+                    const uint32_t src10 = image.rgba[row1 + static_cast<size_t>(srcX0)];
+                    const uint32_t src11 = image.rgba[row1 + static_cast<size_t>(srcX1)];
+                    block00 = blendPixel(block00, src00, prepared.alphaScale);
+                    block01 = blendPixel(block01, src01, prepared.alphaScale);
+                    block10 = blendPixel(block10, src10, prepared.alphaScale);
+                    block11 = blendPixel(block11, src11, prepared.alphaScale);
+                };
+
                 uint32_t block00 = canPrecomposeBeforeBg ? precomposedBeforeBgColor : initialColor;
                 uint32_t block01 = block00;
                 uint32_t block10 = block00;
@@ -4475,16 +4511,10 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
 #endif
                 if(!canPrecomposeBeforeBg) {
                     for(size_t i = 0; i < resolvedLowPriorityBackgroundCount; ++i) {
-                        block00 = sampleResolvedBackgroundPixel(block00, resolvedLowPriorityBackgrounds[i], 0, 0);
-                        block01 = sampleResolvedBackgroundPixel(block01, resolvedLowPriorityBackgrounds[i], 1, 0);
-                        block10 = sampleResolvedBackgroundPixel(block10, resolvedLowPriorityBackgrounds[i], 0, 1);
-                        block11 = sampleResolvedBackgroundPixel(block11, resolvedLowPriorityBackgrounds[i], 1, 1);
+                        applyResolvedLayerScale2(resolvedLowPriorityBackgrounds[i], block00, block01, block10, block11);
                     }
                     for(size_t i = 0; i < resolvedMidBeforeTileBackgroundCount; ++i) {
-                        block00 = sampleResolvedBackgroundPixel(block00, resolvedMidBeforeTileBackgrounds[i], 0, 0);
-                        block01 = sampleResolvedBackgroundPixel(block01, resolvedMidBeforeTileBackgrounds[i], 1, 0);
-                        block10 = sampleResolvedBackgroundPixel(block10, resolvedMidBeforeTileBackgrounds[i], 0, 1);
-                        block11 = sampleResolvedBackgroundPixel(block11, resolvedMidBeforeTileBackgrounds[i], 1, 1);
+                        applyResolvedLayerScale2(resolvedMidBeforeTileBackgrounds[i], block00, block01, block10, block11);
                     }
                 }
 
@@ -4512,10 +4542,7 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
 
                 if(hasMidAfterBackgrounds) {
                     for(size_t i = 0; i < resolvedMidAfterTileBackgroundCount; ++i) {
-                        block00 = sampleResolvedBackgroundPixel(block00, resolvedMidAfterTileBackgrounds[i], 0, 0);
-                        block01 = sampleResolvedBackgroundPixel(block01, resolvedMidAfterTileBackgrounds[i], 1, 0);
-                        block10 = sampleResolvedBackgroundPixel(block10, resolvedMidAfterTileBackgrounds[i], 0, 1);
-                        block11 = sampleResolvedBackgroundPixel(block11, resolvedMidAfterTileBackgrounds[i], 1, 1);
+                        applyResolvedLayerScale2(resolvedMidAfterTileBackgrounds[i], block00, block01, block10, block11);
                     }
                 }
 
@@ -4529,10 +4556,7 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
                     const auto noSpriteHighStart = ComposeClock::now();
 #endif
                     for(size_t i = 0; i < resolvedHighPriorityBackgroundCount; ++i) {
-                        block00 = sampleResolvedBackgroundPixel(block00, resolvedHighPriorityBackgrounds[i], 0, 0);
-                        block01 = sampleResolvedBackgroundPixel(block01, resolvedHighPriorityBackgrounds[i], 1, 0);
-                        block10 = sampleResolvedBackgroundPixel(block10, resolvedHighPriorityBackgrounds[i], 0, 1);
-                        block11 = sampleResolvedBackgroundPixel(block11, resolvedHighPriorityBackgrounds[i], 1, 1);
+                        applyResolvedLayerScale2(resolvedHighPriorityBackgrounds[i], block00, block01, block10, block11);
                     }
 #if defined(GERANES_MOD_PROFILE)
                     m_composeTimingProfile.noSpriteHighUs += static_cast<uint64_t>(
