@@ -4600,6 +4600,11 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
                     noSpriteDirectRowCachePalette = backgroundPalette;
 
                     const bool hasRowOverrideCache = backgroundOverride != nullptr && ensureBackgroundOverrideRowCache();
+                    const bool hasAnyRowLayers =
+                        !lowPriorityScanlineLayers.empty() ||
+                        !midBeforeTileScanlineLayers.empty() ||
+                        !midAfterTileScanlineLayers.empty() ||
+                        !highPriorityScanlineLayers.empty();
                     auto applyLayerListToRow = [&](const std::vector<ScanlineBackgroundLayer>& layers) {
                         for(const ScanlineBackgroundLayer& layer : layers) {
                             if(layer.prepared == nullptr || layer.prepared->image == nullptr) {
@@ -4677,8 +4682,10 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
                         block = {base, base, base, base};
                     }
 
-                    applyLayerListToRow(lowPriorityScanlineLayers);
-                    applyLayerListToRow(midBeforeTileScanlineLayers);
+                    if(hasAnyRowLayers) {
+                        applyLayerListToRow(lowPriorityScanlineLayers);
+                        applyLayerListToRow(midBeforeTileScanlineLayers);
+                    }
 
                     for(int tileOffsetX = 0; tileOffsetX < 8; ++tileOffsetX) {
                         const int pixelX = tileOriginX + tileOffsetX;
@@ -4747,8 +4754,10 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
                         }
                     }
 
-                    applyLayerListToRow(midAfterTileScanlineLayers);
-                    applyLayerListToRow(highPriorityScanlineLayers);
+                    if(hasAnyRowLayers) {
+                        applyLayerListToRow(midAfterTileScanlineLayers);
+                        applyLayerListToRow(highPriorityScanlineLayers);
+                    }
                     return true;
                 };
 
