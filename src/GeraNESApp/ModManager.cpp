@@ -4216,84 +4216,12 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
                 backgroundFallbackColor = m_disableOriginalTiles ? 0x00000000u : snapshot.paletteColors[bgPixel->paletteIndex & 0x3F];
             }
             const bool backgroundOpaque = bgPixel != nullptr && bgPixel->valid && bgPixel->colorLowBits != 0;
-
-            struct ResolvedSpriteCandidate {
-                const PPU::DebugModSpriteCandidate* candidate = nullptr;
-                const PreparedOverride* spriteOverride = nullptr;
-                std::array<uint8_t, 3> spritePalette = {};
-                uint32_t fixedFallbackColor = 0;
-                bool fallbackUsesCurrentColor = true;
-                int originalIndex = -1;
-            };
-
-            std::array<ResolvedSpriteCandidate, 8> resolvedBehindSpriteCandidates = {};
-            size_t resolvedBehindSpriteCandidateCount = 0;
-            std::array<ResolvedSpriteCandidate, 8> resolvedFrontSpriteCandidates = {};
-            size_t resolvedFrontSpriteCandidateCount = 0;
+            bool hasAnyValidSpriteCandidate = false;
             if(hasSpriteCandidates) {
-                const auto spriteFallbackColorFor = [&](const PPU::DebugModSpriteCandidate& candidate) {
-                    const std::array<uint8_t, 3> spritePalette = { candidate.palette[0], candidate.palette[1], candidate.palette[2] };
-                    const int spritePaletteIndex = std::clamp(static_cast<int>(candidate.colorLowBits), 1, 3) - 1;
-                    if(spritePaletteIndex >= 0 && spritePaletteIndex < static_cast<int>(spritePalette.size())) {
-                        return snapshot.paletteColors[spritePalette[static_cast<size_t>(spritePaletteIndex)] & 0x3F];
-                    }
-                    return baseColor;
-                };
-
-                int lowestBgSpriteCandidate = std::numeric_limits<int>::max();
                 for(int i = 0; i < static_cast<int>(spritePixel->count); ++i) {
-                    const PPU::DebugModSpriteCandidate& candidate = spritePixel->candidates[static_cast<size_t>(i)];
-                    if(candidate.valid && candidate.behindBackground) {
-                        lowestBgSpriteCandidate = std::min(lowestBgSpriteCandidate, i);
-                    }
-                }
-
-                for(int i = static_cast<int>(spritePixel->count) - 1; i >= 0; --i) {
-                    const PPU::DebugModSpriteCandidate& candidate = spritePixel->candidates[static_cast<size_t>(i)];
-                    if(!candidate.valid) {
-                        continue;
-                    }
-
-                    ResolvedSpriteCandidate resolvedCandidate;
-                    resolvedCandidate.candidate = &candidate;
-                    resolvedCandidate.spritePalette = { candidate.palette[0], candidate.palette[1], candidate.palette[2] };
-                    resolvedCandidate.originalIndex = i;
-                    resolvedCandidate.fallbackUsesCurrentColor = candidate.colorLowBits == 0 || m_disableOriginalTiles;
-                    if(!resolvedCandidate.fallbackUsesCurrentColor) {
-                        resolvedCandidate.fixedFallbackColor = spriteFallbackColorFor(candidate);
-                    }
-
-                    const int spriteFullTileIndex = candidate.tileIndex != 0xFFFF ? static_cast<int>(candidate.tileIndex) : -1;
-                    if(spriteFullTileIndex >= 0) {
-                        const ConditionContext context = { nesX, nesY, bgPixel, &candidate };
-#if defined(GERANES_MOD_PROFILE)
-                        const auto overrideLookupStart = ComposeClock::now();
-#endif
-                        resolvedCandidate.spriteOverride =
-                            findOverride(
-                                ChrOverride::Target::Sprite,
-                                spriteFullTileIndex & 0xFF,
-                                spriteFullTileIndex,
-                                spriteFullTileIndex / 256,
-                                resolvedCandidate.spritePalette,
-                                candidate.horizontalMirror,
-                                candidate.verticalMirror,
-                                candidate.behindBackground,
-                                context);
-#if defined(GERANES_MOD_PROFILE)
-                        overrideLookupUs += static_cast<uint64_t>(
-                            std::chrono::duration_cast<std::chrono::microseconds>(ComposeClock::now() - overrideLookupStart).count());
-#endif
-                    }
-
-                    if(candidate.behindBackground) {
-                        if(resolvedBehindSpriteCandidateCount < resolvedBehindSpriteCandidates.size()) {
-                            resolvedBehindSpriteCandidates[resolvedBehindSpriteCandidateCount++] = resolvedCandidate;
-                        }
-                    } else if(i < lowestBgSpriteCandidate) {
-                        if(resolvedFrontSpriteCandidateCount < resolvedFrontSpriteCandidates.size()) {
-                            resolvedFrontSpriteCandidates[resolvedFrontSpriteCandidateCount++] = resolvedCandidate;
-                        }
+                    if(spritePixel->candidates[static_cast<size_t>(i)].valid) {
+                        hasAnyValidSpriteCandidate = true;
+                        break;
                     }
                 }
             }
@@ -4357,7 +4285,7 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
             const bool highUniform = blockIsUniform(resolvedHighPriorityBackgrounds, resolvedHighPriorityBackgroundCount);
             const bool canFillUniformBlock =
                 backgroundOverride == nullptr &&
-                !hasSpriteCandidates &&
+                !hasAnyValidSpriteCandidate &&
                 lowUniform &&
                 midBeforeUniform &&
                 midAfterUniform &&
@@ -4375,10 +4303,6 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
             const bool applyBackgroundFallback = bgValid && (backgroundOpaque || !m_disableOriginalTiles);
             const bool hasMidAfterBackgrounds = resolvedMidAfterTileBackgroundCount > 0;
             const bool hasHighPriorityBackgrounds = resolvedHighPriorityBackgroundCount > 0;
-            const bool hasResolvedSprites = hasSpriteCandidates &&
-                (resolvedBehindSpriteCandidateCount > 0 || resolvedFrontSpriteCandidateCount > 0);
-            const bool applyBehindSprites = !backgroundOpaque && resolvedBehindSpriteCandidateCount > 0;
-            const bool applyFrontSprites = resolvedFrontSpriteCandidateCount > 0;
             if(canFillUniformBlock) {
 #if defined(GERANES_MOD_PROFILE)
                 const auto backgroundBlendStart = ComposeClock::now();
@@ -4477,7 +4401,7 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
                 }
             }
 
-            if(!hasResolvedSprites) {
+            if(!hasAnyValidSpriteCandidate) {
                 if(hasHighPriorityBackgrounds) {
                     for(int subY = subYStart; subY < subYEnd; ++subY) {
                         uint32_t* blockRow = baseBlockColors.data() + static_cast<size_t>(subY) * 8u;
@@ -4513,6 +4437,87 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
                 }
                 continue;
             }
+
+            struct ResolvedSpriteCandidate {
+                const PPU::DebugModSpriteCandidate* candidate = nullptr;
+                const PreparedOverride* spriteOverride = nullptr;
+                std::array<uint8_t, 3> spritePalette = {};
+                uint32_t fixedFallbackColor = 0;
+                bool fallbackUsesCurrentColor = true;
+                int originalIndex = -1;
+            };
+
+            std::array<ResolvedSpriteCandidate, 8> resolvedBehindSpriteCandidates = {};
+            size_t resolvedBehindSpriteCandidateCount = 0;
+            std::array<ResolvedSpriteCandidate, 8> resolvedFrontSpriteCandidates = {};
+            size_t resolvedFrontSpriteCandidateCount = 0;
+            const auto spriteFallbackColorFor = [&](const PPU::DebugModSpriteCandidate& candidate) {
+                const std::array<uint8_t, 3> spritePalette = { candidate.palette[0], candidate.palette[1], candidate.palette[2] };
+                const int spritePaletteIndex = std::clamp(static_cast<int>(candidate.colorLowBits), 1, 3) - 1;
+                if(spritePaletteIndex >= 0 && spritePaletteIndex < static_cast<int>(spritePalette.size())) {
+                    return snapshot.paletteColors[spritePalette[static_cast<size_t>(spritePaletteIndex)] & 0x3F];
+                }
+                return baseColor;
+            };
+
+            int lowestBgSpriteCandidate = std::numeric_limits<int>::max();
+            for(int i = 0; i < static_cast<int>(spritePixel->count); ++i) {
+                const PPU::DebugModSpriteCandidate& candidate = spritePixel->candidates[static_cast<size_t>(i)];
+                if(candidate.valid && candidate.behindBackground) {
+                    lowestBgSpriteCandidate = std::min(lowestBgSpriteCandidate, i);
+                }
+            }
+
+            for(int i = static_cast<int>(spritePixel->count) - 1; i >= 0; --i) {
+                const PPU::DebugModSpriteCandidate& candidate = spritePixel->candidates[static_cast<size_t>(i)];
+                if(!candidate.valid) {
+                    continue;
+                }
+
+                ResolvedSpriteCandidate resolvedCandidate;
+                resolvedCandidate.candidate = &candidate;
+                resolvedCandidate.spritePalette = { candidate.palette[0], candidate.palette[1], candidate.palette[2] };
+                resolvedCandidate.originalIndex = i;
+                resolvedCandidate.fallbackUsesCurrentColor = candidate.colorLowBits == 0 || m_disableOriginalTiles;
+                if(!resolvedCandidate.fallbackUsesCurrentColor) {
+                    resolvedCandidate.fixedFallbackColor = spriteFallbackColorFor(candidate);
+                }
+
+                const int spriteFullTileIndex = candidate.tileIndex != 0xFFFF ? static_cast<int>(candidate.tileIndex) : -1;
+                if(spriteFullTileIndex >= 0) {
+                    const ConditionContext context = { nesX, nesY, bgPixel, &candidate };
+#if defined(GERANES_MOD_PROFILE)
+                    const auto overrideLookupStart = ComposeClock::now();
+#endif
+                    resolvedCandidate.spriteOverride =
+                        findOverride(
+                            ChrOverride::Target::Sprite,
+                            spriteFullTileIndex & 0xFF,
+                            spriteFullTileIndex,
+                            spriteFullTileIndex / 256,
+                            resolvedCandidate.spritePalette,
+                            candidate.horizontalMirror,
+                            candidate.verticalMirror,
+                            candidate.behindBackground,
+                            context);
+#if defined(GERANES_MOD_PROFILE)
+                    overrideLookupUs += static_cast<uint64_t>(
+                        std::chrono::duration_cast<std::chrono::microseconds>(ComposeClock::now() - overrideLookupStart).count());
+#endif
+                }
+
+                if(candidate.behindBackground) {
+                    if(resolvedBehindSpriteCandidateCount < resolvedBehindSpriteCandidates.size()) {
+                        resolvedBehindSpriteCandidates[resolvedBehindSpriteCandidateCount++] = resolvedCandidate;
+                    }
+                } else if(i < lowestBgSpriteCandidate) {
+                    if(resolvedFrontSpriteCandidateCount < resolvedFrontSpriteCandidates.size()) {
+                        resolvedFrontSpriteCandidates[resolvedFrontSpriteCandidateCount++] = resolvedCandidate;
+                    }
+                }
+            }
+            const bool applyBehindSprites = !backgroundOpaque && resolvedBehindSpriteCandidateCount > 0;
+            const bool applyFrontSprites = resolvedFrontSpriteCandidateCount > 0;
 
             auto applySpriteLayersToBlock = [&]() {
                 for(int subY = subYStart; subY < subYEnd; ++subY) {
