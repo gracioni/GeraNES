@@ -609,21 +609,31 @@ inline void GeraNESApp::showOverlay()
     const ImVec2 overlayOrigin = mainViewport != nullptr ? mainViewport->Pos : ImVec2(0.0f, 0.0f);
 
     if(AppSettings::instance().data.debug.showFps) {
-        const int fontSize = 32;
+        const int fontSize = 24;
         ImFont* fpsFont = m_fontFps != nullptr ? m_fontFps : ImGui::GetFont();
         const SDL_Rect clientArea = emulatorClientArea();
+        const std::array<std::string, 2> fpsLines = {
+            "EMU " + std::to_string(m_emulatorFps),
+            "DISP " + std::to_string(m_displayFps)
+        };
 
-        std::string fpsText =
-            "EMU " + std::to_string(m_emulatorFps) +
-            "  DISP " + std::to_string(m_displayFps);
-        ImVec2 fpsTextSize = fpsFont->CalcTextSizeA(fontSize, FLT_MAX, 0, fpsText.c_str());
+        float maxTextWidth = 0.0f;
+        float lineHeight = 0.0f;
+        for(const std::string& line : fpsLines) {
+            const ImVec2 textSize = fpsFont->CalcTextSizeA(fontSize, FLT_MAX, 0, line.c_str());
+            maxTextWidth = std::max(maxTextWidth, textSize.x);
+            lineHeight = std::max(lineHeight, textSize.y);
+        }
 
-        const ImVec2 pos = ImVec2(
-            overlayOrigin.x + width() - fpsTextSize.x - 32,
+        ImVec2 pos = ImVec2(
+            overlayOrigin.x + width() - maxTextWidth - 32.0f,
             overlayOrigin.y + static_cast<float>(clientArea.y) + 16.0f
         );
 
-        DrawTextOutlined(drawList, fpsFont, fontSize, pos, 0xFFFFFFFF, 0xFF000000, fpsText.c_str());
+        for(const std::string& line : fpsLines) {
+            DrawTextOutlined(drawList, fpsFont, fontSize, pos, 0xFFFFFFFF, 0xFF000000, line.c_str());
+            pos.y += lineHeight;
+        }
     }
     m_userToast.draw(drawList, overlayOrigin, static_cast<float>(width()), static_cast<float>(height()), m_fontToast);
 
