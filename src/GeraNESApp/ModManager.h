@@ -305,6 +305,7 @@ private:
         int priority = 0;
         int backgroundScale = 1;
         int alphaScale = 255;
+        bool opaqueCopy = false;
         std::vector<const MemoryCondition*> runtimeConditions;
     };
 

@@ -1490,6 +1490,7 @@ void ModManager::rebuildRenderComposeCache()
         prepared.priority = std::clamp(replacement.priority, 0, 39);
         prepared.backgroundScale = std::max(1, m_resolutionMultiplier);
         prepared.alphaScale = std::clamp(static_cast<int>(std::round(replacement.opacity * 255.0f)), 0, 255);
+        prepared.opaqueCopy = prepared.alphaScale >= 255;
         appendRuntimeConditions(replacement.conditions, prepared.runtimeConditions);
         for(const MemoryCondition* condition : prepared.runtimeConditions) {
             if(condition != nullptr && condition->hasExpectedTile && condition->expectedTileByHash) {
@@ -1909,6 +1910,7 @@ std::optional<ModManager::DebugComposePixel> ModManager::debugComposePixel(const
         int priority = 0;
         int backgroundScale = 1;
         int alphaScale = 255;
+        bool opaqueCopy = false;
         int bgScrollX = 0;
         int bgScrollY = 0;
         std::vector<const MemoryCondition*> runtimeConditions;
@@ -2035,6 +2037,7 @@ std::optional<ModManager::DebugComposePixel> ModManager::debugComposePixel(const
         prepared.priority = std::clamp(replacement.priority, 0, 39);
         prepared.backgroundScale = std::max(1, m_resolutionMultiplier);
         prepared.alphaScale = std::clamp(static_cast<int>(std::round(replacement.opacity * 255.0f)), 0, 255);
+        prepared.opaqueCopy = prepared.alphaScale >= 255;
         prepared.bgScrollX = static_cast<int>(snapshot.scrollX * replacement.parallaxX) + replacement.scrollX;
         prepared.bgScrollY = static_cast<int>(snapshot.scrollY * replacement.parallaxY) + replacement.scrollY;
         appendRuntimeConditions(replacement.conditions, prepared.runtimeConditions);
@@ -3260,6 +3263,7 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
             prepared.priority = std::clamp(replacement.priority, 0, 39);
             prepared.backgroundScale = std::max(1, m_resolutionMultiplier);
             prepared.alphaScale = std::clamp(static_cast<int>(std::round(replacement.opacity * 255.0f)), 0, 255);
+            prepared.opaqueCopy = prepared.alphaScale >= 255;
             appendRuntimeConditions(replacement.conditions, prepared.runtimeConditions);
             preparedBackgroundsLocal.push_back(std::move(prepared));
         }
@@ -4119,12 +4123,18 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
 
         const PreparedBackground& prepared = *resolved.prepared;
         if(resolved.uniformBlock) {
+            if(prepared.opaqueCopy && ((resolved.uniformColor >> 24u) & 0xFFu) == 0xFFu) {
+                return resolved.uniformColor;
+            }
             return blendPixel(dstColor, resolved.uniformColor, prepared.alphaScale);
         }
         const DecodedImage& image = *prepared.image;
         const int srcX = resolved.baseSrcX + std::clamp(subX, 0, prepared.backgroundScale - 1);
         const int srcY = resolved.baseSrcY + std::clamp(subY, 0, prepared.backgroundScale - 1);
         const uint32_t src = image.rgba[static_cast<size_t>(srcY) * static_cast<size_t>(image.width) + static_cast<size_t>(srcX)];
+        if(prepared.opaqueCopy && ((src >> 24u) & 0xFFu) == 0xFFu) {
+            return src;
+        }
         return blendPixel(dstColor, src, prepared.alphaScale);
     };
 
@@ -4476,10 +4486,17 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
 
                     const PreparedBackground& prepared = *resolved.prepared;
                     if(resolved.uniformBlock) {
-                        block00 = blendPixel(block00, resolved.uniformColor, prepared.alphaScale);
-                        block01 = blendPixel(block01, resolved.uniformColor, prepared.alphaScale);
-                        block10 = blendPixel(block10, resolved.uniformColor, prepared.alphaScale);
-                        block11 = blendPixel(block11, resolved.uniformColor, prepared.alphaScale);
+                        if(prepared.opaqueCopy && ((resolved.uniformColor >> 24u) & 0xFFu) == 0xFFu) {
+                            block00 = resolved.uniformColor;
+                            block01 = resolved.uniformColor;
+                            block10 = resolved.uniformColor;
+                            block11 = resolved.uniformColor;
+                        } else {
+                            block00 = blendPixel(block00, resolved.uniformColor, prepared.alphaScale);
+                            block01 = blendPixel(block01, resolved.uniformColor, prepared.alphaScale);
+                            block10 = blendPixel(block10, resolved.uniformColor, prepared.alphaScale);
+                            block11 = blendPixel(block11, resolved.uniformColor, prepared.alphaScale);
+                        }
                         return;
                     }
 
@@ -4495,10 +4512,21 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
                     const uint32_t src01 = image.rgba[row0 + static_cast<size_t>(srcX1)];
                     const uint32_t src10 = image.rgba[row1 + static_cast<size_t>(srcX0)];
                     const uint32_t src11 = image.rgba[row1 + static_cast<size_t>(srcX1)];
-                    block00 = blendPixel(block00, src00, prepared.alphaScale);
-                    block01 = blendPixel(block01, src01, prepared.alphaScale);
-                    block10 = blendPixel(block10, src10, prepared.alphaScale);
-                    block11 = blendPixel(block11, src11, prepared.alphaScale);
+                    if(prepared.opaqueCopy &&
+                        ((src00 >> 24u) & 0xFFu) == 0xFFu &&
+                        ((src01 >> 24u) & 0xFFu) == 0xFFu &&
+                        ((src10 >> 24u) & 0xFFu) == 0xFFu &&
+                        ((src11 >> 24u) & 0xFFu) == 0xFFu) {
+                        block00 = src00;
+                        block01 = src01;
+                        block10 = src10;
+                        block11 = src11;
+                    } else {
+                        block00 = blendPixel(block00, src00, prepared.alphaScale);
+                        block01 = blendPixel(block01, src01, prepared.alphaScale);
+                        block10 = blendPixel(block10, src10, prepared.alphaScale);
+                        block11 = blendPixel(block11, src11, prepared.alphaScale);
+                    }
                 };
 
                 uint32_t block00 = canPrecomposeBeforeBg ? precomposedBeforeBgColor : initialColor;
