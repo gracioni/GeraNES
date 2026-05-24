@@ -243,6 +243,7 @@ public:
     bool loadDefinitionForCurrentMod();
     void onFrame(GeraNESEmu& emu);
     void onEmulatorReset();
+    void onStateLoaded(uint32_t frameCount);
     bool composeFrameOnEmuThread(GeraNESEmu& emu, ChrRenderSnapshot& snapshot, std::vector<uint32_t>& framebuffer, int activeTop, int activeBottom, bool captureDebugSnapshot);
     void composeChrFrame(std::vector<uint32_t>& framebuffer, int width, int height, int activeTop, int activeBottom, int scale, const uint32_t* sourceFramebuffer, const ChrRenderSnapshot& snapshot, const std::vector<const ChrOverride*>* activeOverrideFilter = nullptr);
 
@@ -290,6 +291,12 @@ private:
         bool indexedPng = false;
         bool indexedFourColor = false;
         int paletteColorCount = 0;
+    };
+
+    struct ImageCacheEntry {
+        std::optional<DecodedImage> image;
+        uint32_t lastUsedFrame = 0;
+        bool pinned = false;
     };
 
     struct RenderPreparedOverride {
@@ -340,7 +347,7 @@ private:
         std::vector<RenderPreparedBackground> preparedBackgrounds;
     };
 
-    std::unordered_map<std::string, std::optional<DecodedImage>> m_imageCache;
+    std::unordered_map<std::string, ImageCacheEntry> m_imageCache;
     RenderComposeCache m_renderComposeCache;
     bool m_renderComposeCacheDirty = true;
 
@@ -360,6 +367,9 @@ private:
     static std::string sha1Hex(const std::vector<uint8_t>& data);
     static uint64_t makeMemoryCacheKey(MemoryCondition::MemorySource source, uint32_t address, bool word, int scale);
     void updateFrameConditionsForFrame(GeraNESEmu& emu);
+    void preloadStartupAssets();
+    void pinDecodedImage(const std::string& assetPath);
+    void evictUnusedDynamicAssets(uint32_t frameCount);
 
     uint8_t readMemory(GeraNESEmu* emu, MemoryCondition::MemorySource source, uint32_t address) const;
     uint32_t readMemoryValue(const MemoryCondition& source, GeraNESEmu& emu) const;

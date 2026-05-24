@@ -38,6 +38,11 @@ public:
     bool handlesCpuWrite(uint16_t addr) const;
     bool handleCpuWrite(uint16_t addr, uint8_t value);
     std::optional<uint8_t> handleCpuRead(uint16_t addr) const;
+    bool preloadClip(const std::string& assetPath);
+    void pinClip(const std::string& assetPath);
+    void setCacheFrame(uint32_t frameCount);
+    void rebaseCacheFrame(uint32_t frameCount);
+    void evictUnusedDynamicClips(uint32_t maxUnusedFrames);
 
     void resetRuntime() override;
     void onOutputSampleRateChanged(int sampleRate) override;
@@ -48,6 +53,13 @@ private:
     {
         int sampleRate = 44100;
         std::vector<float> monoSamples;
+    };
+
+    struct ClipCacheEntry
+    {
+        std::shared_ptr<const DecodedClip> clip;
+        uint32_t lastUsedFrame = 0;
+        bool pinned = false;
     };
 
     struct ActiveClip
@@ -63,7 +75,7 @@ private:
 
     AssetReader m_assetReader;
     HdPackAudioConfig m_config;
-    std::unordered_map<std::string, std::shared_ptr<const DecodedClip>> m_clipCache;
+    std::unordered_map<std::string, ClipCacheEntry> m_clipCache;
 
     std::unique_ptr<ActiveClip> m_bgm;
     std::vector<ActiveClip> m_sfx;
@@ -76,6 +88,7 @@ private:
     bool m_trackError = false;
     int m_currentBgmTrackId = -1;
     int m_outputSampleRate = 44100;
+    uint32_t m_cacheFrame = 0;
 
     std::shared_ptr<const DecodedClip> loadClip(const std::string& assetPath);
     bool playBgmTrack(int trackId);

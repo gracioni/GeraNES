@@ -148,6 +148,71 @@ std::optional<uint8_t> HdPackAudioRuntime::handleCpuRead(uint16_t addr) const
     }
 }
 
+bool HdPackAudioRuntime::preloadClip(const std::string& assetPath)
+{
+    std::scoped_lock lock(m_mutex);
+    const auto clip = loadClip(assetPath);
+    return clip && !clip->monoSamples.empty();
+}
+
+void HdPackAudioRuntime::pinClip(const std::string& assetPath)
+{
+    std::scoped_lock lock(m_mutex);
+    const auto clip = loadClip(assetPath);
+    if(!clip) {
+        return;
+    }
+    auto it = m_clipCache.find(assetPath);
+    if(it != m_clipCache.end()) {
+        it->second.pinned = true;
+        it->second.lastUsedFrame = m_cacheFrame;
+    }
+}
+
+void HdPackAudioRuntime::setCacheFrame(uint32_t frameCount)
+{
+    std::scoped_lock lock(m_mutex);
+    m_cacheFrame = frameCount;
+}
+
+void HdPackAudioRuntime::rebaseCacheFrame(uint32_t frameCount)
+{
+    std::scoped_lock lock(m_mutex);
+    m_cacheFrame = frameCount;
+    for(auto& [_, entry] : m_clipCache) {
+        entry.lastUsedFrame = frameCount;
+    }
+}
+
+void HdPackAudioRuntime::evictUnusedDynamicClips(uint32_t maxUnusedFrames)
+{
+    std::scoped_lock lock(m_mutex);
+
+    auto clipIsActive = [&](const std::shared_ptr<const DecodedClip>& clip) {
+        if(!clip) {
+            return false;
+        }
+        if(m_bgm && m_bgm->clip == clip && !m_bgm->finished) {
+            return true;
+        }
+        for(const ActiveClip& active : m_sfx) {
+            if(active.clip == clip && !active.finished) {
+                return true;
+            }
+        }
+        return false;
+    };
+
+    for(auto it = m_clipCache.begin(); it != m_clipCache.end(); ) {
+        const ClipCacheEntry& entry = it->second;
+        if(entry.pinned || clipIsActive(entry.clip) || m_cacheFrame - entry.lastUsedFrame <= maxUnusedFrames) {
+            ++it;
+        } else {
+            it = m_clipCache.erase(it);
+        }
+    }
+}
+
 void HdPackAudioRuntime::resetRuntime()
 {
     std::scoped_lock lock(m_mutex);
@@ -221,13 +286,14 @@ std::shared_ptr<const HdPackAudioRuntime::DecodedClip> HdPackAudioRuntime::loadC
 {
     const auto cached = m_clipCache.find(assetPath);
     if(cached != m_clipCache.end()) {
-        return cached->second;
+        cached->second.lastUsedFrame = m_cacheFrame;
+        return cached->second.clip;
     }
 
     const std::optional<std::vector<uint8_t>> assetData = m_assetReader ? m_assetReader(assetPath) : std::nullopt;
     if(!assetData.has_value() || assetData->empty()) {
         Logger::instance().log("HD audio asset missing: " + assetPath, Logger::Type::WARNING);
-        m_clipCache[assetPath] = nullptr;
+        m_clipCache[assetPath] = { nullptr, m_cacheFrame, false };
         return nullptr;
     }
 
@@ -242,7 +308,7 @@ std::shared_ptr<const HdPackAudioRuntime::DecodedClip> HdPackAudioRuntime::loadC
         Logger::instance().log(
             "Failed to decode HD audio asset: " + assetPath + " (stb_vorbis error " + std::to_string(error) + ")",
             Logger::Type::WARNING);
-        m_clipCache[assetPath] = nullptr;
+        m_clipCache[assetPath] = { nullptr, m_cacheFrame, false };
         return nullptr;
     }
 
@@ -254,7 +320,7 @@ std::shared_ptr<const HdPackAudioRuntime::DecodedClip> HdPackAudioRuntime::loadC
     if(channels <= 0 || sampleRate <= 0) {
         Logger::instance().log("Failed to decode HD audio asset: " + assetPath, Logger::Type::WARNING);
         stb_vorbis_close(vorbis);
-        m_clipCache[assetPath] = nullptr;
+        m_clipCache[assetPath] = { nullptr, m_cacheFrame, false };
         return nullptr;
     }
 
@@ -293,11 +359,11 @@ std::shared_ptr<const HdPackAudioRuntime::DecodedClip> HdPackAudioRuntime::loadC
 
     if(clip->monoSamples.empty()) {
         Logger::instance().log("Failed to decode HD audio asset: " + assetPath, Logger::Type::WARNING);
-        m_clipCache[assetPath] = nullptr;
+        m_clipCache[assetPath] = { nullptr, m_cacheFrame, false };
         return nullptr;
     }
 
-    m_clipCache[assetPath] = clip;
+    m_clipCache[assetPath] = { clip, m_cacheFrame, false };
     return clip;
 }
 

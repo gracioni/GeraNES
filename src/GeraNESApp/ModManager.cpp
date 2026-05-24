@@ -594,6 +594,18 @@ void ModManager::onEmulatorReset()
     }
 }
 
+void ModManager::onStateLoaded(uint32_t frameCount)
+{
+    m_lastFrameConditionUpdate = UINT32_MAX;
+    m_frameConditionState = {};
+    for(auto& [_, entry] : m_imageCache) {
+        entry.lastUsedFrame = frameCount;
+    }
+    if(m_hdAudioRuntime) {
+        m_hdAudioRuntime->rebaseCacheFrame(frameCount);
+    }
+}
+
 bool ModManager::composeFrameOnEmuThread(
     GeraNESEmu& emu,
     ChrRenderSnapshot& snapshot,
@@ -830,9 +842,110 @@ bool ModManager::loadDefinitionForCurrentMod()
     }
 
     rebuildFrameConditionPlan();
+    preloadStartupAssets();
     m_scriptLoaded = true;
     Logger::instance().log("Mesen hires.txt loaded.", Logger::Type::INFO);
     return true;
+}
+
+void ModManager::preloadStartupAssets()
+{
+    constexpr uint32_t startupFrame = 0;
+    std::unordered_set<std::string> imageAssets;
+
+    auto addImageAsset = [&](const std::string& assetPath) {
+        const std::string normalizedPath = normalizeZipPath(assetPath);
+        if(!normalizedPath.empty()) {
+            imageAssets.insert(normalizedPath);
+        }
+    };
+
+    for(const ChrOverride& override : m_chrOverrides) {
+        if(!override.enabled || override.assetPath.empty()) {
+            continue;
+        }
+
+        const bool hasOnlyGlobalConditions = std::none_of(
+            override.conditions.begin(),
+            override.conditions.end(),
+            [](const MemoryCondition& condition) {
+                return condition.kind == MemoryCondition::Kind::TileAtPosition ||
+                       condition.kind == MemoryCondition::Kind::TileNearby ||
+                       condition.kind == MemoryCondition::Kind::SpriteAtPosition ||
+                       condition.kind == MemoryCondition::Kind::SpriteNearby;
+            });
+
+        if(hasOnlyGlobalConditions) {
+            addImageAsset(override.assetPath);
+        }
+    }
+
+    for(const BackgroundReplacement& replacement : m_backgroundReplacements) {
+        if(!replacement.enabled || replacement.assetPath.empty()) {
+            continue;
+        }
+
+        const bool alwaysOn = std::none_of(
+            replacement.conditions.begin(),
+            replacement.conditions.end(),
+            [](const MemoryCondition& condition) {
+                return condition.kind == MemoryCondition::Kind::MemoryCheck ||
+                       condition.kind == MemoryCondition::Kind::FrameRange ||
+                       condition.kind == MemoryCondition::Kind::TileAtPosition ||
+                       condition.kind == MemoryCondition::Kind::TileNearby ||
+                       condition.kind == MemoryCondition::Kind::SpriteAtPosition ||
+                       condition.kind == MemoryCondition::Kind::SpriteNearby;
+            });
+
+        if(alwaysOn) {
+            addImageAsset(replacement.assetPath);
+        }
+    }
+
+    for(const std::string& assetPath : imageAssets) {
+        decodedImage(assetPath);
+        pinDecodedImage(assetPath);
+    }
+
+    if(!m_hdAudioRuntime) {
+        m_hdAudioRuntime = std::make_shared<HdPackAudioRuntime>(
+            [this](const std::string& assetPath) { return readSourceEntry(assetPath); });
+    }
+    m_hdAudioRuntime->setConfig(m_hdAudioConfig);
+    m_hdAudioRuntime->setCacheFrame(startupFrame);
+
+    std::vector<std::string> audioAssets;
+    audioAssets.reserve(m_hdAudioConfig.bgmFilesById.size() + m_hdAudioConfig.sfxFilesById.size());
+
+    if(!m_hdAudioConfig.bgmFilesById.empty()) {
+        auto firstBgm = std::min_element(
+            m_hdAudioConfig.bgmFilesById.begin(),
+            m_hdAudioConfig.bgmFilesById.end(),
+            [](const auto& a, const auto& b) { return a.first < b.first; });
+        if(firstBgm != m_hdAudioConfig.bgmFilesById.end() && !firstBgm->second.assetPath.empty()) {
+            audioAssets.push_back(normalizeZipPath(firstBgm->second.assetPath));
+        }
+    }
+
+    std::vector<std::pair<int, std::string>> sortedSfx;
+    sortedSfx.reserve(m_hdAudioConfig.sfxFilesById.size());
+    for(const auto& [trackId, assetPath] : m_hdAudioConfig.sfxFilesById) {
+        sortedSfx.emplace_back(trackId, normalizeZipPath(assetPath));
+    }
+    std::sort(sortedSfx.begin(), sortedSfx.end(), [](const auto& a, const auto& b) { return a.first < b.first; });
+    constexpr size_t MaxStartupSfxPreload = 8;
+    for(size_t i = 0; i < sortedSfx.size() && i < MaxStartupSfxPreload; ++i) {
+        if(!sortedSfx[i].second.empty()) {
+            audioAssets.push_back(sortedSfx[i].second);
+        }
+    }
+
+    std::sort(audioAssets.begin(), audioAssets.end());
+    audioAssets.erase(std::unique(audioAssets.begin(), audioAssets.end()), audioAssets.end());
+    for(const std::string& assetPath : audioAssets) {
+        m_hdAudioRuntime->preloadClip(assetPath);
+        m_hdAudioRuntime->pinClip(assetPath);
+    }
 }
 
 bool ModManager::loadMesenHiresFile()
@@ -1176,9 +1289,16 @@ void ModManager::onFrame(GeraNESEmu& emu)
 
 void ModManager::updateFrameConditionsForFrame(GeraNESEmu& emu)
 {
+    constexpr uint32_t DynamicAssetEvictionFrames = 3600;
     const uint32_t frameCount = emu.frameCount();
     if(m_lastFrameConditionUpdate == frameCount) {
         return;
+    }
+
+    evictUnusedDynamicAssets(frameCount);
+    if(m_hdAudioRuntime) {
+        m_hdAudioRuntime->setCacheFrame(frameCount);
+        m_hdAudioRuntime->evictUnusedDynamicClips(DynamicAssetEvictionFrames);
     }
 
     FrameConditionState frameConditionState;
@@ -1779,12 +1899,47 @@ const ModManager::DecodedImage* ModManager::decodedImage(const std::string& asse
         if(const auto data = readAsset(normalizedPath); data.has_value()) {
             decoded = decodeImage(*data);
         }
-        cacheIt = m_imageCache.emplace(normalizedPath, std::move(decoded)).first;
-        if(!cacheIt->second.has_value()) {
+        ImageCacheEntry entry;
+        entry.image = std::move(decoded);
+        entry.lastUsedFrame = m_lastFrameConditionUpdate == UINT32_MAX ? 0u : m_lastFrameConditionUpdate;
+        cacheIt = m_imageCache.emplace(normalizedPath, std::move(entry)).first;
+        if(!cacheIt->second.image.has_value()) {
             Logger::instance().log("Failed to load mod image asset: " + normalizedPath, Logger::Type::WARNING);
         }
     }
-    return cacheIt->second.has_value() ? &*cacheIt->second : nullptr;
+    cacheIt->second.lastUsedFrame = m_lastFrameConditionUpdate == UINT32_MAX ? 0u : m_lastFrameConditionUpdate;
+    return cacheIt->second.image.has_value() ? &*cacheIt->second.image : nullptr;
+}
+
+void ModManager::pinDecodedImage(const std::string& assetPath)
+{
+    const std::string normalizedPath = normalizeZipPath(assetPath);
+    auto it = m_imageCache.find(normalizedPath);
+    if(it == m_imageCache.end()) {
+        const DecodedImage* image = decodedImage(normalizedPath);
+        if(image == nullptr) {
+            return;
+        }
+        it = m_imageCache.find(normalizedPath);
+        if(it == m_imageCache.end()) {
+            return;
+        }
+    }
+    it->second.pinned = true;
+    it->second.lastUsedFrame = m_lastFrameConditionUpdate == UINT32_MAX ? 0u : m_lastFrameConditionUpdate;
+}
+
+void ModManager::evictUnusedDynamicAssets(uint32_t frameCount)
+{
+    constexpr uint32_t DynamicAssetEvictionFrames = 3600;
+    for(auto it = m_imageCache.begin(); it != m_imageCache.end(); ) {
+        const ImageCacheEntry& entry = it->second;
+        if(entry.pinned || frameCount - entry.lastUsedFrame <= DynamicAssetEvictionFrames) {
+            ++it;
+        } else {
+            it = m_imageCache.erase(it);
+        }
+    }
 }
 
 std::optional<uint32_t> ModManager::debugReadDecodedImagePixel(const std::string& assetPath, int x, int y)

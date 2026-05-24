@@ -1501,6 +1501,11 @@ void GeraNESApp::onEmuResetForModAudio(uint32_t)
     m_modManager.onEmulatorReset();
 }
 
+void GeraNESApp::onEmuLoadForModAssets(uint32_t frame)
+{
+    m_modManager.onStateLoaded(frame);
+}
+
 void GeraNESApp::refreshModFrameCaptureHook()
 {
     m_emu.setModFrameCaptureHook([this](GeraNESEmu& emu, IEmulationHost::ModRenderSnapshot& snapshot, std::vector<uint32_t>& framebuffer) {
@@ -1908,6 +1913,7 @@ GeraNESApp::GeraNESApp()
             [this](uint16_t addr, uint8_t value) { return m_modManager.handleHdAudioCpuWrite(addr, value); },
             [this](uint16_t addr) { return m_modManager.handleHdAudioCpuRead(addr); });
         emu.signalResetExecuted.bind_auto(&GeraNESApp::onEmuResetForModAudio, this);
+        emu.signalLoadExecuted.bind_auto(&GeraNESApp::onEmuLoadForModAssets, this);
     });
 
     GeraNESNetplay::attachRuntimeWakeToHost(m_netplayRuntime, m_emu);
