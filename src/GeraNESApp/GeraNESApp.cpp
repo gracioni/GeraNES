@@ -1579,6 +1579,11 @@ bool GeraNESApp::openRomPath(const fs::path& path, bool updateRecentFiles, bool 
         AppSettings::instance().data.setLastFolder(path.string());
     }
     if(m_emu.open(effectivePath)) {
+        const int effectiveMaxRewindTime = shouldSuppressRewindForNetplay()
+            ? 0
+            : std::max(0, AppSettings::instance().data.improvements.maxRewindTime);
+        m_emu.setupRewindSystem(effectiveMaxRewindTime > 0, effectiveMaxRewindTime);
+
         if(modLoad.modLoaded) {
             m_modManager.loadDefinitionForCurrentMod();
             Logger::instance().log(modLoad.message + " " + modLoad.modPath.string(), Logger::Type::USER);
