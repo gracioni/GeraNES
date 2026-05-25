@@ -450,6 +450,7 @@ private:
     void rebuildFrameConditionPlan();
     void invalidateRenderComposeCache();
     void rebuildRenderComposeCache();
+    RenderComposeCache buildFilteredRenderComposeCache(const std::vector<const ChrOverride*>& activeOverrideFilter);
     static uint32_t blendPixel(uint32_t dst, uint32_t src, int alphaScale);
     static uint32_t hashChrTile(PPU& ppu, int tileIndex);
 };
