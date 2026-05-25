@@ -4823,12 +4823,18 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
     struct CachedBackgroundOverrideState {
         const PreparedOverride* override = nullptr;
         const DecodedImage* image = nullptr;
+        const uint32_t* rgbaData = nullptr;
+        const uint8_t* indexedPixelsData = nullptr;
         uint32_t fallbackColor = 0;
         std::array<uint8_t, 3> palette = {};
         std::array<uint32_t, 4> mappedPalette = {};
         int tileSrcX = 0;
         int tileSrcY = 0;
         int sourceScale = 1;
+        int imageWidth = 0;
+        int imageHeight = 0;
+        bool ignorePalette = false;
+        bool usesIndexedPalette = false;
         bool tileSrcValid = false;
     };
     CachedBackgroundOverrideState lastBackgroundOverrideState;
@@ -4980,9 +4986,15 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
             std::array<uint8_t, 3> backgroundPalette = {};
             std::array<uint32_t, 4> backgroundMappedPalette = {};
             const DecodedImage* backgroundOverrideImage = nullptr;
+            const uint32_t* backgroundOverrideRgbaData = nullptr;
+            const uint8_t* backgroundOverrideIndexedPixelsData = nullptr;
             int backgroundOverrideTileSrcX = 0;
             int backgroundOverrideTileSrcY = 0;
             int backgroundOverrideSourceScale = 1;
+            int backgroundOverrideImageWidth = 0;
+            int backgroundOverrideImageHeight = 0;
+            bool backgroundOverrideIgnorePalette = false;
+            bool backgroundOverrideUsesIndexedPalette = false;
             bool backgroundOverrideTileSrcValid = false;
 
             if(bgPixel != nullptr && bgPixel->valid) {
@@ -5007,9 +5019,15 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
                         backgroundPalette = lastBackgroundOverrideState.palette;
                         backgroundMappedPalette = lastBackgroundOverrideState.mappedPalette;
                         backgroundOverrideImage = lastBackgroundOverrideState.image;
+                        backgroundOverrideRgbaData = lastBackgroundOverrideState.rgbaData;
+                        backgroundOverrideIndexedPixelsData = lastBackgroundOverrideState.indexedPixelsData;
                         backgroundOverrideTileSrcX = lastBackgroundOverrideState.tileSrcX;
                         backgroundOverrideTileSrcY = lastBackgroundOverrideState.tileSrcY;
                         backgroundOverrideSourceScale = lastBackgroundOverrideState.sourceScale;
+                        backgroundOverrideImageWidth = lastBackgroundOverrideState.imageWidth;
+                        backgroundOverrideImageHeight = lastBackgroundOverrideState.imageHeight;
+                        backgroundOverrideIgnorePalette = lastBackgroundOverrideState.ignorePalette;
+                        backgroundOverrideUsesIndexedPalette = lastBackgroundOverrideState.usesIndexedPalette;
                         backgroundOverrideTileSrcValid = lastBackgroundOverrideState.tileSrcValid;
                     } else {
                         const ConditionContext context = { nesX, nesY, bgPixel, nullptr };
@@ -5033,7 +5051,16 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
                             backgroundOverrideImage = backgroundOverride->image;
                             lastBackgroundOverrideState.image = backgroundOverrideImage;
                             if(override != nullptr && backgroundOverrideImage != nullptr) {
+                                backgroundOverrideRgbaData = backgroundOverrideImage->rgba.data();
+                                backgroundOverrideIndexedPixelsData = backgroundOverrideImage->indexedPixels.data();
                                 backgroundOverrideSourceScale = backgroundOverride->sourceScale;
+                                backgroundOverrideImageWidth = backgroundOverrideImage->width;
+                                backgroundOverrideImageHeight = backgroundOverrideImage->height;
+                                backgroundOverrideIgnorePalette = override->ignorePalette;
+                                backgroundOverrideUsesIndexedPalette =
+                                    !override->ignorePalette &&
+                                    backgroundOverrideImage->indexedFourColor &&
+                                    backgroundOverrideImage->indexedPixels.size() == backgroundOverrideImage->rgba.size();
                                 if(override->hasSourcePosition()) {
                                     backgroundOverrideTileSrcX = override->sourceX;
                                     backgroundOverrideTileSrcY = override->sourceY;
@@ -5081,9 +5108,15 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
                                 }
                             }
                         }
+                        lastBackgroundOverrideState.rgbaData = backgroundOverrideRgbaData;
+                        lastBackgroundOverrideState.indexedPixelsData = backgroundOverrideIndexedPixelsData;
                         lastBackgroundOverrideState.tileSrcX = backgroundOverrideTileSrcX;
                         lastBackgroundOverrideState.tileSrcY = backgroundOverrideTileSrcY;
                         lastBackgroundOverrideState.sourceScale = backgroundOverrideSourceScale;
+                        lastBackgroundOverrideState.imageWidth = backgroundOverrideImageWidth;
+                        lastBackgroundOverrideState.imageHeight = backgroundOverrideImageHeight;
+                        lastBackgroundOverrideState.ignorePalette = backgroundOverrideIgnorePalette;
+                        lastBackgroundOverrideState.usesIndexedPalette = backgroundOverrideUsesIndexedPalette;
                         lastBackgroundOverrideState.tileSrcValid = backgroundOverrideTileSrcValid;
                     }
                 }
@@ -5110,6 +5143,41 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
                 dstRows[static_cast<size_t>(subY)] =
                     framebuffer.data() + static_cast<size_t>(outY) * static_cast<size_t>(width) + static_cast<size_t>(blockX0);
             }
+
+            auto mappedBackgroundOverridePixelAt = [&](int srcX, int srcY) -> uint32_t {
+                if(backgroundOverride == nullptr ||
+                   !backgroundOverrideTileSrcValid ||
+                   backgroundOverrideRgbaData == nullptr ||
+                   srcX < 0 || srcY < 0 ||
+                   srcX >= backgroundOverrideImageWidth ||
+                   srcY >= backgroundOverrideImageHeight) {
+                    return 0u;
+                }
+                const size_t sourcePixelIndex =
+                    static_cast<size_t>(srcY) * static_cast<size_t>(backgroundOverrideImageWidth) + static_cast<size_t>(srcX);
+                const uint32_t sourcePixel = backgroundOverrideRgbaData[sourcePixelIndex];
+                const uint8_t sourceAlpha = static_cast<uint8_t>((sourcePixel >> 24u) & 0xFFu);
+                if(backgroundOverrideIgnorePalette) {
+                    return sourceAlpha == 0 ? 0u : ((sourcePixel & 0x00FFFFFFu) | (static_cast<uint32_t>(sourceAlpha) << 24u));
+                }
+                if(sourceAlpha == 0 || !backgroundOverrideUsesIndexedPalette || backgroundOverrideIndexedPixelsData == nullptr) {
+                    return 0u;
+                }
+                const uint8_t sourcePaletteIndex = backgroundOverrideIndexedPixelsData[sourcePixelIndex];
+                const uint32_t paletteColor =
+                    sourcePaletteIndex == 0
+                        ? backgroundMappedPalette[0]
+                        : backgroundMappedPalette[static_cast<size_t>(sourcePaletteIndex)];
+                return (paletteColor & 0x00FFFFFFu) | (static_cast<uint32_t>(sourceAlpha) << 24u);
+            };
+
+            auto blendMappedBackgroundOverridePixel = [&](uint32_t color, uint32_t mappedPixel) {
+                const uint8_t alpha = static_cast<uint8_t>((mappedPixel >> 24u) & 0xFFu);
+                if(alpha == 0) {
+                    return color;
+                }
+                return alpha == 0xFF ? mappedPixel : blendPixel(color, mappedPixel, 255);
+            };
 
             const bool canUseScale2NoSpriteDirectScanlinePath =
                 scale == 2 &&
@@ -5168,11 +5236,7 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
                 };
 
                 auto sampleBackgroundOverrideScale2 = [&](uint32_t color, int subX, int subY) {
-                    if(backgroundOverride == nullptr || bgPixel == nullptr || !backgroundOverrideTileSrcValid || backgroundOverrideImage == nullptr) {
-                        return color;
-                    }
-                    const ChrOverride* override = backgroundOverride->override;
-                    if(override == nullptr) {
+                    if(backgroundOverride == nullptr || bgPixel == nullptr || !backgroundOverrideTileSrcValid) {
                         return color;
                     }
                     const int localOffsetX = bgPixel->offsetX & 0x07;
@@ -5181,32 +5245,11 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
                     const int sourceSubY = std::clamp((subY * backgroundOverrideSourceScale) / 2, 0, backgroundOverrideSourceScale - 1);
                     const int srcX = backgroundOverrideTileSrcX + localOffsetX * backgroundOverrideSourceScale + sourceSubX;
                     const int srcY = backgroundOverrideTileSrcY + localOffsetY * backgroundOverrideSourceScale + sourceSubY;
-                    if(srcX < 0 || srcY < 0 || srcX >= backgroundOverrideImage->width || srcY >= backgroundOverrideImage->height) {
-                        return color;
-                    }
-                    const size_t sourcePixelIndex =
-                        static_cast<size_t>(srcY) * static_cast<size_t>(backgroundOverrideImage->width) + static_cast<size_t>(srcX);
-                    const uint32_t sourcePixel = backgroundOverrideImage->rgba[sourcePixelIndex];
-                    const uint8_t sourceAlpha = static_cast<uint8_t>((sourcePixel >> 24u) & 0xFFu);
-                    if(override->ignorePalette) {
-                        if(sourceAlpha == 0) {
-                            return color;
-                        }
-                        const uint32_t opaqueSource = (sourcePixel & 0x00FFFFFFu) | 0xFF000000u;
-                        return sourceAlpha == 0xFF ? opaqueSource : blendPixel(color, opaqueSource, sourceAlpha);
-                    }
-                    if(sourceAlpha == 0 || !backgroundOverrideImage->indexedFourColor || backgroundOverrideImage->indexedPixels.size() != backgroundOverrideImage->rgba.size()) {
-                        return color;
-                    }
-                    const uint8_t sourcePaletteIndex = backgroundOverrideImage->indexedPixels[sourcePixelIndex];
-                    const uint32_t mappedColor =
-                        ((sourcePaletteIndex == 0 ? backgroundMappedPalette[0] : backgroundMappedPalette[static_cast<size_t>(sourcePaletteIndex)]) & 0x00FFFFFFu) |
-                        (static_cast<uint32_t>(sourceAlpha) << 24u);
-                    return sourceAlpha == 0xFF ? mappedColor : blendPixel(color, mappedColor, 255);
+                    return blendMappedBackgroundOverridePixel(color, mappedBackgroundOverridePixelAt(srcX, srcY));
                 };
 
                 auto ensureBackgroundOverrideRowCache = [&]() {
-                    if(backgroundOverride == nullptr || bgPixel == nullptr || !backgroundOverrideTileSrcValid || backgroundOverrideImage == nullptr) {
+                    if(backgroundOverride == nullptr || bgPixel == nullptr || !backgroundOverrideTileSrcValid) {
                         return false;
                     }
                     const int tileOriginX = nesX - static_cast<int>(bgPixel->offsetX);
@@ -5231,12 +5274,6 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
                     bgOverrideRowCachePalette = backgroundPalette;
                     bgOverrideRowCacheOpaqueBlocks.fill(false);
 
-                    const ChrOverride* override = backgroundOverride->override;
-                    if(override == nullptr) {
-                        bgOverrideRowCacheValid = false;
-                        return false;
-                    }
-
                     const int localOffsetY = bgPixel->offsetY & 0x07;
                     const int tileBaseX = backgroundOverrideTileSrcX;
                     const int tileBaseY = backgroundOverrideTileSrcY + localOffsetY * backgroundOverrideSourceScale;
@@ -5250,30 +5287,9 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
                             const int sourceSubY = std::clamp((subY * backgroundOverrideSourceScale) / 2, 0, backgroundOverrideSourceScale - 1);
                             const int srcX = tileBaseX + tileOffsetX * backgroundOverrideSourceScale + sourceSubX;
                             const int srcY = tileBaseY + sourceSubY;
-                            uint32_t mappedColor = 0;
-                            if(srcX < 0 || srcY < 0 || srcX >= backgroundOverrideImage->width || srcY >= backgroundOverrideImage->height) {
+                            const uint32_t mappedColor = mappedBackgroundOverridePixelAt(srcX, srcY);
+                            if(((mappedColor >> 24u) & 0xFFu) != 0xFFu) {
                                 opaqueBlock = false;
-                                mappedColor = 0;
-                            } else {
-                                const size_t sourcePixelIndex =
-                                    static_cast<size_t>(srcY) * static_cast<size_t>(backgroundOverrideImage->width) + static_cast<size_t>(srcX);
-                                const uint32_t sourcePixel = backgroundOverrideImage->rgba[sourcePixelIndex];
-                                const uint8_t sourceAlpha = static_cast<uint8_t>((sourcePixel >> 24u) & 0xFFu);
-                                if(override->ignorePalette) {
-                                    mappedColor = sourceAlpha == 0 ? 0u : ((sourcePixel & 0x00FFFFFFu) | (static_cast<uint32_t>(sourceAlpha) << 24u));
-                                } else if(!backgroundOverrideImage->indexedFourColor || backgroundOverrideImage->indexedPixels.size() != backgroundOverrideImage->rgba.size()) {
-                                    mappedColor = 0;
-                                } else {
-                                    const uint8_t sourcePaletteIndex = backgroundOverrideImage->indexedPixels[sourcePixelIndex];
-                                    const uint32_t paletteColor =
-                                        sourcePaletteIndex == 0
-                                            ? backgroundMappedPalette[0]
-                                            : backgroundMappedPalette[static_cast<size_t>(sourcePaletteIndex)];
-                                    mappedColor = (paletteColor & 0x00FFFFFFu) | (static_cast<uint32_t>(sourceAlpha) << 24u);
-                                }
-                                if(((mappedColor >> 24u) & 0xFFu) != 0xFFu) {
-                                    opaqueBlock = false;
-                                }
                             }
                             block[static_cast<size_t>(sampleIndex)] = mappedColor;
                         }
@@ -5396,24 +5412,13 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
                         if(backgroundOverride != nullptr) {
                             if(hasRowOverrideCache) {
                                 const auto& overrideBlock = bgOverrideRowCacheBlocks[static_cast<size_t>(tileOffsetX)];
-                                const auto applyMapped = [&](uint32_t base, uint32_t mapped) {
-                                    const uint8_t alpha = static_cast<uint8_t>((mapped >> 24u) & 0xFFu);
-                                    if(alpha == 0) {
-                                        return base;
-                                    }
-                                    return alpha == 0xFF ? mapped : blendPixel(base, mapped, 255);
-                                };
-                                block[0] = applyMapped(block[0], overrideBlock[0]);
-                                block[1] = applyMapped(block[1], overrideBlock[1]);
-                                block[2] = applyMapped(block[2], overrideBlock[2]);
-                                block[3] = applyMapped(block[3], overrideBlock[3]);
+                                block[0] = blendMappedBackgroundOverridePixel(block[0], overrideBlock[0]);
+                                block[1] = blendMappedBackgroundOverridePixel(block[1], overrideBlock[1]);
+                                block[2] = blendMappedBackgroundOverridePixel(block[2], overrideBlock[2]);
+                                block[3] = blendMappedBackgroundOverridePixel(block[3], overrideBlock[3]);
                             } else {
                                 const auto sampleBackgroundOverrideScale2AtOffsetX = [&](uint32_t color, int localOffsetX, int subX, int subY) {
-                                    if(backgroundOverride == nullptr || !backgroundOverrideTileSrcValid || backgroundOverrideImage == nullptr) {
-                                        return color;
-                                    }
-                                    const ChrOverride* override = backgroundOverride->override;
-                                    if(override == nullptr) {
+                                    if(backgroundOverride == nullptr || !backgroundOverrideTileSrcValid) {
                                         return color;
                                     }
                                     const int localOffsetY = bgPixel->offsetY & 0x07;
@@ -5421,28 +5426,7 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
                                     const int sourceSubY = std::clamp((subY * backgroundOverrideSourceScale) / 2, 0, backgroundOverrideSourceScale - 1);
                                     const int srcX = backgroundOverrideTileSrcX + localOffsetX * backgroundOverrideSourceScale + sourceSubX;
                                     const int srcY = backgroundOverrideTileSrcY + localOffsetY * backgroundOverrideSourceScale + sourceSubY;
-                                    if(srcX < 0 || srcY < 0 || srcX >= backgroundOverrideImage->width || srcY >= backgroundOverrideImage->height) {
-                                        return color;
-                                    }
-                                    const size_t sourcePixelIndex =
-                                        static_cast<size_t>(srcY) * static_cast<size_t>(backgroundOverrideImage->width) + static_cast<size_t>(srcX);
-                                    const uint32_t sourcePixel = backgroundOverrideImage->rgba[sourcePixelIndex];
-                                    const uint8_t sourceAlpha = static_cast<uint8_t>((sourcePixel >> 24u) & 0xFFu);
-                                    if(override->ignorePalette) {
-                                        if(sourceAlpha == 0) {
-                                            return color;
-                                        }
-                                        const uint32_t opaqueSource = (sourcePixel & 0x00FFFFFFu) | 0xFF000000u;
-                                        return sourceAlpha == 0xFF ? opaqueSource : blendPixel(color, opaqueSource, sourceAlpha);
-                                    }
-                                    if(sourceAlpha == 0 || !backgroundOverrideImage->indexedFourColor || backgroundOverrideImage->indexedPixels.size() != backgroundOverrideImage->rgba.size()) {
-                                        return color;
-                                    }
-                                    const uint8_t sourcePaletteIndex = backgroundOverrideImage->indexedPixels[sourcePixelIndex];
-                                    const uint32_t mappedColor =
-                                        ((sourcePaletteIndex == 0 ? backgroundMappedPalette[0] : backgroundMappedPalette[static_cast<size_t>(sourcePaletteIndex)]) & 0x00FFFFFFu) |
-                                        (static_cast<uint32_t>(sourceAlpha) << 24u);
-                                    return sourceAlpha == 0xFF ? mappedColor : blendPixel(color, mappedColor, 255);
+                                    return blendMappedBackgroundOverridePixel(color, mappedBackgroundOverridePixelAt(srcX, srcY));
                                 };
                                 block[0] = sampleBackgroundOverrideScale2AtOffsetX(block[0], tileOffsetX, 0, 0);
                                 block[1] = sampleBackgroundOverrideScale2AtOffsetX(block[1], tileOffsetX, 1, 0);
@@ -5583,16 +5567,9 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
                 !hasAnyValidSpriteCandidate;
             if(canUseScale2NoSpriteFastPath) {
                 auto sampleBackgroundOverrideScale2 = [&](uint32_t color, int subX, int subY) {
-                    if(backgroundOverride == nullptr || bgPixel == nullptr || !backgroundOverrideTileSrcValid || backgroundOverrideImage == nullptr) {
+                    if(backgroundOverride == nullptr || bgPixel == nullptr || !backgroundOverrideTileSrcValid) {
                         return color;
                     }
-
-                    const ChrOverride* override = backgroundOverride->override;
-                    const DecodedImage* image = backgroundOverrideImage;
-                    if(override == nullptr) {
-                        return color;
-                    }
-
                     const int localOffsetX = bgPixel->offsetX & 0x07;
                     const int localOffsetY = bgPixel->offsetY & 0x07;
                     const int sourceScale = backgroundOverrideSourceScale;
@@ -5600,51 +5577,7 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
                     const int sourceSubY = std::clamp((subY * sourceScale) / 2, 0, sourceScale - 1);
                     const int srcX = backgroundOverrideTileSrcX + localOffsetX * sourceScale + sourceSubX;
                     const int srcY = backgroundOverrideTileSrcY + localOffsetY * sourceScale + sourceSubY;
-
-                    if(srcX < 0 || srcY < 0 || srcX >= image->width || srcY >= image->height) {
-                        return color;
-                    }
-
-                    const size_t sourcePixelIndex =
-                        static_cast<size_t>(srcY) * static_cast<size_t>(image->width) + static_cast<size_t>(srcX);
-                    const uint32_t sourcePixel = image->rgba[sourcePixelIndex];
-                    const uint8_t sourceAlpha = static_cast<uint8_t>((sourcePixel >> 24u) & 0xFFu);
-                    if(override->ignorePalette) {
-                        if(sourceAlpha == 0) {
-                            return color;
-                        }
-                        const uint32_t opaqueSource = (sourcePixel & 0x00FFFFFFu) | 0xFF000000u;
-                        return sourceAlpha == 0xFF ? opaqueSource : blendPixel(color, opaqueSource, sourceAlpha);
-                    }
-
-                    if(sourceAlpha == 0) {
-                        return color;
-                    }
-                    if(!image->indexedFourColor || image->indexedPixels.size() != image->rgba.size()) {
-                        return color;
-                    }
-                    const uint8_t sourcePaletteIndex = image->indexedPixels[sourcePixelIndex];
-                    if(sourcePaletteIndex == 0) {
-                        const uint32_t mappedColor =
-                            (backgroundMappedPalette[0] & 0x00FFFFFFu) |
-                            (static_cast<uint32_t>(sourceAlpha) << 24u);
-                        if(sourceAlpha == 0xFF) {
-                            return mappedColor;
-                        }
-                        return blendPixel(color, mappedColor, 255);
-                    }
-
-                    const int paletteIndex = static_cast<int>(sourcePaletteIndex) - 1;
-                    if(paletteIndex < 0 || paletteIndex >= static_cast<int>(backgroundPalette.size())) {
-                        return color;
-                    }
-                    const uint32_t mappedColor =
-                        (backgroundMappedPalette[static_cast<size_t>(paletteIndex + 1)] & 0x00FFFFFFu) |
-                        (static_cast<uint32_t>(sourceAlpha) << 24u);
-                    if(sourceAlpha == 0xFF) {
-                        return mappedColor;
-                    }
-                    return blendPixel(color, mappedColor, 255);
+                    return blendMappedBackgroundOverridePixel(color, mappedBackgroundOverridePixelAt(srcX, srcY));
                 };
 
                 auto applyResolvedLayerScale2 = [&](const ResolvedBackgroundLayer& resolved,
@@ -5780,12 +5713,6 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
                     bgOverrideRowCachePalette = backgroundPalette;
                     bgOverrideRowCacheOpaqueBlocks.fill(false);
 
-                    const ChrOverride* override = backgroundOverride->override;
-                    if(override == nullptr) {
-                        bgOverrideRowCacheValid = false;
-                        return false;
-                    }
-
                     const int localOffsetY = bgPixel->offsetY & 0x07;
                     const int tileBaseX = backgroundOverrideTileSrcX;
                     const int tileBaseY = backgroundOverrideTileSrcY + localOffsetY * backgroundOverrideSourceScale;
@@ -5799,30 +5726,9 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
                             const int sourceSubY = std::clamp((subY * backgroundOverrideSourceScale) / 2, 0, backgroundOverrideSourceScale - 1);
                             const int srcX = tileBaseX + tileOffsetX * backgroundOverrideSourceScale + sourceSubX;
                             const int srcY = tileBaseY + sourceSubY;
-                            uint32_t mappedColor = 0;
-                            if(srcX < 0 || srcY < 0 || srcX >= backgroundOverrideImage->width || srcY >= backgroundOverrideImage->height) {
+                            const uint32_t mappedColor = mappedBackgroundOverridePixelAt(srcX, srcY);
+                            if(((mappedColor >> 24u) & 0xFFu) != 0xFFu) {
                                 opaqueBlock = false;
-                                mappedColor = 0;
-                            } else {
-                                const size_t sourcePixelIndex =
-                                    static_cast<size_t>(srcY) * static_cast<size_t>(backgroundOverrideImage->width) + static_cast<size_t>(srcX);
-                                const uint32_t sourcePixel = backgroundOverrideImage->rgba[sourcePixelIndex];
-                                const uint8_t sourceAlpha = static_cast<uint8_t>((sourcePixel >> 24u) & 0xFFu);
-                                if(override->ignorePalette) {
-                                    mappedColor = sourceAlpha == 0 ? 0u : ((sourcePixel & 0x00FFFFFFu) | (static_cast<uint32_t>(sourceAlpha) << 24u));
-                                } else if(!backgroundOverrideImage->indexedFourColor || backgroundOverrideImage->indexedPixels.size() != backgroundOverrideImage->rgba.size()) {
-                                    mappedColor = 0;
-                                } else {
-                                    const uint8_t sourcePaletteIndex = backgroundOverrideImage->indexedPixels[sourcePixelIndex];
-                                    const uint32_t paletteColor =
-                                        sourcePaletteIndex == 0
-                                            ? backgroundMappedPalette[0]
-                                            : backgroundMappedPalette[static_cast<size_t>(sourcePaletteIndex)];
-                                    mappedColor = (paletteColor & 0x00FFFFFFu) | (static_cast<uint32_t>(sourceAlpha) << 24u);
-                                }
-                                if(((mappedColor >> 24u) & 0xFFu) != 0xFFu) {
-                                    opaqueBlock = false;
-                                }
                             }
                             block[static_cast<size_t>(sampleIndex)] = mappedColor;
                         }
@@ -5871,17 +5777,10 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
                             const uint32_t src01 = block[1];
                             const uint32_t src10 = block[2];
                             const uint32_t src11 = block[3];
-                            const auto applyMapped = [&](uint32_t base, uint32_t mapped) {
-                                const uint8_t alpha = static_cast<uint8_t>((mapped >> 24u) & 0xFFu);
-                                if(alpha == 0) {
-                                    return base;
-                                }
-                                return alpha == 0xFF ? mapped : blendPixel(base, mapped, 255);
-                            };
-                            block00 = applyMapped(block00, src00);
-                            block01 = applyMapped(block01, src01);
-                            block10 = applyMapped(block10, src10);
-                            block11 = applyMapped(block11, src11);
+                            block00 = blendMappedBackgroundOverridePixel(block00, src00);
+                            block01 = blendMappedBackgroundOverridePixel(block01, src01);
+                            block10 = blendMappedBackgroundOverridePixel(block10, src10);
+                            block11 = blendMappedBackgroundOverridePixel(block11, src11);
                         } else {
                             block00 = sampleBackgroundOverrideScale2(block00, 0, 0);
                             block01 = sampleBackgroundOverrideScale2(block01, 1, 0);
