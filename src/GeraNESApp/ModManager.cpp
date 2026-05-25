@@ -3859,14 +3859,6 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
     const bool canUseOverrideLookupCache = !preparedOverrides.empty();
     using PreparedOverride = RenderPreparedOverride;
     using PreparedBackground = RenderPreparedBackground;
-    const bool hasAnySpriteTargetOverrides = std::any_of(preparedOverrides.begin(), preparedOverrides.end(), [](const PreparedOverride& prepared) {
-        return prepared.override != nullptr && prepared.override->target != ChrOverride::Target::Background;
-    });
-    const bool hasDynamicSpriteTargetOverrides = std::any_of(preparedOverrides.begin(), preparedOverrides.end(), [](const PreparedOverride& prepared) {
-        return prepared.override != nullptr &&
-               prepared.override->target != ChrOverride::Target::Background &&
-               prepared.hasDynamicConditions;
-    });
 
     if(preparedOverrides.empty() && preparedBackgrounds.empty()) {
         for(int nesY = std::max(0, activeTop / scale); nesY < std::min(PPU::SCREEN_HEIGHT, (activeBottom + scale - 1) / scale); ++nesY) {
@@ -3950,6 +3942,14 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
         }
         const size_t index = static_cast<size_t>(y) * PPU::SCREEN_WIDTH + static_cast<size_t>(x);
         return index < backgroundPixelsCount ? &backgroundPixelsData[index] : nullptr;
+    };
+
+    auto rawSpritePixelAt = [&](int x, int y) -> const PPU::DebugModSpritePixel* {
+        if(x < 0 || x >= PPU::SCREEN_WIDTH || y < 0 || y >= PPU::SCREEN_HEIGHT) {
+            return nullptr;
+        }
+        const size_t index = static_cast<size_t>(y) * PPU::SCREEN_WIDTH + static_cast<size_t>(x);
+        return index < rawSpritePixelsCount ? &rawSpritePixelsData[index] : nullptr;
     };
 
     auto candidatePaletteKey = [](const PPU::DebugModSpriteCandidate& candidate) -> uint32_t {
@@ -4098,17 +4098,14 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
         }
     }
 
-    const PPU::DebugModSpritePixel* const spritePixelsData =
-        !augmentedSpritePixels.empty() ? augmentedSpritePixels.data() : rawSpritePixelsData;
-    const size_t spritePixelsCount =
-        !augmentedSpritePixels.empty() ? augmentedSpritePixels.size() : rawSpritePixelsCount;
-
     auto spritePixelAt = [&](int x, int y) -> const PPU::DebugModSpritePixel* {
         if(x < 0 || x >= PPU::SCREEN_WIDTH || y < 0 || y >= PPU::SCREEN_HEIGHT) {
             return nullptr;
         }
-        const size_t index = static_cast<size_t>(y) * PPU::SCREEN_WIDTH + static_cast<size_t>(x);
-        return index < spritePixelsCount ? &spritePixelsData[index] : nullptr;
+        if(!augmentedSpritePixels.empty()) {
+            return &augmentedSpritePixels[static_cast<size_t>(y) * PPU::SCREEN_WIDTH + static_cast<size_t>(x)];
+        }
+        return rawSpritePixelAt(x, y);
     };
 
     auto scrollXForLine = [&](int y) {
@@ -4385,10 +4382,6 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
     overrideLookupCache.reserve(std::min<size_t>(preparedOverrides.size() * 32u, 32768u));
     std::unordered_map<uint64_t, const PreparedOverride*> tileOriginOverrideLookupCache;
     tileOriginOverrideLookupCache.reserve(std::min<size_t>(preparedOverrides.size() * 64u, 65536u));
-    std::unordered_map<uint64_t, const PreparedOverride*> staticSpriteOverrideCache;
-    if(hasAnySpriteTargetOverrides && !hasDynamicSpriteTargetOverrides) {
-        staticSpriteOverrideCache.reserve(std::min<size_t>(preparedOverrides.size() * 16u, 16384u));
-    }
 
     struct ResolvedBackgroundLayer {
         const PreparedBackground* prepared = nullptr;
@@ -4979,7 +4972,7 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
             const PPU::DebugModBackgroundPixel* bgPixel =
                 pixelIndex < backgroundPixelsCount ? &backgroundPixelsData[pixelIndex] : nullptr;
             const PPU::DebugModSpritePixel* spritePixel =
-                pixelIndex < spritePixelsCount ? &spritePixelsData[pixelIndex] : nullptr;
+                pixelIndex < rawSpritePixelsCount ? &rawSpritePixelsData[pixelIndex] : nullptr;
             const bool hasSpriteCandidates = spritePixel != nullptr && spritePixel->count > 0;
 
             const PreparedOverride* backgroundOverride = nullptr;
@@ -6112,50 +6105,19 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
                 }
 
                 const int spriteFullTileIndex = candidate.tileIndex != 0xFFFF ? static_cast<int>(candidate.tileIndex) : -1;
-                if(spriteFullTileIndex >= 0 && hasAnySpriteTargetOverrides) {
-                    const uint32_t currentTileHash = candidate.tileHash != 0 ? candidate.tileHash : tileHash(spriteFullTileIndex);
-                    const int resolvedSpriteFullTileIndex = canonicalSnapshotTileIndex(spriteFullTileIndex, currentTileHash);
-                    const uint64_t staticSpriteLookupKey = makeOverrideLookupKey(
-                        ChrOverride::Target::Sprite,
-                        resolvedSpriteFullTileIndex,
-                        spriteFullTileIndex / 256,
-                        currentTileHash,
-                        resolvedCandidate.spritePalette,
-                        candidate.horizontalMirror,
-                        candidate.verticalMirror,
-                        candidate.behindBackground);
-                    if(!hasDynamicSpriteTargetOverrides) {
-                        if(const auto it = staticSpriteOverrideCache.find(staticSpriteLookupKey); it != staticSpriteOverrideCache.end()) {
-                            resolvedCandidate.spriteOverride = it->second;
-                        } else {
-                            const ConditionContext context = { nesX, nesY, bgPixel, &candidate };
-                            resolvedCandidate.spriteOverride =
-                                findOverride(
-                                    ChrOverride::Target::Sprite,
-                                    spriteFullTileIndex & 0xFF,
-                                    spriteFullTileIndex,
-                                    spriteFullTileIndex / 256,
-                                    resolvedCandidate.spritePalette,
-                                    candidate.horizontalMirror,
-                                    candidate.verticalMirror,
-                                    candidate.behindBackground,
-                                    context);
-                            staticSpriteOverrideCache.emplace(staticSpriteLookupKey, resolvedCandidate.spriteOverride);
-                        }
-                    } else {
-                        const ConditionContext context = { nesX, nesY, bgPixel, &candidate };
-                        resolvedCandidate.spriteOverride =
-                            findOverride(
-                                ChrOverride::Target::Sprite,
-                                spriteFullTileIndex & 0xFF,
-                                spriteFullTileIndex,
-                                spriteFullTileIndex / 256,
-                                resolvedCandidate.spritePalette,
-                                candidate.horizontalMirror,
-                                candidate.verticalMirror,
-                                candidate.behindBackground,
-                                context);
-                    }
+                if(spriteFullTileIndex >= 0) {
+                    const ConditionContext context = { nesX, nesY, bgPixel, &candidate };
+                    resolvedCandidate.spriteOverride =
+                        findOverride(
+                            ChrOverride::Target::Sprite,
+                            spriteFullTileIndex & 0xFF,
+                            spriteFullTileIndex,
+                            spriteFullTileIndex / 256,
+                            resolvedCandidate.spritePalette,
+                            candidate.horizontalMirror,
+                            candidate.verticalMirror,
+                            candidate.behindBackground,
+                            context);
                 }
                 resolvedCandidate.participates = resolvedCandidate.spriteOverride != nullptr || candidate.colorLowBits != 0;
                 if(!resolvedCandidate.participates) {
