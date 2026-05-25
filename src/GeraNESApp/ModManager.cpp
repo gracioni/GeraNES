@@ -5348,12 +5348,16 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
                     noSpriteDirectRowCachePalette = backgroundPalette;
 
                     const bool hasRowOverrideCache = backgroundOverride != nullptr && ensureBackgroundOverrideRowCache();
+                    auto rowBlockHasOpaqueOverride = [&](int tileOffsetX) {
+                        return hasRowOverrideCache &&
+                            bgOverrideRowCacheOpaqueBlocks[static_cast<size_t>(tileOffsetX)];
+                    };
                     const bool hasAnyRowLayers =
                         !lowPriorityScanlineLayers.empty() ||
                         !midBeforeTileScanlineLayers.empty() ||
                         !midAfterTileScanlineLayers.empty() ||
                         !highPriorityScanlineLayers.empty();
-                    auto applyLayerListToRow = [&](const std::vector<ScanlineBackgroundLayer>& layers) {
+                    auto applyLayerListToRow = [&](const std::vector<ScanlineBackgroundLayer>& layers, bool skipOpaqueOverrideBlocks) {
                         for(const ScanlineBackgroundLayer& layer : layers) {
                             if(layer.prepared == nullptr || layer.prepared->image == nullptr) {
                                 continue;
@@ -5365,6 +5369,9 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
                             }
                             const PreparedBackground& prepared = *layer.prepared;
                             for(int tileOffsetX = startOffset; tileOffsetX <= endOffset; ++tileOffsetX) {
+                                if(skipOpaqueOverrideBlocks && rowBlockHasOpaqueOverride(tileOffsetX)) {
+                                    continue;
+                                }
                                 auto& block = noSpriteDirectRowCacheBlocks[static_cast<size_t>(tileOffsetX)];
                                 const int baseSrcX = (layer.srcBaseX + tileOriginX + tileOffsetX) * prepared.backgroundScale;
                                 applyPreparedBackgroundBlockScale2(prepared, layer.row0, layer.row1, baseSrcX, layer.maxSub, block[0], block[1], block[2], block[3]);
@@ -5379,13 +5386,17 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
                             block = {0u, 0u, 0u, 0u};
                             continue;
                         }
+                        if(rowBlockHasOpaqueOverride(tileOffsetX)) {
+                            block = bgOverrideRowCacheBlocks[static_cast<size_t>(tileOffsetX)];
+                            continue;
+                        }
                         const uint32_t base = m_disableOriginalTiles ? 0x00000000u : srcRow[pixelX];
                         block = {base, base, base, base};
                     }
 
                     if(hasAnyRowLayers) {
-                        applyLayerListToRow(lowPriorityScanlineLayers);
-                        applyLayerListToRow(midBeforeTileScanlineLayers);
+                        applyLayerListToRow(lowPriorityScanlineLayers, true);
+                        applyLayerListToRow(midBeforeTileScanlineLayers, true);
                     }
 
                     for(int tileOffsetX = 0; tileOffsetX < 8; ++tileOffsetX) {
@@ -5395,6 +5406,9 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
                         }
                         auto& block = noSpriteDirectRowCacheBlocks[static_cast<size_t>(tileOffsetX)];
                         if(backgroundOverride != nullptr) {
+                            if(rowBlockHasOpaqueOverride(tileOffsetX)) {
+                                continue;
+                            }
                             if(hasRowOverrideCache) {
                                 const auto& overrideBlock = bgOverrideRowCacheBlocks[static_cast<size_t>(tileOffsetX)];
                                 block[0] = blendMappedBackgroundOverridePixel(block[0], overrideBlock[0]);
@@ -5424,8 +5438,8 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
                     }
 
                     if(hasAnyRowLayers) {
-                        applyLayerListToRow(midAfterTileScanlineLayers);
-                        applyLayerListToRow(highPriorityScanlineLayers);
+                        applyLayerListToRow(midAfterTileScanlineLayers, false);
+                        applyLayerListToRow(highPriorityScanlineLayers, false);
                     }
                     return true;
                 };
@@ -5443,16 +5457,31 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
                     block10 = block[2];
                     block11 = block[3];
                 } else {
-                    for(const ScanlineBackgroundLayer& layer : lowPriorityScanlineLayers) {
-                        applyScanlineLayerScale2(layer, nesX, block00, block01, block10, block11);
-                    }
-                    for(const ScanlineBackgroundLayer& layer : midBeforeTileScanlineLayers) {
-                        applyScanlineLayerScale2(layer, nesX, block00, block01, block10, block11);
+                    const bool hasBackgroundOverrideRowCache =
+                        backgroundOverride != nullptr && ensureBackgroundOverrideRowCache();
+                    const bool opaqueCurrentOverrideBlock =
+                        hasBackgroundOverrideRowCache &&
+                        bgOverrideRowCacheOpaqueBlocks[static_cast<size_t>(localOffsetX)];
+
+                    if(opaqueCurrentOverrideBlock) {
+                        const auto& block = bgOverrideRowCacheBlocks[static_cast<size_t>(localOffsetX)];
+                        block00 = block[0];
+                        block01 = block[1];
+                        block10 = block[2];
+                        block11 = block[3];
+                    } else {
+                        for(const ScanlineBackgroundLayer& layer : lowPriorityScanlineLayers) {
+                            applyScanlineLayerScale2(layer, nesX, block00, block01, block10, block11);
+                        }
+                        for(const ScanlineBackgroundLayer& layer : midBeforeTileScanlineLayers) {
+                            applyScanlineLayerScale2(layer, nesX, block00, block01, block10, block11);
+                        }
                     }
 
                     if(bgPixel != nullptr && bgPixel->valid) {
                         if(backgroundOverride != nullptr) {
-                            if(ensureBackgroundOverrideRowCache()) {
+                            if(opaqueCurrentOverrideBlock) {
+                            } else if(hasBackgroundOverrideRowCache) {
                                 const auto& block = bgOverrideRowCacheBlocks[static_cast<size_t>(localOffsetX)];
                                 const auto applyMapped = [&](uint32_t base, uint32_t mapped) {
                                     const uint8_t alpha = static_cast<uint8_t>((mapped >> 24u) & 0xFFu);
@@ -5833,11 +5862,65 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
                 }
             };
 
+            auto applyCachedBackgroundOverrideToBlock = [&]() -> bool {
+                if(backgroundOverride == nullptr ||
+                   bgPixel == nullptr ||
+                   !backgroundOverrideTileSrcValid) {
+                    return false;
+                }
+
+                const int localOffsetX = bgPixel->offsetX & 0x07;
+                const int localOffsetY = bgPixel->offsetY & 0x07;
+                const int sourceScale = backgroundOverrideSourceScale;
+                const int tileBaseX = backgroundOverrideTileSrcX + localOffsetX * sourceScale;
+                const int tileBaseY = backgroundOverrideTileSrcY + localOffsetY * sourceScale;
+                std::array<int, 8> srcXs = {};
+                std::array<int, 8> srcYs = {};
+                for(int subX = 0; subX < blockWidth; ++subX) {
+                    srcXs[static_cast<size_t>(subX)] =
+                        tileBaseX + std::clamp((subX * sourceScale) / scale, 0, sourceScale - 1);
+                }
+                for(int subY = subYStart; subY < subYEnd; ++subY) {
+                    srcYs[static_cast<size_t>(subY)] =
+                        tileBaseY + std::clamp((subY * sourceScale) / scale, 0, sourceScale - 1);
+                }
+
+                if(canUseScale2BlockPath) {
+                    baseBlockColors[0] = blendMappedBackgroundOverridePixel(
+                        baseBlockColors[0],
+                        mappedBackgroundOverridePixelAt(srcXs[0], srcYs[0]));
+                    baseBlockColors[1] = blendMappedBackgroundOverridePixel(
+                        baseBlockColors[1],
+                        mappedBackgroundOverridePixelAt(srcXs[1], srcYs[0]));
+                    baseBlockColors[8] = blendMappedBackgroundOverridePixel(
+                        baseBlockColors[8],
+                        mappedBackgroundOverridePixelAt(srcXs[0], srcYs[1]));
+                    baseBlockColors[9] = blendMappedBackgroundOverridePixel(
+                        baseBlockColors[9],
+                        mappedBackgroundOverridePixelAt(srcXs[1], srcYs[1]));
+                    return true;
+                }
+
+                for(int subY = subYStart; subY < subYEnd; ++subY) {
+                    uint32_t* blockRow = baseBlockColors.data() + static_cast<size_t>(subY) * 8u;
+                    const int srcY = srcYs[static_cast<size_t>(subY)];
+                    for(int subX = 0; subX < blockWidth; ++subX) {
+                        blockRow[static_cast<size_t>(subX)] = blendMappedBackgroundOverridePixel(
+                            blockRow[static_cast<size_t>(subX)],
+                            mappedBackgroundOverridePixelAt(srcXs[static_cast<size_t>(subX)], srcY));
+                    }
+                }
+                return true;
+            };
+
             auto applyBackgroundOverrideToBlock = [&]() {
                 if(!bgValid) {
                     return;
                 }
                 if(backgroundOverride != nullptr) {
+                    if(applyCachedBackgroundOverrideToBlock()) {
+                        return;
+                    }
                     if(canUseScale2BlockPath) {
                         baseBlockColors[0] = sampleOverridePixel(
                             baseBlockColors[0],
