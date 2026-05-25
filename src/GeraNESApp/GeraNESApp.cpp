@@ -1201,10 +1201,15 @@ void GeraNESApp::removeRomDatabaseEditor()
 
 std::tuple<int, int> GeraNESApp::getNesCursor(int screenX, int screenY)
 {
-    int nesX = ((screenX - m_nesScreenRect.min.x) * PPU::SCREEN_WIDTH) / m_nesScreenRect.getWidth();
-    int clipTop = m_clipHeightValue;
-    int visibleNES = PPU::SCREEN_HEIGHT - 2 * m_clipHeightValue;
-    int nesY = clipTop + ((screenY - m_nesScreenRect.min.y) * visibleNES) / m_nesScreenRect.getHeight();
+    const ModManager::OverscanConfig overscan = combinedDisplayOverscan();
+    const int visibleLeft = overscan.left;
+    const int visibleRight = PPU::SCREEN_WIDTH - overscan.right;
+    const int visibleTop = overscan.top;
+    const int visibleBottom = PPU::SCREEN_HEIGHT - overscan.bottom;
+    const int visibleWidth = std::max(1, visibleRight - visibleLeft);
+    const int visibleHeight = std::max(1, visibleBottom - visibleTop);
+    int nesX = visibleLeft + ((screenX - m_nesScreenRect.min.x) * visibleWidth) / m_nesScreenRect.getWidth();
+    int nesY = visibleTop + ((screenY - m_nesScreenRect.min.y) * visibleHeight) / m_nesScreenRect.getHeight();
     return std::make_tuple(nesX, nesY);
 }
 
@@ -1217,8 +1222,9 @@ std::tuple<int, int> GeraNESApp::getClampedNesCursor(int screenX, int screenY)
     const int clampedX = std::clamp(screenX, minX, maxX);
     const int clampedY = std::clamp(screenY, minY, maxY);
     auto [nesX, nesY] = getNesCursor(clampedX, clampedY);
-    nesX = std::clamp(nesX, 0, PPU::SCREEN_WIDTH - 1);
-    nesY = std::clamp(nesY, m_clipHeightValue, PPU::SCREEN_HEIGHT - m_clipHeightValue - 1);
+    const ModManager::OverscanConfig overscan = combinedDisplayOverscan();
+    nesX = std::clamp(nesX, overscan.left, PPU::SCREEN_WIDTH - overscan.right - 1);
+    nesY = std::clamp(nesY, overscan.top, PPU::SCREEN_HEIGHT - overscan.bottom - 1);
     return std::make_tuple(nesX, nesY);
 }
 
@@ -1521,8 +1527,8 @@ void GeraNESApp::refreshModFrameCaptureHook()
                emu,
                modSnapshot,
                framebuffer,
-               m_clipHeightValue,
-               PPU::SCREEN_HEIGHT - m_clipHeightValue,
+               m_overscanConfig.top,
+               PPU::SCREEN_HEIGHT - m_overscanConfig.bottom,
                captureDebugSnapshot)) {
             snapshot = {};
             framebuffer.clear();
@@ -1549,6 +1555,41 @@ void GeraNESApp::refreshModFrameCaptureHook()
         }
         return true;
     });
+}
+
+ModManager::OverscanConfig GeraNESApp::combinedDisplayOverscan() const
+{
+    ModManager::OverscanConfig overscan = m_overscanConfig;
+    const ModManager::OverscanConfig& modOverscan = m_modManager.overscanConfig();
+    if(modOverscan.enabled) {
+        overscan.enabled = true;
+        overscan.top += modOverscan.top;
+        overscan.right += modOverscan.right;
+        overscan.bottom += modOverscan.bottom;
+        overscan.left += modOverscan.left;
+    }
+
+    overscan.top = std::clamp(overscan.top, 0, PPU::SCREEN_HEIGHT - 1);
+    overscan.bottom = std::clamp(overscan.bottom, 0, PPU::SCREEN_HEIGHT - 1);
+    if(overscan.top + overscan.bottom >= PPU::SCREEN_HEIGHT) {
+        overscan.bottom = PPU::SCREEN_HEIGHT - overscan.top - 1;
+    }
+
+    overscan.left = std::clamp(overscan.left, 0, PPU::SCREEN_WIDTH - 1);
+    overscan.right = std::clamp(overscan.right, 0, PPU::SCREEN_WIDTH - 1);
+    if(overscan.left + overscan.right >= PPU::SCREEN_WIDTH) {
+        overscan.right = PPU::SCREEN_WIDTH - overscan.left - 1;
+    }
+
+    return overscan;
+}
+
+uint32_t GeraNESApp::overscanKey(const ModManager::OverscanConfig& overscan)
+{
+    return (static_cast<uint32_t>(overscan.top & 0xFF) << 24u) |
+           (static_cast<uint32_t>(overscan.right & 0xFF) << 16u) |
+           (static_cast<uint32_t>(overscan.bottom & 0xFF) << 8u) |
+           static_cast<uint32_t>(overscan.left & 0xFF);
 }
 
 bool GeraNESApp::openRomPath(const fs::path& path, bool updateRecentFiles, bool clearSelectedMod)
@@ -3596,11 +3637,11 @@ void GeraNESApp::updateBuffers()
     const int clientDrawableY = static_cast<int>(std::round(clientArea.y * drawableScaleY));
     const int clientDrawableW = std::max(0, static_cast<int>(std::round(clientArea.w * drawableScaleX)));
     const int clientDrawableH = std::max(0, static_cast<int>(std::round(clientArea.h * drawableScaleY)));
-    const ModManager::OverscanConfig& modOverscan = m_modManager.overscanConfig();
-    const int visibleLeft = modOverscan.enabled ? modOverscan.left : 0;
-    const int visibleRight = modOverscan.enabled ? PPU::SCREEN_WIDTH - modOverscan.right : PPU::SCREEN_WIDTH;
-    const int visibleTop = std::clamp((modOverscan.enabled ? modOverscan.top : 0) + m_clipHeightValue, 0, PPU::SCREEN_HEIGHT - 1);
-    const int visibleBottom = std::clamp(PPU::SCREEN_HEIGHT - (modOverscan.enabled ? modOverscan.bottom : 0) - m_clipHeightValue, visibleTop + 1, PPU::SCREEN_HEIGHT);
+    const ModManager::OverscanConfig overscan = combinedDisplayOverscan();
+    const int visibleLeft = overscan.left;
+    const int visibleRight = PPU::SCREEN_WIDTH - overscan.right;
+    const int visibleTop = overscan.top;
+    const int visibleBottom = PPU::SCREEN_HEIGHT - overscan.bottom;
     const GLfloat sourceWidth = static_cast<GLfloat>(std::max(1, visibleRight - visibleLeft));
     const GLfloat sourceHeight = static_cast<GLfloat>(std::max(1, visibleBottom - visibleTop));
     GLfloat drawWidth = 0.0f;

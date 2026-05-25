@@ -2176,8 +2176,12 @@ inline void GeraNESApp::drawModPixelInspectorWindow()
     const bool hasRomLoaded = m_emu.valid();
     const bool modActive = hasRomLoaded && m_modManager.active();
     const int modScale = modActive ? std::clamp(m_modManager.resolutionMultiplier(), 1, 8) : 1;
-    const int activeTop = m_clipHeightValue;
-    const int activeBottom = PPU::SCREEN_HEIGHT - m_clipHeightValue;
+    const ModManager::OverscanConfig overscan = combinedDisplayOverscan();
+    const int activeLeft = overscan.left;
+    const int activeRight = PPU::SCREEN_WIDTH - overscan.right;
+    const int activeTop = overscan.top;
+    const int activeBottom = PPU::SCREEN_HEIGHT - overscan.bottom;
+    const int activeWidth = std::max(1, activeRight - activeLeft);
     const int activeHeight = std::max(1, activeBottom - activeTop);
     m_modPixelInspectorZoom = std::clamp(m_modPixelInspectorZoom, 1.0f, 8.0f);
 
@@ -2215,11 +2219,14 @@ inline void GeraNESApp::drawModPixelInspectorWindow()
     const uint32_t* sourceFramebuffer = m_emu.getFramebuffer();
 
     ImGui::Text(
-        "Frame %u | Mod %s | Scale %dx | Clip top/bottom %d",
+        "Frame %u | Mod %s | Scale %dx | Overscan T%d R%d B%d L%d",
         hasSnapshot ? snapshot.frameCount : 0u,
         modActive ? "active" : "inactive",
         modScale,
-        m_clipHeightValue
+        overscan.top,
+        overscan.right,
+        overscan.bottom,
+        overscan.left
     );
 
     if(!ImGui::BeginChild("ModPixelInspectorScroll", ImVec2(0.0f, -180.0f), false, ImGuiWindowFlags_HorizontalScrollbar)) {
@@ -2228,15 +2235,18 @@ inline void GeraNESApp::drawModPixelInspectorWindow()
         return;
     }
 
-    const ImVec2 imageSize(256.0f * m_modPixelInspectorZoom, static_cast<float>(activeHeight) * m_modPixelInspectorZoom);
+    const ImVec2 imageSize(static_cast<float>(activeWidth) * m_modPixelInspectorZoom, static_cast<float>(activeHeight) * m_modPixelInspectorZoom);
+    const float textureWidth = static_cast<float>(std::max(1, m_renderTextureWidth));
     const float textureHeight = static_cast<float>(std::max(1, m_renderTextureHeight));
+    const float uvLeft = static_cast<float>(activeLeft * modScale) / textureWidth;
+    const float uvRight = static_cast<float>(activeRight * modScale) / textureWidth;
     const float uvTop = static_cast<float>(activeTop * modScale) / textureHeight;
     const float uvBottom = static_cast<float>(activeBottom * modScale) / textureHeight;
     ImGui::Image(
         static_cast<ImTextureID>(static_cast<uintptr_t>(m_texture)),
         imageSize,
-        ImVec2(0.0f, uvTop),
-        ImVec2(1.0f, uvBottom)
+        ImVec2(uvLeft, uvTop),
+        ImVec2(uvRight, uvBottom)
     );
 
     const ImVec2 imageMin = ImGui::GetItemRectMin();
@@ -2244,12 +2254,13 @@ inline void GeraNESApp::drawModPixelInspectorWindow()
     const bool imageClicked = ImGui::IsItemClicked(ImGuiMouseButton_Left);
     if(ImGui::IsItemHovered()) {
         const ImVec2 mousePos = ImGui::GetIO().MousePos;
-        const int hoveredX = std::clamp(static_cast<int>((mousePos.x - imageMin.x) / m_modPixelInspectorZoom), 0, PPU::SCREEN_WIDTH - 1);
+        const int hoveredLocalX = std::clamp(static_cast<int>((mousePos.x - imageMin.x) / m_modPixelInspectorZoom), 0, activeWidth - 1);
+        const int hoveredX = activeLeft + hoveredLocalX;
         const int hoveredLocalY = std::clamp(static_cast<int>((mousePos.y - imageMin.y) / m_modPixelInspectorZoom), 0, activeHeight - 1);
         const int hoveredY = activeTop + hoveredLocalY;
         const size_t pixelIndex = static_cast<size_t>(hoveredY) * PPU::SCREEN_WIDTH + static_cast<size_t>(hoveredX);
         const ImVec2 pixelMin(
-            imageMin.x + static_cast<float>(hoveredX) * m_modPixelInspectorZoom,
+            imageMin.x + static_cast<float>(hoveredLocalX) * m_modPixelInspectorZoom,
             imageMin.y + static_cast<float>(hoveredLocalY) * m_modPixelInspectorZoom
         );
         const ImVec2 pixelMax(pixelMin.x + m_modPixelInspectorZoom, pixelMin.y + m_modPixelInspectorZoom);

@@ -108,7 +108,7 @@ private:
 
     std::vector<std::string> m_audioDevices;
 
-    int m_clipHeightValue = 8;
+    ModManager::OverscanConfig m_overscanConfig = { true, 8, 0, 8, 0 };
 
     GLVertexArrayObject m_vao;
     GLVertexBufferObject m_vbo;
@@ -367,7 +367,7 @@ private:
     uint32_t m_lastMainLoopDtMs = 0;
     uint64_t m_presenterFrameAccumScaled = 0;
     uint32_t m_presenterStepRemainder = 0;
-    int m_lastTextureUploadClipHeightValue = -1;
+    uint32_t m_lastTextureUploadOverscanKey = 0;
     int m_lastTextureUploadModScale = -1;
 
     static constexpr std::array<const char*, 3> VSYNC_TYPE_LABELS {"Off", "Syncronized", "Adaptative"};
@@ -496,6 +496,8 @@ private:
     void onEmuResetForModAudio(uint32_t frame);
     void onEmuLoadForModAssets(uint32_t frame);
     void refreshModFrameCaptureHook();
+    ModManager::OverscanConfig combinedDisplayOverscan() const;
+    static uint32_t overscanKey(const ModManager::OverscanConfig& overscan);
 
     std::tuple<int, int> getNesCursor(int screenX, int screenY);
     std::tuple<int, int> getClampedNesCursor(int screenX, int screenY);
