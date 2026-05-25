@@ -4827,7 +4827,18 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
     int lastBackgroundOverrideFullTileIndex = -1;
     uint32_t lastBackgroundOverrideTileHash = 0;
     std::array<uint8_t, 3> lastBackgroundOverridePalette = {};
-    const PreparedOverride* lastBackgroundOverride = nullptr;
+    struct CachedBackgroundOverrideState {
+        const PreparedOverride* override = nullptr;
+        const DecodedImage* image = nullptr;
+        uint32_t fallbackColor = 0;
+        std::array<uint8_t, 3> palette = {};
+        std::array<uint32_t, 4> mappedPalette = {};
+        int tileSrcX = 0;
+        int tileSrcY = 0;
+        int sourceScale = 1;
+        bool tileSrcValid = false;
+    };
+    CachedBackgroundOverrideState lastBackgroundOverrideState;
     const int activeNesY0 = std::max(0, activeTop / scale);
     const int activeNesY1 = std::min(PPU::SCREEN_HEIGHT, (activeBottom + scale - 1) / scale);
     std::vector<ScanlineBackgroundLayer> lowPriorityScanlineLayers;
@@ -4984,6 +4995,11 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
             if(bgPixel != nullptr && bgPixel->valid) {
                 const int bgFullTileIndex = bgPixel->tileIndex != 0xFFFF ? static_cast<int>(bgPixel->tileIndex) : -1;
                 backgroundPalette = { bgPixel->palette[0], bgPixel->palette[1], bgPixel->palette[2] };
+                backgroundFallbackColor = snapshot.paletteColors[bgPixel->paletteIndex & 0x3F];
+                backgroundMappedPalette[0] = snapshot.paletteColors[snapshot.universalBgColor & 0x3F];
+                backgroundMappedPalette[1] = snapshot.paletteColors[backgroundPalette[0] & 0x3F];
+                backgroundMappedPalette[2] = snapshot.paletteColors[backgroundPalette[1] & 0x3F];
+                backgroundMappedPalette[3] = snapshot.paletteColors[backgroundPalette[2] & 0x3F];
                 if(bgFullTileIndex >= 0) {
                     const int tileOriginX = nesX - static_cast<int>(bgPixel->offsetX);
                     const int tileOriginY = nesY - static_cast<int>(bgPixel->offsetY);
@@ -4993,7 +5009,15 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
                         lastBackgroundOverrideFullTileIndex == bgFullTileIndex &&
                         lastBackgroundOverrideTileHash == bgPixel->tileHash &&
                         lastBackgroundOverridePalette == backgroundPalette) {
-                        backgroundOverride = lastBackgroundOverride;
+                        backgroundOverride = lastBackgroundOverrideState.override;
+                        backgroundFallbackColor = lastBackgroundOverrideState.fallbackColor;
+                        backgroundPalette = lastBackgroundOverrideState.palette;
+                        backgroundMappedPalette = lastBackgroundOverrideState.mappedPalette;
+                        backgroundOverrideImage = lastBackgroundOverrideState.image;
+                        backgroundOverrideTileSrcX = lastBackgroundOverrideState.tileSrcX;
+                        backgroundOverrideTileSrcY = lastBackgroundOverrideState.tileSrcY;
+                        backgroundOverrideSourceScale = lastBackgroundOverrideState.sourceScale;
+                        backgroundOverrideTileSrcValid = lastBackgroundOverrideState.tileSrcValid;
                     } else {
                         const ConditionContext context = { nesX, nesY, bgPixel, nullptr };
                         backgroundOverride =
@@ -5006,66 +5030,70 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
                         lastBackgroundOverrideFullTileIndex = bgFullTileIndex;
                         lastBackgroundOverrideTileHash = bgPixel->tileHash;
                         lastBackgroundOverridePalette = backgroundPalette;
-                        lastBackgroundOverride = backgroundOverride;
-                    }
-                    if(backgroundOverride != nullptr) {
-                        const ChrOverride* override = backgroundOverride->override;
-                        backgroundOverrideImage = backgroundOverride->image;
-                        if(override != nullptr && backgroundOverrideImage != nullptr) {
-                            backgroundOverrideSourceScale = backgroundOverride->sourceScale;
-                            if(override->hasSourcePosition()) {
-                                backgroundOverrideTileSrcX = override->sourceX;
-                                backgroundOverrideTileSrcY = override->sourceY;
-                                backgroundOverrideTileSrcValid = true;
-                            } else {
-                                const int tilePixelSize = 8 * backgroundOverrideSourceScale;
-                                const bool atlasImage =
-                                    override->wholeChr() ||
-                                    override->sourceTileOffset > 0 ||
-                                    (backgroundOverrideImage->width >= override->columns * tilePixelSize &&
-                                     backgroundOverrideImage->height > tilePixelSize);
-                                if(atlasImage) {
-                                    int sourceColumn = 0;
-                                    int sourceRow = 0;
-                                    if(override->wholeChr()) {
-                                        const int sourceTile = bgFullTileIndex + override->sourceTileOffset;
-                                        if(backgroundOverride->wholeChrLayout == ChrOverride::SourceLayout::PatternTables) {
+                        lastBackgroundOverrideState = {};
+                        lastBackgroundOverrideState.override = backgroundOverride;
+                        lastBackgroundOverrideState.fallbackColor = backgroundFallbackColor;
+                        lastBackgroundOverrideState.palette = backgroundPalette;
+                        lastBackgroundOverrideState.mappedPalette = backgroundMappedPalette;
+                        if(backgroundOverride != nullptr) {
+                            const ChrOverride* override = backgroundOverride->override;
+                            backgroundOverrideImage = backgroundOverride->image;
+                            lastBackgroundOverrideState.image = backgroundOverrideImage;
+                            if(override != nullptr && backgroundOverrideImage != nullptr) {
+                                backgroundOverrideSourceScale = backgroundOverride->sourceScale;
+                                if(override->hasSourcePosition()) {
+                                    backgroundOverrideTileSrcX = override->sourceX;
+                                    backgroundOverrideTileSrcY = override->sourceY;
+                                    backgroundOverrideTileSrcValid = true;
+                                } else {
+                                    const int tilePixelSize = 8 * backgroundOverrideSourceScale;
+                                    const bool atlasImage =
+                                        override->wholeChr() ||
+                                        override->sourceTileOffset > 0 ||
+                                        (backgroundOverrideImage->width >= override->columns * tilePixelSize &&
+                                         backgroundOverrideImage->height > tilePixelSize);
+                                    if(atlasImage) {
+                                        int sourceColumn = 0;
+                                        int sourceRow = 0;
+                                        if(override->wholeChr()) {
+                                            const int sourceTile = bgFullTileIndex + override->sourceTileOffset;
+                                            if(backgroundOverride->wholeChrLayout == ChrOverride::SourceLayout::PatternTables) {
+                                                const int table = sourceTile / 256;
+                                                const int tileInTable = sourceTile & 0xFF;
+                                                sourceColumn = (table * 16) + (tileInTable & 0x0F);
+                                                sourceRow = tileInTable >> 4;
+                                            } else {
+                                                sourceColumn = sourceTile % override->columns;
+                                                sourceRow = sourceTile / override->columns;
+                                            }
+                                        } else if(override->sourceLayout == ChrOverride::SourceLayout::PatternTables) {
+                                            const int sourceTile = override->sourceTileOffset;
                                             const int table = sourceTile / 256;
                                             const int tileInTable = sourceTile & 0xFF;
                                             sourceColumn = (table * 16) + (tileInTable & 0x0F);
                                             sourceRow = tileInTable >> 4;
                                         } else {
+                                            const int sourceTile = override->sourceTileOffset;
                                             sourceColumn = sourceTile % override->columns;
                                             sourceRow = sourceTile / override->columns;
                                         }
-                                    } else if(override->sourceLayout == ChrOverride::SourceLayout::PatternTables) {
-                                        const int sourceTile = override->sourceTileOffset;
-                                        const int table = sourceTile / 256;
-                                        const int tileInTable = sourceTile & 0xFF;
-                                        sourceColumn = (table * 16) + (tileInTable & 0x0F);
-                                        sourceRow = tileInTable >> 4;
+                                        backgroundOverrideTileSrcX = sourceColumn * tilePixelSize;
+                                        backgroundOverrideTileSrcY = sourceRow * tilePixelSize;
+                                        backgroundOverrideTileSrcValid = true;
                                     } else {
-                                        const int sourceTile = override->sourceTileOffset;
-                                        sourceColumn = sourceTile % override->columns;
-                                        sourceRow = sourceTile / override->columns;
+                                        backgroundOverrideTileSrcX = 0;
+                                        backgroundOverrideTileSrcY = 0;
+                                        backgroundOverrideTileSrcValid = true;
                                     }
-                                    backgroundOverrideTileSrcX = sourceColumn * tilePixelSize;
-                                    backgroundOverrideTileSrcY = sourceRow * tilePixelSize;
-                                    backgroundOverrideTileSrcValid = true;
-                                } else {
-                                    backgroundOverrideTileSrcX = 0;
-                                    backgroundOverrideTileSrcY = 0;
-                                    backgroundOverrideTileSrcValid = true;
                                 }
                             }
                         }
+                        lastBackgroundOverrideState.tileSrcX = backgroundOverrideTileSrcX;
+                        lastBackgroundOverrideState.tileSrcY = backgroundOverrideTileSrcY;
+                        lastBackgroundOverrideState.sourceScale = backgroundOverrideSourceScale;
+                        lastBackgroundOverrideState.tileSrcValid = backgroundOverrideTileSrcValid;
                     }
                 }
-                backgroundFallbackColor = snapshot.paletteColors[bgPixel->paletteIndex & 0x3F];
-                backgroundMappedPalette[0] = snapshot.paletteColors[snapshot.universalBgColor & 0x3F];
-                backgroundMappedPalette[1] = snapshot.paletteColors[backgroundPalette[0] & 0x3F];
-                backgroundMappedPalette[2] = snapshot.paletteColors[backgroundPalette[1] & 0x3F];
-                backgroundMappedPalette[3] = snapshot.paletteColors[backgroundPalette[2] & 0x3F];
             }
             bool hasAnyValidSpriteCandidate = false;
             if(hasSpriteCandidates) {
