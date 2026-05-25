@@ -343,6 +343,7 @@ private:
         int sourceScale = 1;
         ChrOverride::SourceLayout wholeChrLayout = ChrOverride::SourceLayout::PatternTables;
         bool hasDynamicConditions = false;
+        bool tileOriginCacheable = true;
         std::vector<const MemoryCondition*> runtimeConditions;
         size_t sequence = 0;
     };
