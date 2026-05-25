@@ -566,7 +566,6 @@ void ModManager::clear()
     m_fallbackTileRules.clear();
     m_chrRomTileHashes.clear();
     m_chrRomCanonicalTileByHash.clear();
-    m_originalFallbackTiles.clear();
     m_supportedRomHashes.clear();
     m_patchAssetPath.clear();
     m_patchExpectedRomHash.clear();
@@ -1358,7 +1357,6 @@ bool ModManager::loadMesenHiresFile()
 
     m_chrRomTileHashes = buildChrRomTileHashes(m_effectiveRomPath.empty() ? m_originalRomPath : m_effectiveRomPath);
     m_chrRomCanonicalTileByHash.clear();
-    m_originalFallbackTiles.clear();
     if(!m_chrRomTileHashes.empty()) {
         auto tileHashForIndex = [&](int tileIndex) -> uint32_t {
             return tileIndex >= 0 && tileIndex < static_cast<int>(m_chrRomTileHashes.size())
@@ -1384,12 +1382,6 @@ bool ModManager::loadMesenHiresFile()
             const uint32_t hash = tileHashForIndex(rule.tile);
             if(hash != 0 && rule.fallbackTile >= 0) {
                 m_chrRomCanonicalTileByHash[hash] = rule.fallbackTile;
-            }
-            if(rule.tile >= 0) {
-                m_originalFallbackTiles.insert(rule.tile);
-            }
-            if(rule.fallbackTile >= 0) {
-                m_originalFallbackTiles.insert(rule.fallbackTile);
             }
         }
         if(m_automaticFallbackTiles) {
@@ -2450,7 +2442,6 @@ std::optional<ModManager::DebugComposePixel> ModManager::debugComposePixel(const
         }
         return 0u;
     };
-
     auto canonicalTileIndex = [&](int tileIndex, uint32_t currentHash) {
         if(tileIndex > 0x01FF) {
             return tileIndex;
@@ -2462,6 +2453,7 @@ std::optional<ModManager::DebugComposePixel> ModManager::debugComposePixel(const
         }
         return tileIndex;
     };
+
     const std::string normalizedFilter = toLower(filterText);
     auto debugAssetMatchesFilter = [&](const std::string& assetPath) {
         return normalizedFilter.empty() || toLower(assetPath).find(normalizedFilter) != std::string::npos;
@@ -2669,15 +2661,6 @@ std::optional<ModManager::DebugComposePixel> ModManager::debugComposePixel(const
         return condition.inverted ? !match : match;
     };
 
-    auto conditionsMatchAt = [&](const std::vector<MemoryCondition>& conditions, const ConditionContext& ctx) {
-        for(const MemoryCondition& condition : conditions) {
-            if(!conditionMatchesAt(condition, ctx)) {
-                return false;
-            }
-        }
-        return true;
-    };
-
     auto describeCondition = [&](const MemoryCondition& condition, bool match, const ConditionContext& ctx) -> std::string {
         std::ostringstream out;
         const std::string name = condition.debugName.empty() ? "unnamed condition" : condition.debugName;
@@ -2825,15 +2808,6 @@ std::optional<ModManager::DebugComposePixel> ModManager::debugComposePixel(const
             }
         }
         return true;
-    };
-
-    auto scanCandidates = [&](const std::vector<const PreparedOverride*>& candidates, ChrOverride::Target target, bool allowDefaultTileFallback, int tileIndex, int fullTileIndex, int currentPatternTable, const std::array<uint8_t, 3>& palette, bool hMirror, bool vMirror, bool bgPriority, const ConditionContext& ctx) -> const PreparedOverride* {
-        for(const PreparedOverride* candidate : candidates) {
-            if(matchesOverride(*candidate, target, allowDefaultTileFallback, tileIndex, fullTileIndex, currentPatternTable, palette, hMirror, vMirror, bgPriority, ctx)) {
-                return candidate;
-            }
-        }
-        return nullptr;
     };
 
     auto scanMergedCandidates = [&](const std::vector<const PreparedOverride*>& staticCandidates, const std::vector<const PreparedOverride*>& dynamicCandidates, ChrOverride::Target target, bool allowDefaultTileFallback, int tileIndex, int fullTileIndex, int currentPatternTable, const std::array<uint8_t, 3>& palette, bool hMirror, bool vMirror, bool bgPriority, const ConditionContext& ctx) -> const PreparedOverride* {
@@ -3260,8 +3234,6 @@ std::optional<ModManager::DebugComposePixel> ModManager::debugComposePixel(const
         }
         backgroundFallbackColor = snapshot.paletteColors[bgPixel->paletteIndex & 0x3F];
     }
-    const bool backgroundOpaque = bgPixel != nullptr && bgPixel->valid && bgPixel->colorLowBits != 0;
-
     int lowestBgSpriteCandidate = std::numeric_limits<int>::max();
     if(spritePixel != nullptr) {
         for(int i = 0; i < static_cast<int>(spritePixel->count); ++i) {
@@ -4125,15 +4097,6 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
         return condition.inverted ? !match : match;
     };
 
-    auto conditionsMatchAt = [&](const std::vector<MemoryCondition>& conditions, const ConditionContext& ctx) {
-        for(const MemoryCondition& condition : conditions) {
-            if(!conditionMatchesAt(condition, ctx)) {
-                return false;
-            }
-        }
-        return true;
-    };
-
     auto matchesRequirement = [](int requirement, bool value) {
         return requirement == 0 || (requirement > 0 && value) || (requirement < 0 && !value);
     };
@@ -4966,7 +4929,6 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
                 backgroundMappedPalette[2] = snapshot.paletteColors[backgroundPalette[1] & 0x3F];
                 backgroundMappedPalette[3] = snapshot.paletteColors[backgroundPalette[2] & 0x3F];
             }
-            const bool backgroundOpaque = bgPixel != nullptr && bgPixel->valid && bgPixel->colorLowBits != 0;
             bool hasAnyValidSpriteCandidate = false;
             if(hasSpriteCandidates) {
                 for(int i = 0; i < static_cast<int>(spritePixel->count); ++i) {
