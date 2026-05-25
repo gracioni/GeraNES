@@ -4276,11 +4276,8 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
     if(hasAdditionalSpriteRules) {
         MODMANAGER_PROFILE_SCOPE(ComposeChrFrameAdditionalSpriteAugment);
         const size_t totalSpritePixels = static_cast<size_t>(PPU::SCREEN_WIDTH * PPU::SCREEN_HEIGHT);
-        m_augmentedSpritePixelsScratch.resize(totalSpritePixels);
         const size_t copySpritePixelCount = std::min(totalSpritePixels, rawSpritePixelsCount);
-        if(copySpritePixelCount > 0) {
-            std::copy_n(rawSpritePixelsData, copySpritePixelCount, m_augmentedSpritePixelsScratch.begin());
-        }
+        bool augmentedSpritePixelsInitialized = false;
         m_resolvedAdditionalSpriteRulesScratch.clear();
         m_resolvedAdditionalSpriteRuleMemo.clear();
         m_resolvedAdditionalSpriteRulesScratch.reserve(std::min<size_t>(m_additionalSpriteRules.size() * 4u, 4096u));
@@ -4331,13 +4328,22 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
                     if(targetX < 0 || targetX >= PPU::SCREEN_WIDTH || targetY < 0 || targetY >= PPU::SCREEN_HEIGHT) {
                         continue;
                     }
+                    if(!augmentedSpritePixelsInitialized) {
+                        m_augmentedSpritePixelsScratch.resize(totalSpritePixels);
+                        if(copySpritePixelCount > 0) {
+                            std::copy_n(rawSpritePixelsData, copySpritePixelCount, m_augmentedSpritePixelsScratch.begin());
+                        }
+                        augmentedSpritePixelsInitialized = true;
+                    }
 
                     PPU::DebugModSpritePixel& targetPixel = m_augmentedSpritePixelsScratch[static_cast<size_t>(targetY) * PPU::SCREEN_WIDTH + static_cast<size_t>(targetX)];
                     appendSyntheticSpriteCandidate(targetPixel, source, rule, targetX, targetY, originX, originY);
                 }
             }
         }
-        augmentedSpritePixels = &m_augmentedSpritePixelsScratch;
+        if(augmentedSpritePixelsInitialized) {
+            augmentedSpritePixels = &m_augmentedSpritePixelsScratch;
+        }
     }
 
     auto spritePixelAt = [&](int x, int y) -> const PPU::DebugModSpritePixel* {
