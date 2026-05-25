@@ -243,8 +243,9 @@ public:
         };
 
         std::vector<CachedMemoryRead> uniqueMemoryReads;
-        std::vector<CompiledRuleConditions> chrOverrideGlobalConditions;
-        std::vector<CompiledRuleConditions> backgroundGlobalConditions;
+        std::vector<CompiledRuleConditions> uniqueGlobalConditionGroups;
+        std::vector<size_t> chrOverrideGlobalConditionGroupIndices;
+        std::vector<size_t> backgroundGlobalConditionGroupIndices;
     };
 
     struct DebugDecodedImage {
@@ -330,6 +331,7 @@ private:
     std::shared_ptr<HdPackAudioRuntime> m_hdAudioRuntime;
     FrameConditionState m_frameConditionState;
     FrameConditionPlan m_frameConditionPlan;
+    std::vector<uint8_t> m_frameConditionGroupMatchesScratch;
     uint32_t m_lastFrameConditionUpdate = UINT32_MAX;
     struct DecodedImage {
         int width = 0;

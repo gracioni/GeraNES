@@ -778,6 +778,7 @@ void ModManager::clear()
     m_hdAudioRuntime->clearConfig();
     m_frameConditionState = {};
     m_frameConditionPlan = {};
+    m_frameConditionGroupMatchesScratch.clear();
     m_lastFrameConditionUpdate = UINT32_MAX;
     m_imageCache.clear();
     m_augmentedSpritePixelsScratch.clear();
@@ -853,6 +854,7 @@ void ModManager::onEmulatorReset()
 {
     m_lastFrameConditionUpdate = UINT32_MAX;
     m_frameConditionState = {};
+    m_frameConditionGroupMatchesScratch.clear();
     if(m_hdAudioRuntime) {
         m_hdAudioRuntime->resetRuntime();
     }
@@ -862,6 +864,7 @@ void ModManager::onStateLoaded(uint32_t frameCount)
 {
     m_lastFrameConditionUpdate = UINT32_MAX;
     m_frameConditionState = {};
+    m_frameConditionGroupMatchesScratch.clear();
     for(auto& [_, entry] : m_imageCache) {
         entry.lastUsedFrame = frameCount;
     }
@@ -927,12 +930,21 @@ bool ModManager::composeFrameOnEmuThread(
         snapshot.scrollX = snapshot.scrollXByLine[0];
         snapshot.scrollY = snapshot.scrollYByLine[0];
         snapshot.universalBgColor = static_cast<uint8_t>(ppu.debugPeekPpuMemory(0x3F00) & 0x3F);
-        ppu.debugCopyPresentedBackgroundPixels(snapshot.backgroundPixels);
-        ppu.debugCopyPresentedSpritePixels(snapshot.spritePixels);
-        snapshot.backgroundPixelsView = snapshot.backgroundPixels.data();
-        snapshot.backgroundPixelsViewCount = snapshot.backgroundPixels.size();
-        snapshot.spritePixelsView = snapshot.spritePixels.data();
-        snapshot.spritePixelsViewCount = snapshot.spritePixels.size();
+        if(captureDebugSnapshot) {
+            ppu.debugCopyPresentedBackgroundPixels(snapshot.backgroundPixels);
+            ppu.debugCopyPresentedSpritePixels(snapshot.spritePixels);
+            snapshot.backgroundPixelsView = snapshot.backgroundPixels.data();
+            snapshot.backgroundPixelsViewCount = snapshot.backgroundPixels.size();
+            snapshot.spritePixelsView = snapshot.spritePixels.data();
+            snapshot.spritePixelsViewCount = snapshot.spritePixels.size();
+        } else {
+            snapshot.backgroundPixels.clear();
+            snapshot.spritePixels.clear();
+            snapshot.backgroundPixelsView = ppu.debugPresentedBackgroundPixelsData();
+            snapshot.backgroundPixelsViewCount = ppu.debugPresentedBackgroundPixelsCount();
+            snapshot.spritePixelsView = ppu.debugPresentedSpritePixelsData();
+            snapshot.spritePixelsViewCount = ppu.debugPresentedSpritePixelsCount();
+        }
         snapshot.frameConditionStateView = &m_frameConditionState;
         for(size_t i = 0; i < snapshot.paletteColors.size(); ++i) {
             snapshot.paletteColors[i] = ppu.NESToRGBAColor(static_cast<uint8_t>(i));
@@ -1696,6 +1708,7 @@ void ModManager::updateFrameConditionsForFrame(GeraNESEmu& emu)
 
     m_frameConditionState.frameCount = frameCount;
     m_frameConditionState.memoryValues.resize(m_frameConditionPlan.uniqueMemoryReads.size());
+    m_frameConditionGroupMatchesScratch.resize(m_frameConditionPlan.uniqueGlobalConditionGroups.size());
     MODMANAGER_PROFILE_COUNT(frameConditionMemoryReads, m_frameConditionPlan.uniqueMemoryReads.size());
 
     auto memoryConditionMatchesCached = [&](const FrameConditionPlan::CompiledMemoryCondition& compiledCondition) {
@@ -1737,18 +1750,31 @@ void ModManager::updateFrameConditionsForFrame(GeraNESEmu& emu)
         }
     }
 
-    const size_t chrCount = std::min(m_chrOverrides.size(), m_frameConditionPlan.chrOverrideGlobalConditions.size());
+    for(size_t i = 0; i < m_frameConditionPlan.uniqueGlobalConditionGroups.size(); ++i) {
+        m_frameConditionGroupMatchesScratch[i] =
+            globalConditionsMatch(m_frameConditionPlan.uniqueGlobalConditionGroups[i]) ? 1u : 0u;
+    }
+
+    const size_t chrCount = std::min(m_chrOverrides.size(), m_frameConditionPlan.chrOverrideGlobalConditionGroupIndices.size());
     for(size_t i = 0; i < chrCount; ++i) {
-        const bool enabled = globalConditionsMatch(m_frameConditionPlan.chrOverrideGlobalConditions[i]);
+        const size_t groupIndex = m_frameConditionPlan.chrOverrideGlobalConditionGroupIndices[i];
+        const bool enabled =
+            groupIndex < m_frameConditionGroupMatchesScratch.size()
+                ? (m_frameConditionGroupMatchesScratch[groupIndex] != 0)
+                : true;
         m_chrOverrides[i].enabled = enabled;
     }
     for(size_t i = chrCount; i < m_chrOverrides.size(); ++i) {
         m_chrOverrides[i].enabled = true;
     }
 
-    const size_t bgCount = std::min(m_backgroundReplacements.size(), m_frameConditionPlan.backgroundGlobalConditions.size());
+    const size_t bgCount = std::min(m_backgroundReplacements.size(), m_frameConditionPlan.backgroundGlobalConditionGroupIndices.size());
     for(size_t i = 0; i < bgCount; ++i) {
-        const bool enabled = globalConditionsMatch(m_frameConditionPlan.backgroundGlobalConditions[i]);
+        const size_t groupIndex = m_frameConditionPlan.backgroundGlobalConditionGroupIndices[i];
+        const bool enabled =
+            groupIndex < m_frameConditionGroupMatchesScratch.size()
+                ? (m_frameConditionGroupMatchesScratch[groupIndex] != 0)
+                : true;
         m_backgroundReplacements[i].enabled = enabled;
     }
     for(size_t i = bgCount; i < m_backgroundReplacements.size(); ++i) {
@@ -1784,7 +1810,8 @@ void ModManager::rebuildFrameConditionPlan()
         return readIndex;
     };
 
-    auto appendGlobalConditions = [&](const std::vector<MemoryCondition>& source, FrameConditionPlan::CompiledRuleConditions& globals) {
+    auto compileGlobalConditions = [&](const std::vector<MemoryCondition>& source) {
+        FrameConditionPlan::CompiledRuleConditions globals;
         globals.memoryConditions.reserve(source.size());
         globals.frameRangeConditions.reserve(source.size());
         for(const MemoryCondition& condition : source) {
@@ -1818,16 +1845,78 @@ void ModManager::rebuildFrameConditionPlan()
                 rhsReadIndex
             });
         }
+        return globals;
     };
 
-    m_frameConditionPlan.chrOverrideGlobalConditions.resize(m_chrOverrides.size());
+    auto compiledMemoryConditionsEqual = [](const FrameConditionPlan::CompiledMemoryCondition& lhs,
+                                            const FrameConditionPlan::CompiledMemoryCondition& rhs) {
+        if(lhs.readIndex != rhs.readIndex || lhs.rhsReadIndex != rhs.rhsReadIndex) {
+            return false;
+        }
+        if(lhs.condition == nullptr || rhs.condition == nullptr) {
+            return lhs.condition == rhs.condition;
+        }
+
+        const MemoryCondition& lhsCondition = *lhs.condition;
+        const MemoryCondition& rhsCondition = *rhs.condition;
+        return lhsCondition.kind == rhsCondition.kind &&
+               lhsCondition.op == rhsCondition.op &&
+               lhsCondition.value == rhsCondition.value &&
+               lhsCondition.mask == rhsCondition.mask &&
+               lhsCondition.inverted == rhsCondition.inverted &&
+               lhsCondition.compareAgainstMemory == rhsCondition.compareAgainstMemory;
+    };
+
+    auto frameRangeConditionsEqual = [](const MemoryCondition* lhs, const MemoryCondition* rhs) {
+        if(lhs == nullptr || rhs == nullptr) {
+            return lhs == rhs;
+        }
+        return lhs->kind == rhs->kind &&
+               lhs->address == rhs->address &&
+               lhs->value == rhs->value &&
+               lhs->inverted == rhs->inverted;
+    };
+
+    auto compiledGlobalConditionsEqual = [&](const FrameConditionPlan::CompiledRuleConditions& lhs,
+                                             const FrameConditionPlan::CompiledRuleConditions& rhs) {
+        if(lhs.memoryConditions.size() != rhs.memoryConditions.size() ||
+           lhs.frameRangeConditions.size() != rhs.frameRangeConditions.size()) {
+            return false;
+        }
+        for(size_t i = 0; i < lhs.memoryConditions.size(); ++i) {
+            if(!compiledMemoryConditionsEqual(lhs.memoryConditions[i], rhs.memoryConditions[i])) {
+                return false;
+            }
+        }
+        for(size_t i = 0; i < lhs.frameRangeConditions.size(); ++i) {
+            if(!frameRangeConditionsEqual(lhs.frameRangeConditions[i], rhs.frameRangeConditions[i])) {
+                return false;
+            }
+        }
+        return true;
+    };
+
+    auto findOrAppendGlobalConditionGroup = [&](FrameConditionPlan::CompiledRuleConditions&& globals) {
+        for(size_t i = 0; i < m_frameConditionPlan.uniqueGlobalConditionGroups.size(); ++i) {
+            if(compiledGlobalConditionsEqual(m_frameConditionPlan.uniqueGlobalConditionGroups[i], globals)) {
+                return i;
+            }
+        }
+        const size_t index = m_frameConditionPlan.uniqueGlobalConditionGroups.size();
+        m_frameConditionPlan.uniqueGlobalConditionGroups.push_back(std::move(globals));
+        return index;
+    };
+
+    m_frameConditionPlan.chrOverrideGlobalConditionGroupIndices.resize(m_chrOverrides.size());
     for(size_t i = 0; i < m_chrOverrides.size(); ++i) {
-        appendGlobalConditions(m_chrOverrides[i].conditions, m_frameConditionPlan.chrOverrideGlobalConditions[i]);
+        m_frameConditionPlan.chrOverrideGlobalConditionGroupIndices[i] =
+            findOrAppendGlobalConditionGroup(compileGlobalConditions(m_chrOverrides[i].conditions));
     }
 
-    m_frameConditionPlan.backgroundGlobalConditions.resize(m_backgroundReplacements.size());
+    m_frameConditionPlan.backgroundGlobalConditionGroupIndices.resize(m_backgroundReplacements.size());
     for(size_t i = 0; i < m_backgroundReplacements.size(); ++i) {
-        appendGlobalConditions(m_backgroundReplacements[i].conditions, m_frameConditionPlan.backgroundGlobalConditions[i]);
+        m_frameConditionPlan.backgroundGlobalConditionGroupIndices[i] =
+            findOrAppendGlobalConditionGroup(compileGlobalConditions(m_backgroundReplacements[i].conditions));
     }
 }
 
@@ -4415,6 +4504,32 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
         return requirement == 0 || (requirement > 0 && value) || (requirement < 0 && !value);
     };
 
+    struct EnabledOverrideCandidateCacheEntry {
+        bool initialized = false;
+        bool allEnabled = true;
+        std::vector<const PreparedOverride*> filtered;
+    };
+    std::unordered_map<const std::vector<const PreparedOverride*>*, EnabledOverrideCandidateCacheEntry> enabledOverrideCandidateCache;
+    enabledOverrideCandidateCache.reserve(1024);
+
+    auto enabledCandidatesFor = [&](const std::vector<const PreparedOverride*>& candidates) -> const std::vector<const PreparedOverride*>& {
+        auto [it, _] = enabledOverrideCandidateCache.emplace(&candidates, EnabledOverrideCandidateCacheEntry {});
+        EnabledOverrideCandidateCacheEntry& cacheEntry = it->second;
+        if(!cacheEntry.initialized) {
+            cacheEntry.initialized = true;
+            cacheEntry.filtered.clear();
+            cacheEntry.filtered.reserve(candidates.size());
+            for(const PreparedOverride* candidate : candidates) {
+                if(candidate != nullptr && candidate->override != nullptr && candidate->override->enabled) {
+                    cacheEntry.filtered.push_back(candidate);
+                } else {
+                    cacheEntry.allEnabled = false;
+                }
+            }
+        }
+        return cacheEntry.allEnabled ? candidates : cacheEntry.filtered;
+    };
+
     auto matchesOverride = [&](const PreparedOverride& preparedOverride, ChrOverride::Target target, bool allowDefaultTileFallback, int tileIndex, int fullTileIndex, int currentPatternTable, const std::array<uint8_t, 3>& palette, bool hMirror, bool vMirror, bool bgPriority, const ConditionContext& ctx) {
         const ChrOverride& override = *preparedOverride.override;
         if(!override.enabled) {
@@ -4460,7 +4575,8 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
 
     auto scanCandidates = [&](const std::vector<const PreparedOverride*>& candidates, bool allowDefaultTileFallback, ChrOverride::Target target, int tileIndex, int fullTileIndex, int currentPatternTable, const std::array<uint8_t, 3>& palette, bool hMirror, bool vMirror, bool bgPriority, const ConditionContext& ctx, bool* tileOriginCacheable = nullptr) -> const PreparedOverride* {
         MODMANAGER_PROFILE_COUNT(scanCandidatesCalls, 1);
-        for(const PreparedOverride* candidate : candidates) {
+        const std::vector<const PreparedOverride*>& enabledCandidates = enabledCandidatesFor(candidates);
+        for(const PreparedOverride* candidate : enabledCandidates) {
             if(tileOriginCacheable != nullptr && candidate != nullptr && !candidate->tileOriginCacheable) {
                 *tileOriginCacheable = false;
             }
@@ -4473,18 +4589,20 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
 
     auto scanMergedCandidates = [&](const std::vector<const PreparedOverride*>& staticCandidates, const std::vector<const PreparedOverride*>& dynamicCandidates, bool allowDefaultTileFallback, ChrOverride::Target target, int tileIndex, int fullTileIndex, int currentPatternTable, const std::array<uint8_t, 3>& palette, bool hMirror, bool vMirror, bool bgPriority, const ConditionContext& ctx, bool* tileOriginCacheable = nullptr) -> const PreparedOverride* {
         MODMANAGER_PROFILE_COUNT(scanMergedCandidatesCalls, 1);
+        const std::vector<const PreparedOverride*>& enabledStaticCandidates = enabledCandidatesFor(staticCandidates);
+        const std::vector<const PreparedOverride*>& enabledDynamicCandidates = enabledCandidatesFor(dynamicCandidates);
         size_t staticIndex = 0;
         size_t dynamicIndex = 0;
-        while(staticIndex < staticCandidates.size() || dynamicIndex < dynamicCandidates.size()) {
+        while(staticIndex < enabledStaticCandidates.size() || dynamicIndex < enabledDynamicCandidates.size()) {
             const PreparedOverride* candidate = nullptr;
-            if(dynamicIndex >= dynamicCandidates.size()) {
-                candidate = staticCandidates[staticIndex++];
-            } else if(staticIndex >= staticCandidates.size()) {
-                candidate = dynamicCandidates[dynamicIndex++];
-            } else if(staticCandidates[staticIndex]->sequence <= dynamicCandidates[dynamicIndex]->sequence) {
-                candidate = staticCandidates[staticIndex++];
+            if(dynamicIndex >= enabledDynamicCandidates.size()) {
+                candidate = enabledStaticCandidates[staticIndex++];
+            } else if(staticIndex >= enabledStaticCandidates.size()) {
+                candidate = enabledDynamicCandidates[dynamicIndex++];
+            } else if(enabledStaticCandidates[staticIndex]->sequence <= enabledDynamicCandidates[dynamicIndex]->sequence) {
+                candidate = enabledStaticCandidates[staticIndex++];
             } else {
-                candidate = dynamicCandidates[dynamicIndex++];
+                candidate = enabledDynamicCandidates[dynamicIndex++];
             }
 
             if(tileOriginCacheable != nullptr && candidate != nullptr && !candidate->tileOriginCacheable) {
