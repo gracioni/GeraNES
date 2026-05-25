@@ -551,6 +551,7 @@ void ModManager::clear()
     m_effectiveRomPath.clear();
     m_modPath.clear();
     m_modArchiveRoot.clear();
+    m_zipEntryLookup.clear();
     m_active = false;
     m_scriptLoaded = false;
     m_resolutionMultiplier = 1;
@@ -574,6 +575,9 @@ void ModManager::clear()
     m_frameConditionPlan = {};
     m_lastFrameConditionUpdate = UINT32_MAX;
     m_imageCache.clear();
+    m_augmentedSpritePixelsScratch.clear();
+    m_resolvedAdditionalSpriteRulesScratch.clear();
+    m_resolvedAdditionalSpriteRuleMemo.clear();
     invalidateRenderComposeCache();
 }
 
@@ -626,6 +630,11 @@ bool ModManager::selectModSource(const std::filesystem::path& modSourcePath, std
     }
 
     m_modPath = modSourcePath;
+    if(isFile && !rebuildZipEntryLookup()) {
+        error = "Failed to index mod archive.";
+        clear();
+        return false;
+    }
     m_active = true;
     return true;
 }
@@ -672,6 +681,14 @@ bool ModManager::composeFrameOnEmuThread(
     }
 
     updateFrameConditionsForFrame(emu);
+    const int scale = std::clamp(m_resolutionMultiplier, 1, 8);
+    const bool renderCacheNeedsRebuild =
+        m_renderComposeCacheDirty ||
+        !m_renderComposeCache.valid ||
+        m_renderComposeCache.scale != scale;
+    if(renderCacheNeedsRebuild) {
+        rebuildRenderComposeCache();
+    }
 
     PPU& ppu = emu.getConsole().ppu();
     snapshot = {};
@@ -692,9 +709,6 @@ bool ModManager::composeFrameOnEmuThread(
     for(size_t i = 0; i < snapshot.paletteColors.size(); ++i) {
         snapshot.paletteColors[i] = ppu.NESToRGBAColor(static_cast<uint8_t>(i));
     }
-    if(m_renderComposeCacheDirty || !m_renderComposeCache.valid || m_renderComposeCache.scale != std::max(1, m_resolutionMultiplier)) {
-        rebuildRenderComposeCache();
-    }
     const bool needsTileHashes = captureDebugSnapshot || m_renderComposeCache.needsTileHashes;
     if(needsTileHashes) {
         for(size_t i = 0; i < snapshot.tileHashes.size(); ++i) {
@@ -702,7 +716,6 @@ bool ModManager::composeFrameOnEmuThread(
         }
     }
 
-    const int scale = std::clamp(m_resolutionMultiplier, 1, 8);
     const int width = PPU::SCREEN_WIDTH * scale;
     const int height = 256 * scale;
     const int activeTopScaled = std::clamp(activeTop, 0, PPU::SCREEN_HEIGHT) * scale;
@@ -1448,36 +1461,36 @@ void ModManager::updateFrameConditionsForFrame(GeraNESEmu& emu)
         m_hdAudioRuntime->evictUnusedDynamicClips(DynamicAssetEvictionFrames);
     }
 
-    FrameConditionState frameConditionState;
-    frameConditionState.frameCount = frameCount;
-    frameConditionState.memoryValues.resize(m_frameConditionPlan.uniqueMemoryReads.size());
+    m_frameConditionState.frameCount = frameCount;
+    m_frameConditionState.memoryValues.resize(m_frameConditionPlan.uniqueMemoryReads.size());
 
-    auto memoryConditionMatchesCached = [&](const MemoryCondition& condition) {
+    auto memoryConditionMatchesCached = [&](const FrameConditionPlan::CompiledMemoryCondition& compiledCondition) {
+        const MemoryCondition& condition = *compiledCondition.condition;
         const uint32_t actual =
-            condition.readIndex < frameConditionState.memoryValues.size()
-                ? frameConditionState.memoryValues[condition.readIndex]
+            compiledCondition.readIndex < m_frameConditionState.memoryValues.size()
+                ? m_frameConditionState.memoryValues[compiledCondition.readIndex]
                 : 0u;
         const uint32_t expected =
-            condition.compareAgainstMemory && condition.rhsReadIndex < frameConditionState.memoryValues.size()
-                ? frameConditionState.memoryValues[condition.rhsReadIndex]
+            condition.compareAgainstMemory && compiledCondition.rhsReadIndex < m_frameConditionState.memoryValues.size()
+                ? m_frameConditionState.memoryValues[compiledCondition.rhsReadIndex]
                 : condition.value;
         return evaluateMemoryCondition(condition, actual, expected);
     };
 
     auto frameRangeConditionMatches = [&](const MemoryCondition& condition) {
         const uint32_t range = std::max(1u, condition.value);
-        const bool match = (frameConditionState.frameCount % range) >= condition.address;
+        const bool match = (m_frameConditionState.frameCount % range) >= condition.address;
         return condition.inverted ? !match : match;
     };
 
-    auto globalConditionsMatch = [&](const FrameConditionPlan::RuleConditions& conditions) {
-        for(const MemoryCondition& condition : conditions.memoryConditions) {
+    auto globalConditionsMatch = [&](const FrameConditionPlan::CompiledRuleConditions& conditions) {
+        for(const FrameConditionPlan::CompiledMemoryCondition& condition : conditions.memoryConditions) {
             if(!memoryConditionMatchesCached(condition)) {
                 return false;
             }
         }
-        for(const MemoryCondition& condition : conditions.frameRangeConditions) {
-            if(!frameRangeConditionMatches(condition)) {
+        for(const MemoryCondition* condition : conditions.frameRangeConditions) {
+            if(condition == nullptr || !frameRangeConditionMatches(*condition)) {
                 return false;
             }
         }
@@ -1485,8 +1498,8 @@ void ModManager::updateFrameConditionsForFrame(GeraNESEmu& emu)
     };
 
     for(const FrameConditionPlan::CachedMemoryRead& cachedRead : m_frameConditionPlan.uniqueMemoryReads) {
-        if(cachedRead.readIndex < frameConditionState.memoryValues.size()) {
-            frameConditionState.memoryValues[cachedRead.readIndex] = readMemoryValue(cachedRead.condition, emu);
+        if(cachedRead.readIndex < m_frameConditionState.memoryValues.size()) {
+            m_frameConditionState.memoryValues[cachedRead.readIndex] = readMemoryValue(cachedRead.condition, emu);
         }
     }
 
@@ -1520,7 +1533,6 @@ void ModManager::updateFrameConditionsForFrame(GeraNESEmu& emu)
             m_backgroundReplacements[i].enabled = true;
         }
     }
-    m_frameConditionState = std::move(frameConditionState);
     m_lastFrameConditionUpdate = frameCount;
     if(renderComposeCacheChanged) {
         m_renderComposeCacheDirty = true;
@@ -1554,31 +1566,39 @@ void ModManager::rebuildFrameConditionPlan()
         return readIndex;
     };
 
-    auto appendGlobalConditions = [&](const std::vector<MemoryCondition>& source, FrameConditionPlan::RuleConditions& globals) {
+    auto appendGlobalConditions = [&](const std::vector<MemoryCondition>& source, FrameConditionPlan::CompiledRuleConditions& globals) {
+        globals.memoryConditions.reserve(source.size());
+        globals.frameRangeConditions.reserve(source.size());
         for(const MemoryCondition& condition : source) {
             if(condition.kind == MemoryCondition::Kind::FrameRange) {
-                globals.frameRangeConditions.push_back(condition);
+                globals.frameRangeConditions.push_back(&condition);
                 continue;
             }
             if(condition.kind != MemoryCondition::Kind::MemoryCheck) {
                 continue;
             }
-            MemoryCondition compiledCondition = condition;
-            compiledCondition.readIndex = ensureMemoryRead(
-                compiledCondition.memorySource,
-                compiledCondition.address,
-                compiledCondition.word,
-                compiledCondition.scale,
-                compiledCondition.memoryCacheKey);
-            if(compiledCondition.compareAgainstMemory) {
-                compiledCondition.rhsReadIndex = ensureMemoryRead(
-                    compiledCondition.rhsMemorySource,
-                    compiledCondition.rhsAddress,
-                    compiledCondition.rhsWord,
-                    compiledCondition.rhsScale,
-                    compiledCondition.rhsMemoryCacheKey);
+            uint64_t cacheKey = condition.memoryCacheKey;
+            const size_t readIndex = ensureMemoryRead(
+                condition.memorySource,
+                condition.address,
+                condition.word,
+                condition.scale,
+                cacheKey);
+            size_t rhsReadIndex = 0;
+            if(condition.compareAgainstMemory) {
+                uint64_t rhsCacheKey = condition.rhsMemoryCacheKey;
+                rhsReadIndex = ensureMemoryRead(
+                    condition.rhsMemorySource,
+                    condition.rhsAddress,
+                    condition.rhsWord,
+                    condition.rhsScale,
+                    rhsCacheKey);
             }
-            globals.memoryConditions.push_back(std::move(compiledCondition));
+            globals.memoryConditions.push_back(FrameConditionPlan::CompiledMemoryCondition {
+                &condition,
+                readIndex,
+                rhsReadIndex
+            });
         }
     };
 
@@ -1783,16 +1803,37 @@ void ModManager::rebuildRenderComposeCache()
         m_renderComposeCache.preparedBackgrounds.push_back(std::move(prepared));
     }
 
+    auto appendAdditionalSpriteRuleSpan = [&](auto& index, auto key, const AdditionalSpriteRule* rulePtr) {
+        if(rulePtr == nullptr) {
+            return;
+        }
+        auto [it, inserted] = index.emplace(key, RenderComposeCache::AdditionalSpriteRuleSpan {
+            m_renderComposeCache.additionalSpriteRuleStorage.size(),
+            0u
+        });
+        if(inserted) {
+            it->second.offset = m_renderComposeCache.additionalSpriteRuleStorage.size();
+        }
+        m_renderComposeCache.additionalSpriteRuleStorage.push_back(rulePtr);
+        ++it->second.count;
+        m_renderComposeCache.hasAdditionalSpriteRules = true;
+    };
+
     m_renderComposeCache.additionalSpriteRulesByExactKey.clear();
     m_renderComposeCache.additionalSpriteRulesByOriginalTile.clear();
+    m_renderComposeCache.additionalSpriteRuleStorage.clear();
+    m_renderComposeCache.additionalSpriteRuleStorage.reserve(m_additionalSpriteRules.size());
     for(const AdditionalSpriteRule& rule : m_additionalSpriteRules) {
         if(rule.originalTile < 0) {
             continue;
         }
         if(rule.ignorePalette) {
-            m_renderComposeCache.additionalSpriteRulesByOriginalTile[rule.originalTile].push_back(&rule);
+            appendAdditionalSpriteRuleSpan(m_renderComposeCache.additionalSpriteRulesByOriginalTile, rule.originalTile, &rule);
         } else {
-            m_renderComposeCache.additionalSpriteRulesByExactKey[makeAdditionalSpriteRuleKey(rule.originalTile, rule.originalPaletteKey)].push_back(&rule);
+            appendAdditionalSpriteRuleSpan(
+                m_renderComposeCache.additionalSpriteRulesByExactKey,
+                makeAdditionalSpriteRuleKey(rule.originalTile, rule.originalPaletteKey),
+                &rule);
         }
     }
 
@@ -1827,7 +1868,7 @@ void ModManager::rebuildRenderComposeCache()
 std::optional<std::vector<uint8_t>> ModManager::readAsset(const std::string& assetPath) const
 {
     if(!m_active) return std::nullopt;
-    return readSourceEntry(normalizeZipPath(assetPath));
+    return readSourceEntry(assetPath);
 }
 
 bool ModManager::isFolderSource() const
@@ -1935,6 +1976,59 @@ std::string ModManager::resolveSourceEntryName(const std::string& entryName) con
     return m_modArchiveRoot + normalizedEntry;
 }
 
+std::string ModManager::resolveZipEntryName(const std::string& entryName) const
+{
+    const std::string resolvedEntryName = resolveSourceEntryName(entryName);
+    if(resolvedEntryName.empty()) {
+        return resolvedEntryName;
+    }
+    if(const auto it = m_zipEntryLookup.find(toLower(resolvedEntryName)); it != m_zipEntryLookup.end()) {
+        return it->second;
+    }
+    return resolvedEntryName;
+}
+
+bool ModManager::rebuildZipEntryLookup()
+{
+    m_zipEntryLookup.clear();
+    if(m_modPath.empty() || isFolderSource()) {
+        return true;
+    }
+
+    zip_t* zip = zip_open(m_modPath.string().c_str(), 0, 'r');
+    if(zip == nullptr) {
+        return false;
+    }
+
+    const ssize_t totalEntries = zip_entries_total(zip);
+    if(totalEntries > 0) {
+        m_zipEntryLookup.reserve(static_cast<size_t>(totalEntries));
+    }
+
+    for(ssize_t i = 0; i < totalEntries; ++i) {
+        if(zip_entry_openbyindex(zip, static_cast<size_t>(i)) != 0) {
+            continue;
+        }
+
+        const char* name = zip_entry_name(zip);
+        const bool isDirectory = zip_entry_isdir(zip) != 0;
+        const std::string normalizedName = name != nullptr ? normalizeZipPath(name) : "";
+        zip_entry_close(zip);
+        if(isDirectory || normalizedName.empty()) {
+            continue;
+        }
+
+        const std::string lookupKey = toLower(normalizedName);
+        auto it = m_zipEntryLookup.find(lookupKey);
+        if(it == m_zipEntryLookup.end() || normalizedName < it->second) {
+            m_zipEntryLookup[lookupKey] = normalizedName;
+        }
+    }
+
+    zip_close(zip);
+    return true;
+}
+
 std::optional<std::vector<uint8_t>> ModManager::readFileEntry(const std::filesystem::path& rootPath, const std::string& entryName)
 {
     const auto resolvedPath = resolveFolderEntryPath(rootPath, entryName);
@@ -1962,7 +2056,7 @@ bool ModManager::sourceHasEntry(const std::string& entryName) const
     if(m_modPath.empty()) {
         return false;
     }
-    const std::string resolvedEntryName = resolveSourceEntryName(entryName);
+    const std::string resolvedEntryName = isFolderSource() ? resolveSourceEntryName(entryName) : resolveZipEntryName(entryName);
     if(resolvedEntryName.empty()) {
         return false;
     }
@@ -1982,7 +2076,7 @@ std::optional<std::vector<uint8_t>> ModManager::readSourceEntry(const std::strin
     if(m_modPath.empty()) {
         return std::nullopt;
     }
-    const std::string resolvedEntryName = resolveSourceEntryName(entryName);
+    const std::string resolvedEntryName = isFolderSource() ? resolveSourceEntryName(entryName) : resolveZipEntryName(entryName);
     if(resolvedEntryName.empty()) {
         return std::nullopt;
     }
@@ -3539,8 +3633,6 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
     std::unordered_set<int> dynamicOverflowFullTilesLocal;
     std::array<bool, 256> hasDynamicOverridesByRelativeTileLocal = {};
     std::unordered_set<uint32_t> dynamicOverrideHashesLocal;
-    std::vector<RenderPreparedBackground> preparedBackgroundsLocal;
-    std::unordered_map<uint64_t, std::vector<const AdditionalSpriteRule*>> additionalSpriteRulesByExactKeyLocal;
     auto makeAdditionalSpriteRuleKey = [](int tile, uint32_t paletteKey) {
         return (static_cast<uint64_t>(static_cast<uint32_t>(tile)) << 32u) | static_cast<uint64_t>(paletteKey);
     };
@@ -3588,16 +3680,24 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
     const std::array<bool, 256>* hasDynamicOverridesByRelativeTilePtr = nullptr;
     const std::unordered_set<uint32_t>* dynamicOverrideHashesPtr = nullptr;
     const std::vector<RenderPreparedBackground>* preparedBackgroundsPtr = nullptr;
-    const std::unordered_map<uint64_t, std::vector<const AdditionalSpriteRule*>>* additionalSpriteRulesByExactKeyPtr = nullptr;
-    std::unordered_map<int, std::vector<const AdditionalSpriteRule*>> additionalSpriteRulesByOriginalTileLocal;
-    const std::unordered_map<int, std::vector<const AdditionalSpriteRule*>>* additionalSpriteRulesByOriginalTilePtr = nullptr;
+    const std::unordered_map<uint64_t, RenderComposeCache::AdditionalSpriteRuleSpan>* additionalSpriteRulesByExactKeyPtr = nullptr;
+    const std::unordered_map<int, RenderComposeCache::AdditionalSpriteRuleSpan>* additionalSpriteRulesByOriginalTilePtr = nullptr;
+    const std::vector<const AdditionalSpriteRule*>* additionalSpriteRuleStoragePtr = nullptr;
+    bool hasAdditionalSpriteRules = false;
     bool onlyWholeChrOverrides = false;
     const RenderPreparedOverride* fastBackgroundOverride = nullptr;
 
+    if(m_renderComposeCacheDirty || !m_renderComposeCache.valid || m_renderComposeCache.scale != std::max(1, m_resolutionMultiplier)) {
+        rebuildRenderComposeCache();
+    }
+
+    preparedBackgroundsPtr = &m_renderComposeCache.preparedBackgrounds;
+    additionalSpriteRulesByExactKeyPtr = &m_renderComposeCache.additionalSpriteRulesByExactKey;
+    additionalSpriteRulesByOriginalTilePtr = &m_renderComposeCache.additionalSpriteRulesByOriginalTile;
+    additionalSpriteRuleStoragePtr = &m_renderComposeCache.additionalSpriteRuleStorage;
+    hasAdditionalSpriteRules = m_renderComposeCache.hasAdditionalSpriteRules;
+
     if(activeOverrideFilter == nullptr) {
-        if(m_renderComposeCacheDirty || !m_renderComposeCache.valid || m_renderComposeCache.scale != std::max(1, m_resolutionMultiplier)) {
-            rebuildRenderComposeCache();
-        }
         preparedOverridesPtr = &m_renderComposeCache.preparedOverrides;
         overridesByFullTilePtr = &m_renderComposeCache.overridesByFullTile;
         overridesByOverflowFullTilePtr = &m_renderComposeCache.overridesByOverflowFullTile;
@@ -3623,9 +3723,6 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
         dynamicOverflowFullTilesPtr = &m_renderComposeCache.dynamicOverflowFullTiles;
         hasDynamicOverridesByRelativeTilePtr = &m_renderComposeCache.hasDynamicOverridesByRelativeTile;
         dynamicOverrideHashesPtr = &m_renderComposeCache.dynamicOverrideHashes;
-        preparedBackgroundsPtr = &m_renderComposeCache.preparedBackgrounds;
-        additionalSpriteRulesByExactKeyPtr = &m_renderComposeCache.additionalSpriteRulesByExactKey;
-        additionalSpriteRulesByOriginalTilePtr = &m_renderComposeCache.additionalSpriteRulesByOriginalTile;
         onlyWholeChrOverrides = m_renderComposeCache.onlyWholeChrOverrides;
         fastBackgroundOverride = m_renderComposeCache.fastBackgroundOverride;
     } else {
@@ -3751,35 +3848,6 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
         for(const auto& [hash, _] : dynamicOverridesByChrHashLocal) {
             dynamicOverrideHashesLocal.insert(hash);
         }
-        preparedBackgroundsLocal.reserve(m_backgroundReplacements.size());
-        for(const BackgroundReplacement& replacement : m_backgroundReplacements) {
-            if(!replacement.enabled || replacement.assetPath.empty()) {
-                continue;
-            }
-            const DecodedImage* image = decodedImage(replacement.assetPath);
-            if(image == nullptr || image->rgba.empty()) {
-                continue;
-            }
-            RenderPreparedBackground prepared;
-            prepared.replacement = &replacement;
-            prepared.image = image;
-            prepared.priority = std::clamp(replacement.priority, 0, 39);
-            prepared.backgroundScale = std::max(1, m_resolutionMultiplier);
-            prepared.alphaScale = std::clamp(static_cast<int>(std::round(replacement.opacity * 255.0f)), 0, 255);
-            prepared.opaqueCopy = prepared.alphaScale >= 255;
-            appendRuntimeConditions(replacement.conditions, prepared.runtimeConditions);
-            preparedBackgroundsLocal.push_back(std::move(prepared));
-        }
-        for(const AdditionalSpriteRule& rule : m_additionalSpriteRules) {
-            if(rule.originalTile < 0) {
-                continue;
-            }
-            if(rule.ignorePalette) {
-                additionalSpriteRulesByOriginalTileLocal[rule.originalTile].push_back(&rule);
-            } else {
-                additionalSpriteRulesByExactKeyLocal[makeAdditionalSpriteRuleKey(rule.originalTile, rule.originalPaletteKey)].push_back(&rule);
-            }
-        }
         onlyWholeChrOverrides = std::all_of(activeOverridesLocal.begin(), activeOverridesLocal.end(), [](const ChrOverride* override) {
             return override != nullptr &&
                    override->wholeChr() &&
@@ -3825,9 +3893,6 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
         dynamicOverflowFullTilesPtr = &dynamicOverflowFullTilesLocal;
         hasDynamicOverridesByRelativeTilePtr = &hasDynamicOverridesByRelativeTileLocal;
         dynamicOverrideHashesPtr = &dynamicOverrideHashesLocal;
-        preparedBackgroundsPtr = &preparedBackgroundsLocal;
-        additionalSpriteRulesByExactKeyPtr = &additionalSpriteRulesByExactKeyLocal;
-        additionalSpriteRulesByOriginalTilePtr = &additionalSpriteRulesByOriginalTileLocal;
     }
 
     const auto& preparedOverrides = *preparedOverridesPtr;
@@ -3856,6 +3921,7 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
     const auto& preparedBackgrounds = *preparedBackgroundsPtr;
     const auto& additionalSpriteRulesByExactKey = *additionalSpriteRulesByExactKeyPtr;
     const auto& additionalSpriteRulesByOriginalTile = *additionalSpriteRulesByOriginalTilePtr;
+    const auto& additionalSpriteRuleStorage = *additionalSpriteRuleStoragePtr;
     const bool canUseOverrideLookupCache = !preparedOverrides.empty();
     using PreparedOverride = RenderPreparedOverride;
     using PreparedBackground = RenderPreparedBackground;
@@ -3965,16 +4031,75 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
         palette[2] = static_cast<uint8_t>(paletteKey & 0x3Fu);
     };
 
-    std::vector<PPU::DebugModSpritePixel> augmentedSpritePixels;
-    if(!m_additionalSpriteRules.empty()) {
+    auto appendSyntheticSpriteCandidate = [&](PPU::DebugModSpritePixel& targetPixel,
+                                              const PPU::DebugModSpriteCandidate& source,
+                                              const AdditionalSpriteRule& rule,
+                                              int targetX,
+                                              int targetY,
+                                              int originX,
+                                              int originY) {
+        if(targetPixel.count >= targetPixel.candidates.size()) {
+            return;
+        }
+
+        PPU::DebugModSpriteCandidate added = source;
+        added.tileIndex = static_cast<uint16_t>(std::clamp(rule.additionalTile, 0, 0xFFFF));
+        added.tileHash = tileHash(rule.additionalTile);
+        decodeSpritePaletteKey(rule.additionalPaletteKey, added.palette);
+        added.paletteSlot = source.paletteSlot;
+        added.offsetX = static_cast<uint8_t>(std::clamp(targetX - originX, 0, 255));
+        added.offsetY = static_cast<uint8_t>(std::clamp(targetY - originY, 0, 255));
+        added.colorLowBits = 0;
+        added.synthetic = true;
+        added.valid = true;
+
+        targetPixel.candidates[targetPixel.count++] = added;
+        if(!targetPixel.valid) {
+            targetPixel.tileIndex = added.tileIndex;
+            targetPixel.tileHash = added.tileHash;
+            targetPixel.palette[0] = added.palette[0];
+            targetPixel.palette[1] = added.palette[1];
+            targetPixel.palette[2] = added.palette[2];
+            targetPixel.paletteSlot = added.paletteSlot;
+            targetPixel.colorLowBits = added.colorLowBits;
+            targetPixel.offsetX = added.offsetX;
+            targetPixel.offsetY = added.offsetY;
+            targetPixel.behindBackground = added.behindBackground;
+            targetPixel.horizontalMirror = added.horizontalMirror;
+            targetPixel.verticalMirror = added.verticalMirror;
+            targetPixel.synthetic = added.synthetic;
+            targetPixel.valid = true;
+        }
+    };
+
+    auto appendResolvedAdditionalSpriteRules = [&](std::vector<const AdditionalSpriteRule*>& output, uint64_t ruleKey, int resolvedTileIndex) {
+        if(const auto exactIt = additionalSpriteRulesByExactKey.find(ruleKey); exactIt != additionalSpriteRulesByExactKey.end()) {
+            const auto& span = exactIt->second;
+            output.insert(
+                output.end(),
+                additionalSpriteRuleStorage.begin() + static_cast<std::ptrdiff_t>(span.offset),
+                additionalSpriteRuleStorage.begin() + static_cast<std::ptrdiff_t>(span.offset + span.count));
+        }
+        if(const auto wildcardIt = additionalSpriteRulesByOriginalTile.find(resolvedTileIndex); wildcardIt != additionalSpriteRulesByOriginalTile.end()) {
+            const auto& span = wildcardIt->second;
+            output.insert(
+                output.end(),
+                additionalSpriteRuleStorage.begin() + static_cast<std::ptrdiff_t>(span.offset),
+                additionalSpriteRuleStorage.begin() + static_cast<std::ptrdiff_t>(span.offset + span.count));
+        }
+    };
+
+    const std::vector<PPU::DebugModSpritePixel>* augmentedSpritePixels = nullptr;
+    if(hasAdditionalSpriteRules) {
         const size_t totalSpritePixels = static_cast<size_t>(PPU::SCREEN_WIDTH * PPU::SCREEN_HEIGHT);
-        augmentedSpritePixels.resize(totalSpritePixels);
+        m_augmentedSpritePixelsScratch.resize(totalSpritePixels);
         const size_t copySpritePixelCount = std::min(totalSpritePixels, rawSpritePixelsCount);
         if(copySpritePixelCount > 0) {
-            std::copy_n(rawSpritePixelsData, copySpritePixelCount, augmentedSpritePixels.begin());
+            std::copy_n(rawSpritePixelsData, copySpritePixelCount, m_augmentedSpritePixelsScratch.begin());
         }
-        std::unordered_map<uint64_t, std::vector<const AdditionalSpriteRule*>> resolvedAdditionalSpriteRulesCache;
-        resolvedAdditionalSpriteRulesCache.reserve(std::min<size_t>(m_additionalSpriteRules.size() * 4u, 4096u));
+        m_resolvedAdditionalSpriteRulesScratch.clear();
+        m_resolvedAdditionalSpriteRuleMemo.clear();
+        m_resolvedAdditionalSpriteRuleMemo.reserve(std::min<size_t>(m_additionalSpriteRules.size() * 4u, 4096u));
 
         for(size_t index = 0; index < copySpritePixelCount; ++index) {
             const PPU::DebugModSpritePixel& pixel = rawSpritePixelsData[index];
@@ -3988,68 +4113,25 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
                 const int originX = x - static_cast<int>(source.offsetX);
                 const int originY = y - static_cast<int>(source.offsetY);
                 const uint64_t sourceRuleKey = makeAdditionalSpriteRuleKey(resolvedTileIndex, sourcePaletteKey);
-                const auto resolvedRuleIt = resolvedAdditionalSpriteRulesCache.find(sourceRuleKey);
-                if(resolvedRuleIt == resolvedAdditionalSpriteRulesCache.end()) {
-                    std::vector<const AdditionalSpriteRule*> resolvedRules;
-                    if(const auto exactIt = additionalSpriteRulesByExactKey.find(sourceRuleKey); exactIt != additionalSpriteRulesByExactKey.end()) {
-                        resolvedRules.insert(resolvedRules.end(), exactIt->second.begin(), exactIt->second.end());
-                    }
-                    if(const auto wildcardIt = additionalSpriteRulesByOriginalTile.find(resolvedTileIndex); wildcardIt != additionalSpriteRulesByOriginalTile.end()) {
-                        resolvedRules.insert(resolvedRules.end(), wildcardIt->second.begin(), wildcardIt->second.end());
-                    }
-                    const auto [insertedIt, inserted] = resolvedAdditionalSpriteRulesCache.emplace(sourceRuleKey, std::move(resolvedRules));
-                    (void)inserted;
-                    if(insertedIt->second.empty()) {
+                auto resolvedRuleIt = m_resolvedAdditionalSpriteRuleMemo.find(sourceRuleKey);
+                if(resolvedRuleIt == m_resolvedAdditionalSpriteRuleMemo.end()) {
+                    const size_t rulesOffset = m_resolvedAdditionalSpriteRulesScratch.size();
+                    appendResolvedAdditionalSpriteRules(m_resolvedAdditionalSpriteRulesScratch, sourceRuleKey, resolvedTileIndex);
+                    const size_t rulesCount = m_resolvedAdditionalSpriteRulesScratch.size() - rulesOffset;
+                    const auto inserted = m_resolvedAdditionalSpriteRuleMemo.emplace(
+                        sourceRuleKey,
+                        RenderComposeCache::AdditionalSpriteRuleSpan { rulesOffset, rulesCount });
+                    resolvedRuleIt = inserted.first;
+                    if(rulesCount == 0) {
                         continue;
                     }
-                    for(const AdditionalSpriteRule* rulePtr : insertedIt->second) {
-                        if(rulePtr == nullptr) {
-                            continue;
-                        }
-                        const AdditionalSpriteRule& rule = *rulePtr;
-                        const int targetX = x + rule.offsetX;
-                        const int targetY = y + rule.offsetY;
-                        if(targetX < 0 || targetX >= PPU::SCREEN_WIDTH || targetY < 0 || targetY >= PPU::SCREEN_HEIGHT) {
-                            continue;
-                        }
-
-                        PPU::DebugModSpritePixel& targetPixel = augmentedSpritePixels[static_cast<size_t>(targetY) * PPU::SCREEN_WIDTH + static_cast<size_t>(targetX)];
-                        if(targetPixel.count >= targetPixel.candidates.size()) {
-                            continue;
-                        }
-
-                        PPU::DebugModSpriteCandidate added = source;
-                        added.tileIndex = static_cast<uint16_t>(std::clamp(rule.additionalTile, 0, 0xFFFF));
-                        added.tileHash = tileHash(rule.additionalTile);
-                        decodeSpritePaletteKey(rule.additionalPaletteKey, added.palette);
-                        added.paletteSlot = source.paletteSlot;
-                        added.offsetX = static_cast<uint8_t>(std::clamp(targetX - originX, 0, 255));
-                        added.offsetY = static_cast<uint8_t>(std::clamp(targetY - originY, 0, 255));
-                        added.colorLowBits = 0;
-                        added.synthetic = true;
-                        added.valid = true;
-
-                        targetPixel.candidates[targetPixel.count++] = added;
-                        if(!targetPixel.valid) {
-                            targetPixel.tileIndex = added.tileIndex;
-                            targetPixel.tileHash = added.tileHash;
-                            targetPixel.palette[0] = added.palette[0];
-                            targetPixel.palette[1] = added.palette[1];
-                            targetPixel.palette[2] = added.palette[2];
-                            targetPixel.paletteSlot = added.paletteSlot;
-                            targetPixel.colorLowBits = added.colorLowBits;
-                            targetPixel.offsetX = added.offsetX;
-                            targetPixel.offsetY = added.offsetY;
-                            targetPixel.behindBackground = added.behindBackground;
-                            targetPixel.horizontalMirror = added.horizontalMirror;
-                            targetPixel.verticalMirror = added.verticalMirror;
-                            targetPixel.synthetic = added.synthetic;
-                            targetPixel.valid = true;
-                        }
-                    }
+                }
+                const RenderComposeCache::AdditionalSpriteRuleSpan& resolvedSpan = resolvedRuleIt->second;
+                if(resolvedSpan.count == 0) {
                     continue;
                 }
-                for(const AdditionalSpriteRule* rulePtr : resolvedRuleIt->second) {
+                for(size_t ruleIndex = 0; ruleIndex < resolvedSpan.count; ++ruleIndex) {
+                    const AdditionalSpriteRule* rulePtr = m_resolvedAdditionalSpriteRulesScratch[resolvedSpan.offset + ruleIndex];
                     if(rulePtr == nullptr) {
                         continue;
                     }
@@ -4060,50 +4142,20 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
                         continue;
                     }
 
-                    PPU::DebugModSpritePixel& targetPixel = augmentedSpritePixels[static_cast<size_t>(targetY) * PPU::SCREEN_WIDTH + static_cast<size_t>(targetX)];
-                    if(targetPixel.count >= targetPixel.candidates.size()) {
-                        continue;
-                    }
-
-                    PPU::DebugModSpriteCandidate added = source;
-                    added.tileIndex = static_cast<uint16_t>(std::clamp(rule.additionalTile, 0, 0xFFFF));
-                    added.tileHash = tileHash(rule.additionalTile);
-                    decodeSpritePaletteKey(rule.additionalPaletteKey, added.palette);
-                    added.paletteSlot = source.paletteSlot;
-                    added.offsetX = static_cast<uint8_t>(std::clamp(targetX - originX, 0, 255));
-                    added.offsetY = static_cast<uint8_t>(std::clamp(targetY - originY, 0, 255));
-                    added.colorLowBits = 0;
-                    added.synthetic = true;
-                    added.valid = true;
-
-                    targetPixel.candidates[targetPixel.count++] = added;
-                    if(!targetPixel.valid) {
-                        targetPixel.tileIndex = added.tileIndex;
-                        targetPixel.tileHash = added.tileHash;
-                        targetPixel.palette[0] = added.palette[0];
-                        targetPixel.palette[1] = added.palette[1];
-                        targetPixel.palette[2] = added.palette[2];
-                        targetPixel.paletteSlot = added.paletteSlot;
-                        targetPixel.colorLowBits = added.colorLowBits;
-                        targetPixel.offsetX = added.offsetX;
-                        targetPixel.offsetY = added.offsetY;
-                        targetPixel.behindBackground = added.behindBackground;
-                        targetPixel.horizontalMirror = added.horizontalMirror;
-                        targetPixel.verticalMirror = added.verticalMirror;
-                        targetPixel.synthetic = added.synthetic;
-                        targetPixel.valid = true;
-                    }
+                    PPU::DebugModSpritePixel& targetPixel = m_augmentedSpritePixelsScratch[static_cast<size_t>(targetY) * PPU::SCREEN_WIDTH + static_cast<size_t>(targetX)];
+                    appendSyntheticSpriteCandidate(targetPixel, source, rule, targetX, targetY, originX, originY);
                 }
             }
         }
+        augmentedSpritePixels = &m_augmentedSpritePixelsScratch;
     }
 
     auto spritePixelAt = [&](int x, int y) -> const PPU::DebugModSpritePixel* {
         if(x < 0 || x >= PPU::SCREEN_WIDTH || y < 0 || y >= PPU::SCREEN_HEIGHT) {
             return nullptr;
         }
-        if(!augmentedSpritePixels.empty()) {
-            return &augmentedSpritePixels[static_cast<size_t>(y) * PPU::SCREEN_WIDTH + static_cast<size_t>(x)];
+        if(augmentedSpritePixels != nullptr) {
+            return &(*augmentedSpritePixels)[static_cast<size_t>(y) * PPU::SCREEN_WIDTH + static_cast<size_t>(x)];
         }
         return rawSpritePixelAt(x, y);
     };

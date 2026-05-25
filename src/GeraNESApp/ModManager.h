@@ -229,14 +229,20 @@ public:
             MemoryCondition condition;
         };
 
-        struct RuleConditions {
-            std::vector<MemoryCondition> memoryConditions;
-            std::vector<MemoryCondition> frameRangeConditions;
+        struct CompiledMemoryCondition {
+            const MemoryCondition* condition = nullptr;
+            size_t readIndex = 0;
+            size_t rhsReadIndex = 0;
+        };
+
+        struct CompiledRuleConditions {
+            std::vector<CompiledMemoryCondition> memoryConditions;
+            std::vector<const MemoryCondition*> frameRangeConditions;
         };
 
         std::vector<CachedMemoryRead> uniqueMemoryReads;
-        std::vector<RuleConditions> chrOverrideGlobalConditions;
-        std::vector<RuleConditions> backgroundGlobalConditions;
+        std::vector<CompiledRuleConditions> chrOverrideGlobalConditions;
+        std::vector<CompiledRuleConditions> backgroundGlobalConditions;
     };
 
     struct DebugDecodedImage {
@@ -359,6 +365,11 @@ private:
     };
 
     struct RenderComposeCache {
+        struct AdditionalSpriteRuleSpan {
+            size_t offset = 0;
+            size_t count = 0;
+        };
+
         bool valid = false;
         int scale = 1;
         bool needsTileHashes = false;
@@ -389,13 +400,19 @@ private:
         std::array<bool, 256> hasDynamicOverridesByRelativeTile = {};
         std::unordered_set<uint32_t> dynamicOverrideHashes;
         std::vector<RenderPreparedBackground> preparedBackgrounds;
-        std::unordered_map<uint64_t, std::vector<const AdditionalSpriteRule*>> additionalSpriteRulesByExactKey;
-        std::unordered_map<int, std::vector<const AdditionalSpriteRule*>> additionalSpriteRulesByOriginalTile;
+        std::unordered_map<uint64_t, AdditionalSpriteRuleSpan> additionalSpriteRulesByExactKey;
+        std::unordered_map<int, AdditionalSpriteRuleSpan> additionalSpriteRulesByOriginalTile;
+        std::vector<const AdditionalSpriteRule*> additionalSpriteRuleStorage;
+        bool hasAdditionalSpriteRules = false;
         bool onlyWholeChrOverrides = false;
         const RenderPreparedOverride* fastBackgroundOverride = nullptr;
     };
 
     std::unordered_map<std::string, ImageCacheEntry> m_imageCache;
+    std::unordered_map<std::string, std::string> m_zipEntryLookup;
+    std::vector<PPU::DebugModSpritePixel> m_augmentedSpritePixelsScratch;
+    std::vector<const AdditionalSpriteRule*> m_resolvedAdditionalSpriteRulesScratch;
+    std::unordered_map<uint64_t, RenderComposeCache::AdditionalSpriteRuleSpan> m_resolvedAdditionalSpriteRuleMemo;
     RenderComposeCache m_renderComposeCache;
     bool m_renderComposeCacheDirty = true;
 
@@ -404,6 +421,8 @@ private:
     static std::optional<std::filesystem::path> resolveFolderEntryPath(const std::filesystem::path& rootPath, const std::string& entryName);
     static std::optional<std::vector<uint8_t>> readFileEntry(const std::filesystem::path& rootPath, const std::string& entryName);
     std::string resolveSourceEntryName(const std::string& entryName) const;
+    std::string resolveZipEntryName(const std::string& entryName) const;
+    bool rebuildZipEntryLookup();
     bool isFolderSource() const;
     bool sourceHasEntry(const std::string& entryName) const;
     std::optional<std::vector<uint8_t>> readSourceEntry(const std::string& entryName) const;
