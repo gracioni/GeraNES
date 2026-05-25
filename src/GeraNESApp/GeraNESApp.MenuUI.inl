@@ -2233,7 +2233,7 @@ inline void GeraNESApp::drawModPixelInspectorWindow()
     const bool hasRomLoaded = m_emu.valid();
     const bool modActive = hasRomLoaded && m_modManager.active();
     const int modScale = modActive ? std::clamp(m_modManager.resolutionMultiplier(), 1, 8) : 1;
-    const ModManager::OverscanConfig overscan = combinedDisplayOverscan();
+    const ModManager::OverscanConfig overscan = effectiveOverscan();
     const int activeLeft = overscan.left;
     const int activeRight = PPU::SCREEN_WIDTH - overscan.right;
     const int activeTop = overscan.top;

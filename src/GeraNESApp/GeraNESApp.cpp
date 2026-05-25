@@ -1201,7 +1201,7 @@ void GeraNESApp::removeRomDatabaseEditor()
 
 std::tuple<int, int> GeraNESApp::getNesCursor(int screenX, int screenY)
 {
-    const ModManager::OverscanConfig overscan = combinedDisplayOverscan();
+    const ModManager::OverscanConfig overscan = effectiveOverscan();
     const int visibleLeft = overscan.left;
     const int visibleRight = PPU::SCREEN_WIDTH - overscan.right;
     const int visibleTop = overscan.top;
@@ -1222,7 +1222,7 @@ std::tuple<int, int> GeraNESApp::getClampedNesCursor(int screenX, int screenY)
     const int clampedX = std::clamp(screenX, minX, maxX);
     const int clampedY = std::clamp(screenY, minY, maxY);
     auto [nesX, nesY] = getNesCursor(clampedX, clampedY);
-    const ModManager::OverscanConfig overscan = combinedDisplayOverscan();
+    const ModManager::OverscanConfig overscan = effectiveOverscan();
     nesX = std::clamp(nesX, overscan.left, PPU::SCREEN_WIDTH - overscan.right - 1);
     nesY = std::clamp(nesY, overscan.top, PPU::SCREEN_HEIGHT - overscan.bottom - 1);
     return std::make_tuple(nesX, nesY);
@@ -1522,13 +1522,14 @@ void GeraNESApp::refreshModFrameCaptureHook()
         }
 
         ModManager::ChrRenderSnapshot modSnapshot;
+        const ModManager::OverscanConfig overscan = effectiveOverscan();
         const bool captureDebugSnapshot = m_showModPixelInspectorWindow;
         if(!m_modManager.composeFrameOnEmuThread(
                emu,
                modSnapshot,
                framebuffer,
-               m_overscanConfig.top,
-               PPU::SCREEN_HEIGHT - m_overscanConfig.bottom,
+               overscan.top,
+               PPU::SCREEN_HEIGHT - overscan.bottom,
                captureDebugSnapshot)) {
             snapshot = {};
             framebuffer.clear();
@@ -1557,17 +1558,10 @@ void GeraNESApp::refreshModFrameCaptureHook()
     });
 }
 
-ModManager::OverscanConfig GeraNESApp::combinedDisplayOverscan() const
+ModManager::OverscanConfig GeraNESApp::effectiveOverscan() const
 {
-    ModManager::OverscanConfig overscan = m_overscanConfig;
     const ModManager::OverscanConfig& modOverscan = m_modManager.overscanConfig();
-    if(modOverscan.enabled) {
-        overscan.enabled = true;
-        overscan.top += modOverscan.top;
-        overscan.right += modOverscan.right;
-        overscan.bottom += modOverscan.bottom;
-        overscan.left += modOverscan.left;
-    }
+    ModManager::OverscanConfig overscan = modOverscan.enabled ? modOverscan : m_overscanConfig;
 
     overscan.top = std::clamp(overscan.top, 0, PPU::SCREEN_HEIGHT - 1);
     overscan.bottom = std::clamp(overscan.bottom, 0, PPU::SCREEN_HEIGHT - 1);
@@ -1611,6 +1605,7 @@ bool GeraNESApp::openRomPath(const fs::path& path, bool updateRecentFiles, bool 
         const bool hadSelectedMod = m_modManager.hasSelectedSource();
         m_modManager.clearModSource();
         refreshModFrameCaptureHook();
+        updateBuffers();
         if(hadSelectedMod) {
             Logger::instance().log("Mod cleared.", Logger::Type::USER);
         }
@@ -1645,6 +1640,7 @@ bool GeraNESApp::openRomPath(const fs::path& path, bool updateRecentFiles, bool 
             Logger::instance().log(modLoad.message + " " + modLoad.modPath.string(), Logger::Type::USER);
         }
         refreshModFrameCaptureHook();
+        updateBuffers();
         normalizeTouchControlsTargetForCurrentTopology();
         m_loadedRomPath = path;
         const std::string filename = path.filename().string();
@@ -1671,6 +1667,7 @@ bool GeraNESApp::openRomPath(const fs::path& path, bool updateRecentFiles, bool 
         return true;
     } else {
         refreshModFrameCaptureHook();
+        updateBuffers();
         m_loadedRomPath.clear();
         if(modDefinitionLoaded) {
             Logger::instance().log("Failed to load ROM", Logger::Type::USER);
@@ -2800,6 +2797,7 @@ void GeraNESApp::clearSelectedMod()
     m_emu.setModFrameCaptureHook({});
     m_modManager.clearModSource();
     refreshModFrameCaptureHook();
+    updateBuffers();
     if(hadSelectedMod) {
         Logger::instance().log("Mod cleared.", Logger::Type::USER);
     }
@@ -3648,7 +3646,7 @@ void GeraNESApp::updateBuffers()
     const int clientDrawableY = static_cast<int>(std::round(clientArea.y * drawableScaleY));
     const int clientDrawableW = std::max(0, static_cast<int>(std::round(clientArea.w * drawableScaleX)));
     const int clientDrawableH = std::max(0, static_cast<int>(std::round(clientArea.h * drawableScaleY)));
-    const ModManager::OverscanConfig overscan = combinedDisplayOverscan();
+    const ModManager::OverscanConfig overscan = effectiveOverscan();
     const int visibleLeft = overscan.left;
     const int visibleRight = PPU::SCREEN_WIDTH - overscan.right;
     const int visibleTop = overscan.top;

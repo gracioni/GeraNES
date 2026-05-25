@@ -498,7 +498,7 @@ private:
     void onEmuResetForModAudio(uint32_t frame);
     void onEmuLoadForModAssets(uint32_t frame);
     void refreshModFrameCaptureHook();
-    ModManager::OverscanConfig combinedDisplayOverscan() const;
+    ModManager::OverscanConfig effectiveOverscan() const;
     static uint32_t overscanKey(const ModManager::OverscanConfig& overscan);
 
     std::tuple<int, int> getNesCursor(int screenX, int screenY);
