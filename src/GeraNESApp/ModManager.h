@@ -54,6 +54,14 @@ public:
         int scale = 1;
         uint64_t memoryCacheKey = 0;
         size_t readIndex = 0;
+        bool compareAgainstMemory = false;
+        std::string rhsMemoryType = "cpu";
+        MemorySource rhsMemorySource = MemorySource::Cpu;
+        uint32_t rhsAddress = 0;
+        bool rhsWord = false;
+        int rhsScale = 1;
+        uint64_t rhsMemoryCacheKey = 0;
+        size_t rhsReadIndex = 0;
         std::string op = "==";
         CompareOp compareOp = CompareOp::Equal;
         uint32_t value = 0;

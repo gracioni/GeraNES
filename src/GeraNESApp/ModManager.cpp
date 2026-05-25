@@ -25,9 +25,8 @@ constexpr int MZ_OK = 0;
 constexpr uint8_t kPngSignature[8] = { 0x89u, 'P', 'N', 'G', '\r', '\n', 0x1Au, '\n' };
 
 
-bool evaluateMemoryCondition(const ModManager::MemoryCondition& condition, uint32_t actual)
+bool evaluateMemoryCondition(const ModManager::MemoryCondition& condition, uint32_t actual, uint32_t expected)
 {
-    uint32_t expected = condition.value;
     if(condition.hasMask) {
         actual &= condition.mask;
         expected &= condition.mask;
@@ -1071,7 +1070,27 @@ bool ModManager::loadMesenHiresFile()
             if(tokens.size() < 2) continue;
             const std::string type = tokens[1];
             const std::string normalizedType = toLower(type);
-            if((normalizedType == "memorycheckconstant" || normalizedType == "ppumemorycheckconstant") && tokens.size() >= 5) {
+            if((normalizedType == "memorycheck" || normalizedType == "ppumemorycheck") && tokens.size() >= 5) {
+                MemoryCondition condition;
+                condition.kind = MemoryCondition::Kind::MemoryCheck;
+                condition.memoryType = normalizedType == "ppumemorycheck" ? "ppu" : "cpu";
+                condition.memorySource = parseMemorySourceName(condition.memoryType);
+                condition.address = parseHexValue(tokens[2]);
+                condition.memoryCacheKey = makeMemoryCacheKey(condition.memorySource, condition.address, condition.word, condition.scale);
+                condition.compareAgainstMemory = true;
+                condition.rhsMemoryType = condition.memoryType;
+                condition.rhsMemorySource = condition.memorySource;
+                condition.rhsAddress = parseHexValue(tokens[4]);
+                condition.rhsMemoryCacheKey = makeMemoryCacheKey(condition.rhsMemorySource, condition.rhsAddress, condition.rhsWord, condition.rhsScale);
+                condition.op = tokens[3];
+                condition.compareOp = parseCompareOpName(condition.op);
+                condition.debugName = tokens[0];
+                if(tokens.size() >= 6) {
+                    condition.hasMask = true;
+                    condition.mask = parseHexValue(tokens[5]);
+                }
+                namedConditions[tokens[0]] = { condition };
+            } else if((normalizedType == "memorycheckconstant" || normalizedType == "ppumemorycheckconstant") && tokens.size() >= 5) {
                 MemoryCondition condition;
                 condition.kind = MemoryCondition::Kind::MemoryCheck;
                 condition.memoryType = normalizedType == "ppumemorycheckconstant" ? "ppu" : "cpu";
@@ -1279,7 +1298,11 @@ void ModManager::updateFrameConditionsForFrame(GeraNESEmu& emu)
             condition.readIndex < frameConditionState.memoryValues.size()
                 ? frameConditionState.memoryValues[condition.readIndex]
                 : 0u;
-        return evaluateMemoryCondition(condition, actual);
+        const uint32_t expected =
+            condition.compareAgainstMemory && condition.rhsReadIndex < frameConditionState.memoryValues.size()
+                ? frameConditionState.memoryValues[condition.rhsReadIndex]
+                : condition.value;
+        return evaluateMemoryCondition(condition, actual, expected);
     };
 
     auto frameRangeConditionMatches = [&](const MemoryCondition& condition) {
@@ -1380,6 +1403,33 @@ void ModManager::rebuildFrameConditionPlan()
                 compiledCondition.readIndex = m_frameConditionPlan.uniqueMemoryReads.back().readIndex;
             } else {
                 compiledCondition.readIndex = duplicateIt->readIndex;
+            }
+            if(compiledCondition.compareAgainstMemory) {
+                if(compiledCondition.rhsMemoryCacheKey == 0) {
+                    compiledCondition.rhsMemoryCacheKey = makeMemoryCacheKey(
+                        compiledCondition.rhsMemorySource,
+                        compiledCondition.rhsAddress,
+                        compiledCondition.rhsWord,
+                        compiledCondition.rhsScale);
+                }
+                const uint64_t rhsKey = compiledCondition.rhsMemoryCacheKey;
+                const auto rhsDuplicateIt = std::find_if(
+                    m_frameConditionPlan.uniqueMemoryReads.begin(),
+                    m_frameConditionPlan.uniqueMemoryReads.end(),
+                    [rhsKey](const FrameConditionPlan::CachedMemoryRead& cachedRead) { return cachedRead.key == rhsKey; });
+                if(rhsDuplicateIt == m_frameConditionPlan.uniqueMemoryReads.end()) {
+                    FrameConditionPlan::CachedMemoryRead rhsCachedRead;
+                    rhsCachedRead.key = rhsKey;
+                    rhsCachedRead.readIndex = m_frameConditionPlan.uniqueMemoryReads.size();
+                    rhsCachedRead.condition.memorySource = compiledCondition.rhsMemorySource;
+                    rhsCachedRead.condition.address = compiledCondition.rhsAddress;
+                    rhsCachedRead.condition.word = compiledCondition.rhsWord;
+                    rhsCachedRead.condition.scale = compiledCondition.rhsScale;
+                    m_frameConditionPlan.uniqueMemoryReads.push_back(std::move(rhsCachedRead));
+                    compiledCondition.rhsReadIndex = m_frameConditionPlan.uniqueMemoryReads.back().readIndex;
+                } else {
+                    compiledCondition.rhsReadIndex = rhsDuplicateIt->readIndex;
+                }
             }
             globals.memoryConditions.push_back(std::move(compiledCondition));
         }
@@ -1928,7 +1978,10 @@ bool ModManager::conditionMatches(const MemoryCondition& condition, GeraNESEmu& 
     }
 
     const uint32_t actual = readMemoryValue(condition, emu);
-    return evaluateMemoryCondition(condition, actual);
+    const uint32_t expected = condition.compareAgainstMemory
+        ? readMemory(&emu, condition.rhsMemorySource, condition.rhsAddress) / static_cast<uint32_t>(std::max(1, condition.rhsScale))
+        : condition.value;
+    return evaluateMemoryCondition(condition, actual, expected);
 }
 
 const ModManager::DecodedImage* ModManager::decodedImage(const std::string& assetPath)
@@ -2373,7 +2426,11 @@ std::optional<ModManager::DebugComposePixel> ModManager::debugComposePixel(const
                 condition.readIndex < frameConditionState.memoryValues.size()
                     ? frameConditionState.memoryValues[condition.readIndex]
                     : 0u;
-            match = evaluateMemoryCondition(condition, actual);
+            const uint32_t expected =
+                condition.compareAgainstMemory && condition.rhsReadIndex < frameConditionState.memoryValues.size()
+                    ? frameConditionState.memoryValues[condition.rhsReadIndex]
+                    : condition.value;
+            match = evaluateMemoryCondition(condition, actual, expected);
             break;
         }
         case MemoryCondition::Kind::FrameRange: {
@@ -2449,10 +2506,19 @@ std::optional<ModManager::DebugComposePixel> ModManager::debugComposePixel(const
                 condition.readIndex < frameConditionState.memoryValues.size()
                     ? frameConditionState.memoryValues[condition.readIndex]
                     : 0u;
+            const uint32_t expected =
+                condition.compareAgainstMemory && condition.rhsReadIndex < frameConditionState.memoryValues.size()
+                    ? frameConditionState.memoryValues[condition.rhsReadIndex]
+                    : condition.value;
             out << " (" << condition.memoryType << "[$"
                 << std::uppercase << std::hex << condition.address
                 << "]=" << actual
-                << " " << condition.op << " " << condition.value;
+                << " " << condition.op << " ";
+            if(condition.compareAgainstMemory) {
+                out << condition.rhsMemoryType << "[$" << condition.rhsAddress << "]=" << expected;
+            } else {
+                out << expected;
+            }
             if(condition.hasMask) {
                 out << " mask " << condition.mask;
             }
@@ -3657,7 +3723,11 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
                 condition.readIndex < frameConditionState.memoryValues.size()
                     ? frameConditionState.memoryValues[condition.readIndex]
                     : 0u;
-            match = evaluateMemoryCondition(condition, actual);
+            const uint32_t expected =
+                condition.compareAgainstMemory && condition.rhsReadIndex < frameConditionState.memoryValues.size()
+                    ? frameConditionState.memoryValues[condition.rhsReadIndex]
+                    : condition.value;
+            match = evaluateMemoryCondition(condition, actual, expected);
             break;
         }
         case MemoryCondition::Kind::FrameRange: {
