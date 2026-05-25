@@ -1718,49 +1718,57 @@ yyy NN YYYYY XXXXX
 
         const int renderedSpriteCount = (m_spriteFetchCount < 8) ? m_spriteFetchCount : 8;
         const int renderedSpriteLimit = (maxSprites < renderedSpriteCount) ? maxSprites : renderedSpriteCount;
+        if(m_debugModRenderCaptureEnabled && !m_debugModSpritePixels.empty() &&
+           m_currentX >= 0 && m_currentX < SCREEN_WIDTH && m_currentY >= 0 && m_currentY < SCREEN_HEIGHT) {
+            DebugModSpritePixel& captured = m_debugModSpritePixels[static_cast<size_t>(m_currentY) * SCREEN_WIDTH + static_cast<size_t>(m_currentX)];
+            for(int i = 0; i < renderedSpriteLimit; i++) {
+                SpriteRenderEntry& sprite = m_spriteRenderEntries[i];
+                if(!sprite.active || sprite.xCounter != 0) {
+                    continue;
+                }
+
+                const int color = ((sprite.lowShift & 0x80) ? 0x01 : 0x00) |
+                                  ((sprite.highShift & 0x80) ? 0x02 : 0x00);
+                const int rawOffsetX = m_currentX - static_cast<int>(sprite.x);
+                if(!sprite.valid || rawOffsetX < 0 || rawOffsetX >= 8 || captured.count >= captured.candidates.size()) {
+                    continue;
+                }
+
+                DebugModSpriteCandidate& candidate = captured.candidates[captured.count++];
+                candidate.tileIndex = sprite.tileIndex;
+                candidate.tileHash = sprite.tileIndex <= 0x01FF ? debugHashChrTile(sprite.tileIndex) : 0;
+                candidate.palette[0] = static_cast<uint8_t>(m_palette[0x11 + ((sprite.attr & 0x03) << 2)] & 0x3F);
+                candidate.palette[1] = static_cast<uint8_t>(m_palette[0x12 + ((sprite.attr & 0x03) << 2)] & 0x3F);
+                candidate.palette[2] = static_cast<uint8_t>(m_palette[0x13 + ((sprite.attr & 0x03) << 2)] & 0x3F);
+                candidate.paletteSlot = static_cast<uint8_t>(sprite.attr & 0x03);
+                candidate.colorLowBits = static_cast<uint8_t>(color);
+                candidate.offsetX = static_cast<uint8_t>(rawOffsetX);
+                candidate.offsetY = sprite.row;
+                candidate.behindBackground = (sprite.attr & 0x20) != 0;
+                candidate.horizontalMirror = (sprite.attr & 0x40) != 0;
+                candidate.verticalMirror = (sprite.attr & 0x80) != 0;
+                candidate.valid = true;
+                if(!captured.valid) {
+                    captured.tileIndex = candidate.tileIndex;
+                    captured.tileHash = candidate.tileHash;
+                    captured.palette[0] = candidate.palette[0];
+                    captured.palette[1] = candidate.palette[1];
+                    captured.palette[2] = candidate.palette[2];
+                    captured.paletteSlot = candidate.paletteSlot;
+                    captured.colorLowBits = candidate.colorLowBits;
+                    captured.offsetX = candidate.offsetX;
+                    captured.offsetY = candidate.offsetY;
+                    captured.behindBackground = candidate.behindBackground;
+                    captured.horizontalMirror = candidate.horizontalMirror;
+                    captured.verticalMirror = candidate.verticalMirror;
+                    captured.valid = true;
+                }
+            }
+        }
         for(int i = 0; i < renderedSpriteLimit; i++) {
             SpriteRenderEntry& sprite = m_spriteRenderEntries[i];
             if(!sprite.active || sprite.xCounter != 0) {
                 continue;
-            }
-
-            if(m_debugModRenderCaptureEnabled && !m_debugModSpritePixels.empty() &&
-               m_currentX >= 0 && m_currentX < SCREEN_WIDTH && m_currentY >= 0 && m_currentY < SCREEN_HEIGHT) {
-                const int color = ((sprite.lowShift & 0x80) ? 0x01 : 0x00) |
-                                  ((sprite.highShift & 0x80) ? 0x02 : 0x00);
-                const int rawOffsetX = m_currentX - static_cast<int>(sprite.x);
-                DebugModSpritePixel& captured = m_debugModSpritePixels[static_cast<size_t>(m_currentY) * SCREEN_WIDTH + static_cast<size_t>(m_currentX)];
-                if(sprite.valid && rawOffsetX >= 0 && rawOffsetX < 8 && captured.count < captured.candidates.size()) {
-                    DebugModSpriteCandidate& candidate = captured.candidates[captured.count++];
-                    candidate.tileIndex = sprite.tileIndex;
-                    candidate.tileHash = sprite.tileIndex <= 0x01FF ? debugHashChrTile(sprite.tileIndex) : 0;
-                    candidate.palette[0] = static_cast<uint8_t>(m_palette[0x11 + ((sprite.attr & 0x03) << 2)] & 0x3F);
-                    candidate.palette[1] = static_cast<uint8_t>(m_palette[0x12 + ((sprite.attr & 0x03) << 2)] & 0x3F);
-                    candidate.palette[2] = static_cast<uint8_t>(m_palette[0x13 + ((sprite.attr & 0x03) << 2)] & 0x3F);
-                    candidate.paletteSlot = static_cast<uint8_t>(sprite.attr & 0x03);
-                    candidate.colorLowBits = static_cast<uint8_t>(color);
-                    candidate.offsetX = static_cast<uint8_t>(rawOffsetX);
-                    candidate.offsetY = sprite.row;
-                    candidate.behindBackground = (sprite.attr & 0x20) != 0;
-                    candidate.horizontalMirror = (sprite.attr & 0x40) != 0;
-                    candidate.verticalMirror = (sprite.attr & 0x80) != 0;
-                    candidate.valid = true;
-                    if(!captured.valid) {
-                        captured.tileIndex = candidate.tileIndex;
-                        captured.tileHash = candidate.tileHash;
-                        captured.palette[0] = candidate.palette[0];
-                        captured.palette[1] = candidate.palette[1];
-                        captured.palette[2] = candidate.palette[2];
-                        captured.paletteSlot = candidate.paletteSlot;
-                        captured.colorLowBits = candidate.colorLowBits;
-                        captured.offsetX = candidate.offsetX;
-                        captured.offsetY = candidate.offsetY;
-                        captured.behindBackground = candidate.behindBackground;
-                        captured.horizontalMirror = candidate.horizontalMirror;
-                        captured.verticalMirror = candidate.verticalMirror;
-                        captured.valid = true;
-                    }
-                }
             }
 
             const int color = ((sprite.lowShift & 0x80) ? 0x01 : 0x00) |
