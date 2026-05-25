@@ -166,6 +166,21 @@ public:
         std::vector<uint8_t> replaceOnlyPaletteIndices;
     };
 
+    struct AdditionalSpriteRule {
+        int originalTile = -1;
+        uint32_t originalPaletteKey = 0;
+        int offsetX = 0;
+        int offsetY = 0;
+        int additionalTile = -1;
+        uint32_t additionalPaletteKey = 0;
+        bool ignorePalette = false;
+    };
+
+    struct FallbackTileRule {
+        int tile = -1;
+        int fallbackTile = -1;
+    };
+
     struct LoadRequest {
         std::filesystem::path romPath;
         std::filesystem::path effectiveRomPath;
@@ -281,9 +296,14 @@ private:
     int m_resolutionMultiplier = 1;
     bool m_disableOriginalTiles = false;
     bool m_disableContours = false;
+    bool m_automaticFallbackTiles = false;
     std::optional<std::array<uint32_t, 64>> m_customPalette;
     std::vector<ChrOverride> m_chrOverrides;
     std::vector<BackgroundReplacement> m_backgroundReplacements;
+    std::vector<AdditionalSpriteRule> m_additionalSpriteRules;
+    std::vector<FallbackTileRule> m_fallbackTileRules;
+    std::vector<uint32_t> m_chrRomTileHashes;
+    std::unordered_map<uint32_t, int> m_chrRomCanonicalTileByHash;
     std::vector<std::string> m_supportedRomHashes;
     std::string m_patchAssetPath;
     std::string m_patchExpectedRomHash;
@@ -335,22 +355,27 @@ private:
         std::vector<const ChrOverride*> activeOverrides;
         std::vector<RenderPreparedOverride> preparedOverrides;
         std::array<std::vector<const RenderPreparedOverride*>, 512> overridesByFullTile;
+        std::unordered_map<int, std::vector<const RenderPreparedOverride*>> overridesByOverflowFullTile;
         std::array<std::vector<const RenderPreparedOverride*>, 256> overridesByRelativeTile;
         std::array<std::vector<const RenderPreparedOverride*>, 512> dynamicOverridesByFullTile;
+        std::unordered_map<int, std::vector<const RenderPreparedOverride*>> dynamicOverridesByOverflowFullTile;
         std::array<std::vector<const RenderPreparedOverride*>, 256> dynamicOverridesByRelativeTile;
         std::unordered_map<uint32_t, std::vector<const RenderPreparedOverride*>> overridesByChrHash;
         std::unordered_map<uint32_t, std::vector<const RenderPreparedOverride*>> dynamicOverridesByChrHash;
         std::vector<const RenderPreparedOverride*> wholeChrOverrides;
         std::vector<const RenderPreparedOverride*> dynamicWholeChrOverrides;
         std::array<bool, 512> hasStaticOverridesByFullTile = {};
+        std::unordered_set<int> staticOverflowFullTiles;
         std::array<bool, 256> hasStaticOverridesByRelativeTile = {};
         std::unordered_set<uint32_t> staticOverrideHashes;
         bool hasWholeChrOverrides = false;
         std::array<bool, 512> hasDefaultOverridesByFullTile = {};
+        std::unordered_set<int> defaultOverflowFullTiles;
         std::array<bool, 256> hasDefaultOverridesByRelativeTile = {};
         std::unordered_set<uint32_t> defaultOverrideHashes;
         bool hasWholeChrDefaultOverrides = false;
         std::array<bool, 512> hasDynamicOverridesByFullTile = {};
+        std::unordered_set<int> dynamicOverflowFullTiles;
         std::array<bool, 256> hasDynamicOverridesByRelativeTile = {};
         std::unordered_set<uint32_t> dynamicOverrideHashes;
         std::vector<RenderPreparedBackground> preparedBackgrounds;

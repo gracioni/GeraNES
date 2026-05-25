@@ -130,6 +130,23 @@ public:
         return MirroringType::FOUR_SCREEN;
     }
 
+    int32_t debugToAbsoluteChrAddress(uint16_t addr) override
+    {
+        if(hasChrRam()) {
+            return -1;
+        }
+
+        if(!(m_control & 0x10)) {
+            const int bank8k = (m_chrBank0 & m_CHRMask) >> 1;
+            return (bank8k * 0x2000) + (addr & 0x1FFF);
+        }
+
+        if(addr < 0x1000) {
+            return (static_cast<int>(m_chrBank0 & m_CHRMask) * 0x1000) + (addr & 0x0FFF);
+        }
+        return (static_cast<int>(m_chrBank1 & m_CHRMask) * 0x1000) + (addr & 0x0FFF);
+    }
+
     void reset() override
     {
         m_shiftCounter = 0;

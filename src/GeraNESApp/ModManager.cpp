@@ -13,6 +13,7 @@
 #include <unordered_set>
 
 #include "GeraNES/RomFile.h"
+#include "GeraNES/NesCartridgeData/_INesFormat.h"
 #include "GeraNESApp/AppSettings.h"
 #include "logger/logger.h"
 #include "stb_image.h"
@@ -368,6 +369,47 @@ uint32_t hashTileBytes(const std::string& tileData)
     return hash;
 }
 
+uint32_t hashTileBytes(const uint8_t* bytes)
+{
+    uint32_t hash = 0;
+    for(size_t i = 0; i < 16; i += sizeof(uint32_t)) {
+        uint32_t chunk = 0;
+        std::memcpy(&chunk, bytes + i, sizeof(uint32_t));
+        hash += chunk;
+        hash = (hash << 2) | (hash >> 30);
+    }
+    return hash;
+}
+
+std::vector<uint32_t> buildChrRomTileHashes(const std::filesystem::path& romPath)
+{
+    std::vector<uint32_t> hashes;
+    if(romPath.empty()) {
+        return hashes;
+    }
+
+    RomFile rom;
+    if(!rom.open(romPath.string())) {
+        return hashes;
+    }
+
+    _INesFormat iNes(rom);
+    if(!iNes.valid() || iNes.chrSize() <= 0) {
+        return hashes;
+    }
+
+    const int tileCount = iNes.chrSize() / 16;
+    hashes.resize(static_cast<size_t>(tileCount), 0u);
+    uint8_t bytes[16] = {};
+    for(int tileIndex = 0; tileIndex < tileCount; ++tileIndex) {
+        for(int offset = 0; offset < 16; ++offset) {
+            bytes[offset] = iNes.readChr(tileIndex * 16 + offset);
+        }
+        hashes[static_cast<size_t>(tileIndex)] = hashTileBytes(bytes);
+    }
+    return hashes;
+}
+
 std::vector<uint8_t> parseMesenPalette(const std::string& paletteText)
 {
     std::vector<uint8_t> palette;
@@ -516,9 +558,14 @@ void ModManager::clear()
     m_resolutionMultiplier = 1;
     m_disableOriginalTiles = false;
     m_disableContours = false;
+    m_automaticFallbackTiles = false;
     m_customPalette.reset();
     m_chrOverrides.clear();
     m_backgroundReplacements.clear();
+    m_additionalSpriteRules.clear();
+    m_fallbackTileRules.clear();
+    m_chrRomTileHashes.clear();
+    m_chrRomCanonicalTileByHash.clear();
     m_supportedRomHashes.clear();
     m_patchAssetPath.clear();
     m_patchExpectedRomHash.clear();
@@ -993,6 +1040,8 @@ bool ModManager::loadMesenHiresFile()
                     m_disableOriginalTiles = true;
                 } else if(option == "disablecontours") {
                     m_disableContours = true;
+                } else if(option == "automaticfallbacktiles") {
+                    m_automaticFallbackTiles = true;
                 } else if(option == "alternateregisterrange") {
                     m_hdAudioConfig.alternateRegisterRange = true;
                 }
@@ -1231,6 +1280,39 @@ bool ModManager::loadMesenHiresFile()
             m_chrOverrides.push_back(std::move(override));
             continue;
         }
+        if(line.rfind("<addition>", 0) == 0) {
+            const std::vector<std::string> tokens = splitComma(line.substr(10));
+            if(tokens.size() < 6) {
+                Logger::instance().log("Invalid Mesen <addition> on line " + std::to_string(lineNumber), Logger::Type::ERROR);
+                continue;
+            }
+
+            AdditionalSpriteRule rule;
+            rule.originalTile = static_cast<int>(parseHexValue(tokens[0], 0xFFFFFFFFu));
+            rule.originalPaletteKey = parseHexValue(tokens[1]);
+            rule.offsetX = parseSignedDecimalIntStrict(tokens[2]).value_or(0);
+            rule.offsetY = parseSignedDecimalIntStrict(tokens[3]).value_or(0);
+            rule.additionalTile = static_cast<int>(parseHexValue(tokens[4], 0xFFFFFFFFu));
+            rule.additionalPaletteKey = parseHexValue(tokens[5]);
+            if(tokens.size() >= 7) {
+                rule.ignorePalette = parseMesenBool(tokens[6]);
+            }
+            m_additionalSpriteRules.push_back(std::move(rule));
+            continue;
+        }
+        if(line.rfind("<fallback>", 0) == 0) {
+            const std::vector<std::string> tokens = splitComma(line.substr(10));
+            if(tokens.size() < 2) {
+                Logger::instance().log("Invalid Mesen <fallback> on line " + std::to_string(lineNumber), Logger::Type::ERROR);
+                continue;
+            }
+
+            FallbackTileRule rule;
+            rule.tile = static_cast<int>(parseHexValue(tokens[0], 0xFFFFFFFFu));
+            rule.fallbackTile = static_cast<int>(parseHexValue(tokens[1], 0xFFFFFFFFu));
+            m_fallbackTileRules.push_back(std::move(rule));
+            continue;
+        }
         if(line.rfind("<background>", 0) == 0) {
             const std::vector<std::string> tokens = splitComma(line.substr(12));
             if(tokens.empty()) continue;
@@ -1259,6 +1341,49 @@ bool ModManager::loadMesenHiresFile()
     if(m_hdAudioRuntime) {
         m_hdAudioRuntime->setConfig(m_hdAudioConfig);
     }
+
+    m_chrRomTileHashes = buildChrRomTileHashes(m_effectiveRomPath.empty() ? m_originalRomPath : m_effectiveRomPath);
+    m_chrRomCanonicalTileByHash.clear();
+    if(!m_chrRomTileHashes.empty()) {
+        auto tileHashForIndex = [&](int tileIndex) -> uint32_t {
+            return tileIndex >= 0 && tileIndex < static_cast<int>(m_chrRomTileHashes.size())
+                ? m_chrRomTileHashes[static_cast<size_t>(tileIndex)]
+                : 0u;
+        };
+
+        std::unordered_map<uint32_t, int> firstOverrideTileByHash;
+        for(const ChrOverride& override : m_chrOverrides) {
+            if(!override.enabled || !override.absoluteTile || override.tile < 0) {
+                continue;
+            }
+            const uint32_t hash = tileHashForIndex(override.tile);
+            if(hash != 0 && firstOverrideTileByHash.find(hash) == firstOverrideTileByHash.end()) {
+                firstOverrideTileByHash.emplace(hash, override.tile);
+            }
+        }
+
+        for(const auto& [hash, tileIndex] : firstOverrideTileByHash) {
+            m_chrRomCanonicalTileByHash.emplace(hash, tileIndex);
+        }
+        for(const FallbackTileRule& rule : m_fallbackTileRules) {
+            const uint32_t hash = tileHashForIndex(rule.tile);
+            if(hash != 0 && rule.fallbackTile >= 0) {
+                m_chrRomCanonicalTileByHash[hash] = rule.fallbackTile;
+            }
+        }
+        if(m_automaticFallbackTiles) {
+            for(size_t tileIndex = 0; tileIndex < m_chrRomTileHashes.size(); ++tileIndex) {
+                const uint32_t hash = m_chrRomTileHashes[tileIndex];
+                if(hash == 0) {
+                    continue;
+                }
+                if(const auto it = firstOverrideTileByHash.find(hash); it != firstOverrideTileByHash.end()) {
+                    m_chrRomCanonicalTileByHash[hash] = it->second;
+                }
+            }
+        }
+    }
+
     return true;
 }
 
@@ -1540,15 +1665,28 @@ void ModManager::rebuildRenderComposeCache()
                 m_renderComposeCache.wholeChrOverrides.push_back(preparedPtr);
             }
         } else if(override->absoluteTile) {
-            if(override->tile >= 0 && override->tile < static_cast<int>(m_renderComposeCache.overridesByFullTile.size())) {
-                m_renderComposeCache.hasStaticOverridesByFullTile[static_cast<size_t>(override->tile)] = true;
-                if(override->defaultTile) {
-                    m_renderComposeCache.hasDefaultOverridesByFullTile[static_cast<size_t>(override->tile)] = true;
-                }
-                if(preparedPtr->hasDynamicConditions) {
-                    m_renderComposeCache.dynamicOverridesByFullTile[static_cast<size_t>(override->tile)].push_back(preparedPtr);
+            if(override->tile >= 0) {
+                if(override->tile < static_cast<int>(m_renderComposeCache.overridesByFullTile.size())) {
+                    m_renderComposeCache.hasStaticOverridesByFullTile[static_cast<size_t>(override->tile)] = true;
+                    if(override->defaultTile) {
+                        m_renderComposeCache.hasDefaultOverridesByFullTile[static_cast<size_t>(override->tile)] = true;
+                    }
+                    if(preparedPtr->hasDynamicConditions) {
+                        m_renderComposeCache.dynamicOverridesByFullTile[static_cast<size_t>(override->tile)].push_back(preparedPtr);
+                    } else {
+                        m_renderComposeCache.overridesByFullTile[static_cast<size_t>(override->tile)].push_back(preparedPtr);
+                    }
                 } else {
-                    m_renderComposeCache.overridesByFullTile[static_cast<size_t>(override->tile)].push_back(preparedPtr);
+                    m_renderComposeCache.staticOverflowFullTiles.insert(override->tile);
+                    if(override->defaultTile) {
+                        m_renderComposeCache.defaultOverflowFullTiles.insert(override->tile);
+                    }
+                    if(preparedPtr->hasDynamicConditions) {
+                        m_renderComposeCache.dynamicOverflowFullTiles.insert(override->tile);
+                        m_renderComposeCache.dynamicOverridesByOverflowFullTile[override->tile].push_back(preparedPtr);
+                    } else {
+                        m_renderComposeCache.overridesByOverflowFullTile[override->tile].push_back(preparedPtr);
+                    }
                 }
             }
         } else if(override->tile >= 0) {
@@ -2280,10 +2418,28 @@ std::optional<ModManager::DebugComposePixel> ModManager::debugComposePixel(const
     }
 
     auto tileHash = [&](int tileIndex) {
-        if(tileIndex < 0 || tileIndex > 0x01FF) {
+        if(tileIndex < 0) {
             return 0u;
         }
-        return snapshot.tileHashes[static_cast<size_t>(tileIndex)];
+        if(tileIndex <= 0x01FF) {
+            return snapshot.tileHashes[static_cast<size_t>(tileIndex)];
+        }
+        if(tileIndex < static_cast<int>(m_chrRomTileHashes.size())) {
+            return m_chrRomTileHashes[static_cast<size_t>(tileIndex)];
+        }
+        return 0u;
+    };
+
+    auto canonicalTileIndex = [&](int tileIndex, uint32_t currentHash) {
+        if(tileIndex > 0x01FF) {
+            return tileIndex;
+        }
+        if(currentHash != 0) {
+            if(const auto it = m_chrRomCanonicalTileByHash.find(currentHash); it != m_chrRomCanonicalTileByHash.end()) {
+                return it->second;
+            }
+        }
+        return tileIndex;
     };
     const std::string normalizedFilter = toLower(filterText);
     auto debugAssetMatchesFilter = [&](const std::string& assetPath) {
@@ -3284,22 +3440,27 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
     std::vector<const ChrOverride*> activeOverridesLocal;
     std::vector<RenderPreparedOverride> preparedOverridesLocal;
     std::array<std::vector<const RenderPreparedOverride*>, 512> overridesByFullTileLocal;
+    std::unordered_map<int, std::vector<const RenderPreparedOverride*>> overridesByOverflowFullTileLocal;
     std::array<std::vector<const RenderPreparedOverride*>, 256> overridesByRelativeTileLocal;
     std::array<std::vector<const RenderPreparedOverride*>, 512> dynamicOverridesByFullTileLocal;
+    std::unordered_map<int, std::vector<const RenderPreparedOverride*>> dynamicOverridesByOverflowFullTileLocal;
     std::array<std::vector<const RenderPreparedOverride*>, 256> dynamicOverridesByRelativeTileLocal;
     std::unordered_map<uint32_t, std::vector<const RenderPreparedOverride*>> overridesByChrHashLocal;
     std::unordered_map<uint32_t, std::vector<const RenderPreparedOverride*>> dynamicOverridesByChrHashLocal;
     std::vector<const RenderPreparedOverride*> wholeChrOverridesLocal;
     std::vector<const RenderPreparedOverride*> dynamicWholeChrOverridesLocal;
     std::array<bool, 512> hasStaticOverridesByFullTileLocal = {};
+    std::unordered_set<int> staticOverflowFullTilesLocal;
     std::array<bool, 256> hasStaticOverridesByRelativeTileLocal = {};
     std::unordered_set<uint32_t> staticOverrideHashesLocal;
     bool hasWholeChrOverridesLocal = false;
     std::array<bool, 512> hasDefaultOverridesByFullTileLocal = {};
+    std::unordered_set<int> defaultOverflowFullTilesLocal;
     std::array<bool, 256> hasDefaultOverridesByRelativeTileLocal = {};
     std::unordered_set<uint32_t> defaultOverrideHashesLocal;
     bool hasWholeChrDefaultOverridesLocal = false;
     std::array<bool, 512> hasDynamicOverridesByFullTileLocal = {};
+    std::unordered_set<int> dynamicOverflowFullTilesLocal;
     std::array<bool, 256> hasDynamicOverridesByRelativeTileLocal = {};
     std::unordered_set<uint32_t> dynamicOverrideHashesLocal;
     std::vector<RenderPreparedBackground> preparedBackgroundsLocal;
@@ -3318,22 +3479,27 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
 
     const std::vector<RenderPreparedOverride>* preparedOverridesPtr = nullptr;
     const std::array<std::vector<const RenderPreparedOverride*>, 512>* overridesByFullTilePtr = nullptr;
+    const std::unordered_map<int, std::vector<const RenderPreparedOverride*>>* overridesByOverflowFullTilePtr = nullptr;
     const std::array<std::vector<const RenderPreparedOverride*>, 256>* overridesByRelativeTilePtr = nullptr;
     const std::array<std::vector<const RenderPreparedOverride*>, 512>* dynamicOverridesByFullTilePtr = nullptr;
+    const std::unordered_map<int, std::vector<const RenderPreparedOverride*>>* dynamicOverridesByOverflowFullTilePtr = nullptr;
     const std::array<std::vector<const RenderPreparedOverride*>, 256>* dynamicOverridesByRelativeTilePtr = nullptr;
     const std::unordered_map<uint32_t, std::vector<const RenderPreparedOverride*>>* overridesByChrHashPtr = nullptr;
     const std::unordered_map<uint32_t, std::vector<const RenderPreparedOverride*>>* dynamicOverridesByChrHashPtr = nullptr;
     const std::vector<const RenderPreparedOverride*>* wholeChrOverridesPtr = nullptr;
     const std::vector<const RenderPreparedOverride*>* dynamicWholeChrOverridesPtr = nullptr;
     const std::array<bool, 512>* hasStaticOverridesByFullTilePtr = nullptr;
+    const std::unordered_set<int>* staticOverflowFullTilesPtr = nullptr;
     const std::array<bool, 256>* hasStaticOverridesByRelativeTilePtr = nullptr;
     const std::unordered_set<uint32_t>* staticOverrideHashesPtr = nullptr;
     bool hasWholeChrOverrides = false;
     const std::array<bool, 512>* hasDefaultOverridesByFullTilePtr = nullptr;
+    const std::unordered_set<int>* defaultOverflowFullTilesPtr = nullptr;
     const std::array<bool, 256>* hasDefaultOverridesByRelativeTilePtr = nullptr;
     const std::unordered_set<uint32_t>* defaultOverrideHashesPtr = nullptr;
     bool hasWholeChrDefaultOverrides = false;
     const std::array<bool, 512>* hasDynamicOverridesByFullTilePtr = nullptr;
+    const std::unordered_set<int>* dynamicOverflowFullTilesPtr = nullptr;
     const std::array<bool, 256>* hasDynamicOverridesByRelativeTilePtr = nullptr;
     const std::unordered_set<uint32_t>* dynamicOverrideHashesPtr = nullptr;
     const std::vector<RenderPreparedBackground>* preparedBackgroundsPtr = nullptr;
@@ -3345,22 +3511,27 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
         activeOverridesPtr = &m_renderComposeCache.activeOverrides;
         preparedOverridesPtr = &m_renderComposeCache.preparedOverrides;
         overridesByFullTilePtr = &m_renderComposeCache.overridesByFullTile;
+        overridesByOverflowFullTilePtr = &m_renderComposeCache.overridesByOverflowFullTile;
         overridesByRelativeTilePtr = &m_renderComposeCache.overridesByRelativeTile;
         dynamicOverridesByFullTilePtr = &m_renderComposeCache.dynamicOverridesByFullTile;
+        dynamicOverridesByOverflowFullTilePtr = &m_renderComposeCache.dynamicOverridesByOverflowFullTile;
         dynamicOverridesByRelativeTilePtr = &m_renderComposeCache.dynamicOverridesByRelativeTile;
         overridesByChrHashPtr = &m_renderComposeCache.overridesByChrHash;
         dynamicOverridesByChrHashPtr = &m_renderComposeCache.dynamicOverridesByChrHash;
         wholeChrOverridesPtr = &m_renderComposeCache.wholeChrOverrides;
         dynamicWholeChrOverridesPtr = &m_renderComposeCache.dynamicWholeChrOverrides;
         hasStaticOverridesByFullTilePtr = &m_renderComposeCache.hasStaticOverridesByFullTile;
+        staticOverflowFullTilesPtr = &m_renderComposeCache.staticOverflowFullTiles;
         hasStaticOverridesByRelativeTilePtr = &m_renderComposeCache.hasStaticOverridesByRelativeTile;
         staticOverrideHashesPtr = &m_renderComposeCache.staticOverrideHashes;
         hasWholeChrOverrides = m_renderComposeCache.hasWholeChrOverrides;
         hasDefaultOverridesByFullTilePtr = &m_renderComposeCache.hasDefaultOverridesByFullTile;
+        defaultOverflowFullTilesPtr = &m_renderComposeCache.defaultOverflowFullTiles;
         hasDefaultOverridesByRelativeTilePtr = &m_renderComposeCache.hasDefaultOverridesByRelativeTile;
         defaultOverrideHashesPtr = &m_renderComposeCache.defaultOverrideHashes;
         hasWholeChrDefaultOverrides = m_renderComposeCache.hasWholeChrDefaultOverrides;
         hasDynamicOverridesByFullTilePtr = &m_renderComposeCache.hasDynamicOverridesByFullTile;
+        dynamicOverflowFullTilesPtr = &m_renderComposeCache.dynamicOverflowFullTiles;
         hasDynamicOverridesByRelativeTilePtr = &m_renderComposeCache.hasDynamicOverridesByRelativeTile;
         dynamicOverrideHashesPtr = &m_renderComposeCache.dynamicOverrideHashes;
         preparedBackgroundsPtr = &m_renderComposeCache.preparedBackgrounds;
@@ -3428,15 +3599,28 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
                     wholeChrOverridesLocal.push_back(preparedPtr);
                 }
             } else if(override->absoluteTile) {
-                if(override->tile >= 0 && override->tile < static_cast<int>(overridesByFullTileLocal.size())) {
-                    hasStaticOverridesByFullTileLocal[static_cast<size_t>(override->tile)] = true;
-                    if(override->defaultTile) {
-                        hasDefaultOverridesByFullTileLocal[static_cast<size_t>(override->tile)] = true;
-                    }
-                    if(preparedPtr->hasDynamicConditions) {
-                        dynamicOverridesByFullTileLocal[static_cast<size_t>(override->tile)].push_back(preparedPtr);
+                if(override->tile >= 0) {
+                    if(override->tile < static_cast<int>(overridesByFullTileLocal.size())) {
+                        hasStaticOverridesByFullTileLocal[static_cast<size_t>(override->tile)] = true;
+                        if(override->defaultTile) {
+                            hasDefaultOverridesByFullTileLocal[static_cast<size_t>(override->tile)] = true;
+                        }
+                        if(preparedPtr->hasDynamicConditions) {
+                            dynamicOverridesByFullTileLocal[static_cast<size_t>(override->tile)].push_back(preparedPtr);
+                        } else {
+                            overridesByFullTileLocal[static_cast<size_t>(override->tile)].push_back(preparedPtr);
+                        }
                     } else {
-                        overridesByFullTileLocal[static_cast<size_t>(override->tile)].push_back(preparedPtr);
+                        staticOverflowFullTilesLocal.insert(override->tile);
+                        if(override->defaultTile) {
+                            defaultOverflowFullTilesLocal.insert(override->tile);
+                        }
+                        if(preparedPtr->hasDynamicConditions) {
+                            dynamicOverflowFullTilesLocal.insert(override->tile);
+                            dynamicOverridesByOverflowFullTileLocal[override->tile].push_back(preparedPtr);
+                        } else {
+                            overridesByOverflowFullTileLocal[override->tile].push_back(preparedPtr);
+                        }
                     }
                 }
             } else if(override->tile >= 0) {
@@ -3495,22 +3679,27 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
         activeOverridesPtr = &activeOverridesLocal;
         preparedOverridesPtr = &preparedOverridesLocal;
         overridesByFullTilePtr = &overridesByFullTileLocal;
+        overridesByOverflowFullTilePtr = &overridesByOverflowFullTileLocal;
         overridesByRelativeTilePtr = &overridesByRelativeTileLocal;
         dynamicOverridesByFullTilePtr = &dynamicOverridesByFullTileLocal;
+        dynamicOverridesByOverflowFullTilePtr = &dynamicOverridesByOverflowFullTileLocal;
         dynamicOverridesByRelativeTilePtr = &dynamicOverridesByRelativeTileLocal;
         overridesByChrHashPtr = &overridesByChrHashLocal;
         dynamicOverridesByChrHashPtr = &dynamicOverridesByChrHashLocal;
         wholeChrOverridesPtr = &wholeChrOverridesLocal;
         dynamicWholeChrOverridesPtr = &dynamicWholeChrOverridesLocal;
         hasStaticOverridesByFullTilePtr = &hasStaticOverridesByFullTileLocal;
+        staticOverflowFullTilesPtr = &staticOverflowFullTilesLocal;
         hasStaticOverridesByRelativeTilePtr = &hasStaticOverridesByRelativeTileLocal;
         staticOverrideHashesPtr = &staticOverrideHashesLocal;
         hasWholeChrOverrides = hasWholeChrOverridesLocal;
         hasDefaultOverridesByFullTilePtr = &hasDefaultOverridesByFullTileLocal;
+        defaultOverflowFullTilesPtr = &defaultOverflowFullTilesLocal;
         hasDefaultOverridesByRelativeTilePtr = &hasDefaultOverridesByRelativeTileLocal;
         defaultOverrideHashesPtr = &defaultOverrideHashesLocal;
         hasWholeChrDefaultOverrides = hasWholeChrDefaultOverridesLocal;
         hasDynamicOverridesByFullTilePtr = &hasDynamicOverridesByFullTileLocal;
+        dynamicOverflowFullTilesPtr = &dynamicOverflowFullTilesLocal;
         hasDynamicOverridesByRelativeTilePtr = &hasDynamicOverridesByRelativeTileLocal;
         dynamicOverrideHashesPtr = &dynamicOverrideHashesLocal;
         preparedBackgroundsPtr = &preparedBackgroundsLocal;
@@ -3519,20 +3708,25 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
     const auto& activeOverrides = *activeOverridesPtr;
     const auto& preparedOverrides = *preparedOverridesPtr;
     const auto& overridesByFullTile = *overridesByFullTilePtr;
+    const auto& overridesByOverflowFullTile = *overridesByOverflowFullTilePtr;
     const auto& overridesByRelativeTile = *overridesByRelativeTilePtr;
     const auto& dynamicOverridesByFullTile = *dynamicOverridesByFullTilePtr;
+    const auto& dynamicOverridesByOverflowFullTile = *dynamicOverridesByOverflowFullTilePtr;
     const auto& dynamicOverridesByRelativeTile = *dynamicOverridesByRelativeTilePtr;
     const auto& overridesByChrHash = *overridesByChrHashPtr;
     const auto& dynamicOverridesByChrHash = *dynamicOverridesByChrHashPtr;
     const auto& wholeChrOverrides = *wholeChrOverridesPtr;
     const auto& dynamicWholeChrOverrides = *dynamicWholeChrOverridesPtr;
     const auto& hasStaticOverridesByFullTile = *hasStaticOverridesByFullTilePtr;
+    const auto& staticOverflowFullTiles = *staticOverflowFullTilesPtr;
     const auto& hasStaticOverridesByRelativeTile = *hasStaticOverridesByRelativeTilePtr;
     const auto& staticOverrideHashes = *staticOverrideHashesPtr;
     const auto& hasDefaultOverridesByFullTile = *hasDefaultOverridesByFullTilePtr;
+    const auto& defaultOverflowFullTiles = *defaultOverflowFullTilesPtr;
     const auto& hasDefaultOverridesByRelativeTile = *hasDefaultOverridesByRelativeTilePtr;
     const auto& defaultOverrideHashes = *defaultOverrideHashesPtr;
     const auto& hasDynamicOverridesByFullTile = *hasDynamicOverridesByFullTilePtr;
+    const auto& dynamicOverflowFullTiles = *dynamicOverflowFullTilesPtr;
     const auto& hasDynamicOverridesByRelativeTile = *hasDynamicOverridesByRelativeTilePtr;
     const auto& dynamicOverrideHashes = *dynamicOverrideHashesPtr;
     const auto& preparedBackgrounds = *preparedBackgroundsPtr;
@@ -3562,10 +3756,28 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
     }
 
     auto tileHash = [&](int tileIndex) {
-        if(tileIndex < 0 || tileIndex > 0x01FF) {
+        if(tileIndex < 0) {
             return 0u;
         }
-        return snapshot.tileHashes[static_cast<size_t>(tileIndex)];
+        if(tileIndex <= 0x01FF) {
+            return snapshot.tileHashes[static_cast<size_t>(tileIndex)];
+        }
+        if(tileIndex < static_cast<int>(m_chrRomTileHashes.size())) {
+            return m_chrRomTileHashes[static_cast<size_t>(tileIndex)];
+        }
+        return 0u;
+    };
+
+    auto canonicalTileIndex = [&](int tileIndex, uint32_t currentHash) {
+        if(tileIndex > 0x01FF) {
+            return tileIndex;
+        }
+        if(currentHash != 0) {
+            if(const auto it = m_chrRomCanonicalTileByHash.find(currentHash); it != m_chrRomCanonicalTileByHash.end()) {
+                return it->second;
+            }
+        }
+        return tileIndex;
     };
 
     auto backgroundPixelAt = [&](int x, int y) -> const PPU::DebugModBackgroundPixel* {
@@ -3585,7 +3797,7 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
         return &snapshot.backgroundPixels[index];
     };
 
-    auto spritePixelAt = [&](int x, int y) -> const PPU::DebugModSpritePixel* {
+    auto rawSpritePixelAt = [&](int x, int y) -> const PPU::DebugModSpritePixel* {
         if(x < 0 || x >= PPU::SCREEN_WIDTH || y < 0 || y >= PPU::SCREEN_HEIGHT) {
             return nullptr;
         }
@@ -3600,6 +3812,106 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
             return nullptr;
         }
         return &snapshot.spritePixels[index];
+    };
+
+    auto candidatePaletteKey = [](const PPU::DebugModSpriteCandidate& candidate) -> uint32_t {
+        return 0xFF000000u |
+               (static_cast<uint32_t>(candidate.palette[0] & 0x3F) << 16u) |
+               (static_cast<uint32_t>(candidate.palette[1] & 0x3F) << 8u) |
+               static_cast<uint32_t>(candidate.palette[2] & 0x3F);
+    };
+
+    auto decodeSpritePaletteKey = [](uint32_t paletteKey, uint8_t palette[3]) {
+        palette[0] = static_cast<uint8_t>((paletteKey >> 16u) & 0x3Fu);
+        palette[1] = static_cast<uint8_t>((paletteKey >> 8u) & 0x3Fu);
+        palette[2] = static_cast<uint8_t>(paletteKey & 0x3Fu);
+    };
+
+    std::vector<PPU::DebugModSpritePixel> augmentedSpritePixels;
+    if(!m_additionalSpriteRules.empty()) {
+        augmentedSpritePixels.resize(static_cast<size_t>(PPU::SCREEN_WIDTH * PPU::SCREEN_HEIGHT));
+        for(int y = 0; y < PPU::SCREEN_HEIGHT; ++y) {
+            for(int x = 0; x < PPU::SCREEN_WIDTH; ++x) {
+                const size_t index = static_cast<size_t>(y) * PPU::SCREEN_WIDTH + static_cast<size_t>(x);
+                if(const PPU::DebugModSpritePixel* srcPixel = rawSpritePixelAt(x, y); srcPixel != nullptr) {
+                    augmentedSpritePixels[index] = *srcPixel;
+                }
+            }
+        }
+
+        for(int y = 0; y < PPU::SCREEN_HEIGHT; ++y) {
+            for(int x = 0; x < PPU::SCREEN_WIDTH; ++x) {
+                const PPU::DebugModSpritePixel* pixel = rawSpritePixelAt(x, y);
+                if(pixel == nullptr) {
+                    continue;
+                }
+                for(uint8_t i = 0; i < pixel->count; ++i) {
+                    const PPU::DebugModSpriteCandidate& source = pixel->candidates[static_cast<size_t>(i)];
+                    const uint32_t sourceHash = source.tileHash != 0 ? source.tileHash : tileHash(source.tileIndex);
+                    const int resolvedTileIndex = canonicalTileIndex(source.tileIndex, sourceHash);
+                    const uint32_t sourcePaletteKey = candidatePaletteKey(source);
+                    const int originX = x - static_cast<int>(source.offsetX);
+                    const int originY = y - static_cast<int>(source.offsetY);
+
+                    for(const AdditionalSpriteRule& rule : m_additionalSpriteRules) {
+                        if(rule.originalTile != resolvedTileIndex) {
+                            continue;
+                        }
+                        if(!rule.ignorePalette && rule.originalPaletteKey != sourcePaletteKey) {
+                            continue;
+                        }
+
+                        const int dx = source.horizontalMirror ? -rule.offsetX : rule.offsetX;
+                        const int dy = source.verticalMirror ? -rule.offsetY : rule.offsetY;
+                        const int targetX = x + dx;
+                        const int targetY = y + dy;
+                        if(targetX < 0 || targetX >= PPU::SCREEN_WIDTH || targetY < 0 || targetY >= PPU::SCREEN_HEIGHT) {
+                            continue;
+                        }
+
+                        PPU::DebugModSpritePixel& targetPixel = augmentedSpritePixels[static_cast<size_t>(targetY) * PPU::SCREEN_WIDTH + static_cast<size_t>(targetX)];
+                        if(targetPixel.count >= targetPixel.candidates.size()) {
+                            continue;
+                        }
+
+                        PPU::DebugModSpriteCandidate added = source;
+                        added.tileIndex = static_cast<uint16_t>(std::clamp(rule.additionalTile, 0, 0xFFFF));
+                        added.tileHash = tileHash(rule.additionalTile);
+                        decodeSpritePaletteKey(rule.additionalPaletteKey, added.palette);
+                        added.offsetX = static_cast<uint8_t>(std::clamp(targetX - originX, 0, 255));
+                        added.offsetY = static_cast<uint8_t>(std::clamp(targetY - originY, 0, 255));
+                        added.colorLowBits = 0;
+                        added.valid = true;
+
+                        targetPixel.candidates[targetPixel.count++] = added;
+                        if(!targetPixel.valid) {
+                            targetPixel.tileIndex = added.tileIndex;
+                            targetPixel.tileHash = added.tileHash;
+                            targetPixel.palette[0] = added.palette[0];
+                            targetPixel.palette[1] = added.palette[1];
+                            targetPixel.palette[2] = added.palette[2];
+                            targetPixel.colorLowBits = added.colorLowBits;
+                            targetPixel.offsetX = added.offsetX;
+                            targetPixel.offsetY = added.offsetY;
+                            targetPixel.behindBackground = added.behindBackground;
+                            targetPixel.horizontalMirror = added.horizontalMirror;
+                            targetPixel.verticalMirror = added.verticalMirror;
+                            targetPixel.valid = true;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    auto spritePixelAt = [&](int x, int y) -> const PPU::DebugModSpritePixel* {
+        if(x < 0 || x >= PPU::SCREEN_WIDTH || y < 0 || y >= PPU::SCREEN_HEIGHT) {
+            return nullptr;
+        }
+        if(!augmentedSpritePixels.empty()) {
+            return &augmentedSpritePixels[static_cast<size_t>(y) * PPU::SCREEN_WIDTH + static_cast<size_t>(x)];
+        }
+        return rawSpritePixelAt(x, y);
     };
 
     auto scrollXForLine = [&](int y) {
@@ -3857,16 +4169,16 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
     };
 
     auto makeOverrideLookupKey = [](ChrOverride::Target target, int fullTileIndex, int currentPatternTable, uint32_t currentTileHash, const std::array<uint8_t, 3>& palette, bool hMirror, bool vMirror, bool bgPriority) {
-        uint64_t key = static_cast<uint64_t>(fullTileIndex & 0x01FF);
-        key |= static_cast<uint64_t>(currentPatternTable & 0x03) << 9;
-        key |= static_cast<uint64_t>(target == ChrOverride::Target::Sprite ? 1 : 0) << 11;
-        key |= static_cast<uint64_t>(palette[0] & 0x3F) << 12;
-        key |= static_cast<uint64_t>(palette[1] & 0x3F) << 18;
-        key |= static_cast<uint64_t>(palette[2] & 0x3F) << 24;
-        key |= static_cast<uint64_t>(hMirror ? 1 : 0) << 30;
-        key |= static_cast<uint64_t>(vMirror ? 1 : 0) << 31;
-        key |= static_cast<uint64_t>(bgPriority ? 1 : 0) << 32;
-        key ^= static_cast<uint64_t>(currentTileHash) << 33;
+        uint64_t key = static_cast<uint64_t>(static_cast<uint32_t>(fullTileIndex));
+        key ^= static_cast<uint64_t>(currentPatternTable & 0x03) << 32;
+        key ^= static_cast<uint64_t>(target == ChrOverride::Target::Sprite ? 1 : 0) << 34;
+        key ^= static_cast<uint64_t>(palette[0] & 0x3F) << 35;
+        key ^= static_cast<uint64_t>(palette[1] & 0x3F) << 41;
+        key ^= static_cast<uint64_t>(palette[2] & 0x3F) << 47;
+        key ^= static_cast<uint64_t>(hMirror ? 1 : 0) << 53;
+        key ^= static_cast<uint64_t>(vMirror ? 1 : 0) << 54;
+        key ^= static_cast<uint64_t>(bgPriority ? 1 : 0) << 55;
+        key ^= static_cast<uint64_t>(currentTileHash) * 0x9E3779B185EBCA87ULL;
         return key;
     };
 
@@ -3910,26 +4222,30 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
             target == ChrOverride::Target::Sprite
                 ? ((ctx.spriteCandidate != nullptr && ctx.spriteCandidate->tileHash != 0) ? ctx.spriteCandidate->tileHash : lookupHash)
                 : ((ctx.backgroundPixel != nullptr && ctx.backgroundPixel->tileHash != 0) ? ctx.backgroundPixel->tileHash : lookupHash);
-        const uint64_t lookupKey = makeOverrideLookupKey(target, fullTileIndex, currentPatternTable, currentTileHash, palette, hMirror, vMirror, bgPriority);
+        const int resolvedFullTileIndex = canonicalTileIndex(fullTileIndex, currentTileHash);
+        const uint64_t lookupKey = makeOverrideLookupKey(target, resolvedFullTileIndex, currentPatternTable, currentTileHash, palette, hMirror, vMirror, bgPriority);
         const bool hasStaticExactCandidates =
             hasWholeChrOverrides ||
             (staticOverrideHashes.find(lookupHash) != staticOverrideHashes.end()) ||
-            (fullTileIndex >= 0 && fullTileIndex < static_cast<int>(hasStaticOverridesByFullTile.size()) &&
-             hasStaticOverridesByFullTile[static_cast<size_t>(fullTileIndex)]) ||
+            (resolvedFullTileIndex >= 0 && resolvedFullTileIndex < static_cast<int>(hasStaticOverridesByFullTile.size()) &&
+             hasStaticOverridesByFullTile[static_cast<size_t>(resolvedFullTileIndex)]) ||
+            (staticOverflowFullTiles.find(resolvedFullTileIndex) != staticOverflowFullTiles.end()) ||
             (tileIndex >= 0 && tileIndex < static_cast<int>(hasStaticOverridesByRelativeTile.size()) &&
              hasStaticOverridesByRelativeTile[static_cast<size_t>(tileIndex)]);
         const bool hasDynamicCandidates =
             !dynamicWholeChrOverrides.empty() ||
             (dynamicOverrideHashes.find(lookupHash) != dynamicOverrideHashes.end()) ||
-            (fullTileIndex >= 0 && fullTileIndex < static_cast<int>(dynamicOverridesByFullTile.size()) &&
-             hasDynamicOverridesByFullTile[static_cast<size_t>(fullTileIndex)]) ||
+            (resolvedFullTileIndex >= 0 && resolvedFullTileIndex < static_cast<int>(dynamicOverridesByFullTile.size()) &&
+             hasDynamicOverridesByFullTile[static_cast<size_t>(resolvedFullTileIndex)]) ||
+            (dynamicOverflowFullTiles.find(resolvedFullTileIndex) != dynamicOverflowFullTiles.end()) ||
             (tileIndex >= 0 && tileIndex < static_cast<int>(dynamicOverridesByRelativeTile.size()) &&
              hasDynamicOverridesByRelativeTile[static_cast<size_t>(tileIndex)]);
         const bool hasDefaultCandidates =
             hasWholeChrDefaultOverrides ||
             (defaultOverrideHashes.find(lookupHash) != defaultOverrideHashes.end()) ||
-            (fullTileIndex >= 0 && fullTileIndex < static_cast<int>(hasDefaultOverridesByFullTile.size()) &&
-             hasDefaultOverridesByFullTile[static_cast<size_t>(fullTileIndex)]) ||
+            (resolvedFullTileIndex >= 0 && resolvedFullTileIndex < static_cast<int>(hasDefaultOverridesByFullTile.size()) &&
+             hasDefaultOverridesByFullTile[static_cast<size_t>(resolvedFullTileIndex)]) ||
+            (defaultOverflowFullTiles.find(resolvedFullTileIndex) != defaultOverflowFullTiles.end()) ||
             (tileIndex >= 0 && tileIndex < static_cast<int>(hasDefaultOverridesByRelativeTile.size()) &&
              hasDefaultOverridesByRelativeTile[static_cast<size_t>(tileIndex)]);
         if(canUseOverrideLookupCache && !hasDynamicCandidates) {
@@ -3956,6 +4272,11 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
                     return found;
                 }
             }
+            if(const auto it = overridesByOverflowFullTile.find(lookupTile); it != overridesByOverflowFullTile.end()) {
+                if(const PreparedOverride* found = scanCandidates(it->second, allowDefaultTileFallback, target, tileIndex, fullTileIndex, currentPatternTable, palette, hMirror, vMirror, bgPriority, ctx)) {
+                    return found;
+                }
+            }
             return nullptr;
         };
 
@@ -3978,13 +4299,21 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
         };
 
         auto scanMergedFullTile = [&](int lookupTile, bool allowDefaultTileFallback) -> const PreparedOverride* {
-            if(lookupTile < 0 || lookupTile >= static_cast<int>(overridesByFullTile.size())) {
+            if(lookupTile >= 0 && lookupTile < static_cast<int>(overridesByFullTile.size())) {
+                return scanMergedCandidates(
+                    overridesByFullTile[static_cast<size_t>(lookupTile)],
+                    dynamicOverridesByFullTile[static_cast<size_t>(lookupTile)],
+                    allowDefaultTileFallback, target, tileIndex, fullTileIndex, currentPatternTable, palette, hMirror, vMirror, bgPriority, ctx);
+            }
+            static const std::vector<const PreparedOverride*> emptyCandidates;
+            const auto staticIt = overridesByOverflowFullTile.find(lookupTile);
+            const auto dynamicIt = dynamicOverridesByOverflowFullTile.find(lookupTile);
+            const auto& staticCandidates = staticIt != overridesByOverflowFullTile.end() ? staticIt->second : emptyCandidates;
+            const auto& dynamicCandidates = dynamicIt != dynamicOverridesByOverflowFullTile.end() ? dynamicIt->second : emptyCandidates;
+            if(staticCandidates.empty() && dynamicCandidates.empty()) {
                 return nullptr;
             }
-            return scanMergedCandidates(
-                overridesByFullTile[static_cast<size_t>(lookupTile)],
-                dynamicOverridesByFullTile[static_cast<size_t>(lookupTile)],
-                allowDefaultTileFallback, target, tileIndex, fullTileIndex, currentPatternTable, palette, hMirror, vMirror, bgPriority, ctx);
+            return scanMergedCandidates(staticCandidates, dynamicCandidates, allowDefaultTileFallback, target, tileIndex, fullTileIndex, currentPatternTable, palette, hMirror, vMirror, bgPriority, ctx);
         };
 
         auto scanMergedRelativeTile = [&](int lookupTile, bool allowDefaultTileFallback) -> const PreparedOverride* {
@@ -4011,9 +4340,10 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
         };
 
         if(!hasDynamicCandidates) {
-            if(fullTileIndex >= 0 && fullTileIndex < static_cast<int>(hasStaticOverridesByFullTile.size()) &&
-               hasStaticOverridesByFullTile[static_cast<size_t>(fullTileIndex)]) {
-                if(const PreparedOverride* found = scanFullTile(fullTileIndex, false)) {
+            if((resolvedFullTileIndex >= 0 && resolvedFullTileIndex < static_cast<int>(hasStaticOverridesByFullTile.size()) &&
+                hasStaticOverridesByFullTile[static_cast<size_t>(resolvedFullTileIndex)]) ||
+               (staticOverflowFullTiles.find(resolvedFullTileIndex) != staticOverflowFullTiles.end())) {
+                if(const PreparedOverride* found = scanFullTile(resolvedFullTileIndex, false)) {
                     if(canUseOverrideLookupCache) {
                         overrideLookupCache.emplace(lookupKey, found);
                     }
@@ -4054,9 +4384,10 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
                 return nullptr;
             }
 
-            if(fullTileIndex >= 0 && fullTileIndex < static_cast<int>(hasDefaultOverridesByFullTile.size()) &&
-               hasDefaultOverridesByFullTile[static_cast<size_t>(fullTileIndex)]) {
-                if(const PreparedOverride* found = scanFullTile(fullTileIndex, true)) {
+            if((resolvedFullTileIndex >= 0 && resolvedFullTileIndex < static_cast<int>(hasDefaultOverridesByFullTile.size()) &&
+                hasDefaultOverridesByFullTile[static_cast<size_t>(resolvedFullTileIndex)]) ||
+               (defaultOverflowFullTiles.find(resolvedFullTileIndex) != defaultOverflowFullTiles.end())) {
+                if(const PreparedOverride* found = scanFullTile(resolvedFullTileIndex, true)) {
                     if(canUseOverrideLookupCache) {
                         overrideLookupCache.emplace(lookupKey, found);
                     }
@@ -4096,8 +4427,10 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
             return nullptr;
         }
 
-        if(fullTileIndex >= 0 && fullTileIndex < static_cast<int>(overridesByFullTile.size())) {
-            if(const PreparedOverride* exact = scanMergedFullTile(fullTileIndex, false)) {
+        if((resolvedFullTileIndex >= 0 && resolvedFullTileIndex < static_cast<int>(overridesByFullTile.size())) ||
+           (staticOverflowFullTiles.find(resolvedFullTileIndex) != staticOverflowFullTiles.end()) ||
+           (dynamicOverflowFullTiles.find(resolvedFullTileIndex) != dynamicOverflowFullTiles.end())) {
+            if(const PreparedOverride* exact = scanMergedFullTile(resolvedFullTileIndex, false)) {
                 dynamicOverrideLookupCache.emplace(dynamicLookupKey, exact);
                 return exact;
             }
@@ -4132,9 +4465,10 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
                 return dynamicDefault;
             }
         }
-        if(fullTileIndex >= 0 && fullTileIndex < static_cast<int>(hasDefaultOverridesByFullTile.size()) &&
-           hasDefaultOverridesByFullTile[static_cast<size_t>(fullTileIndex)]) {
-            if(const PreparedOverride* dynamicDefault = scanMergedFullTile(fullTileIndex, true)) {
+        if((resolvedFullTileIndex >= 0 && resolvedFullTileIndex < static_cast<int>(hasDefaultOverridesByFullTile.size()) &&
+            hasDefaultOverridesByFullTile[static_cast<size_t>(resolvedFullTileIndex)]) ||
+           (defaultOverflowFullTiles.find(resolvedFullTileIndex) != defaultOverflowFullTiles.end())) {
+            if(const PreparedOverride* dynamicDefault = scanMergedFullTile(resolvedFullTileIndex, true)) {
                 dynamicOverrideLookupCache.emplace(dynamicLookupKey, dynamicDefault);
                 return dynamicDefault;
             }

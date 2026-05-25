@@ -263,6 +263,14 @@ public:
     {
     }
 
+    virtual int32_t debugToAbsoluteChrAddress(uint16_t addr)
+    {
+        if(hasChrRam()) {
+            return -1;
+        }
+        return addr & 0x1FFF;
+    }
+
 #ifdef ENABLE_NSF_PLAYER
     virtual bool consumeNsfPlayerInstructionRedirect(uint16_t& /*cpuAddr*/)
     {

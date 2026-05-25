@@ -1049,7 +1049,7 @@ public:
             if(source.valid) {
                 const uint8_t colorLowBits = static_cast<uint8_t>(m_currentPixelColorIndex & 0x03);
                 pixel.tileIndex = source.tileIndex;
-                pixel.tileHash = debugHashChrTile(source.tileIndex);
+                pixel.tileHash = source.tileIndex <= 0x01FF ? debugHashChrTile(source.tileIndex) : 0;
                 pixel.palette[0] = static_cast<uint8_t>(m_palette[(source.paletteOffset + 1) & 0x1F] & 0x3F);
                 pixel.palette[1] = static_cast<uint8_t>(m_palette[(source.paletteOffset + 2) & 0x1F] & 0x3F);
                 pixel.palette[2] = static_cast<uint8_t>(m_palette[(source.paletteOffset + 3) & 0x1F] & 0x3F);
@@ -1729,7 +1729,7 @@ yyy NN YYYYY XXXXX
                 if(sprite.valid && rawOffsetX >= 0 && rawOffsetX < 8 && captured.count < captured.candidates.size()) {
                     DebugModSpriteCandidate& candidate = captured.candidates[captured.count++];
                     candidate.tileIndex = sprite.tileIndex;
-                    candidate.tileHash = debugHashChrTile(sprite.tileIndex);
+                    candidate.tileHash = sprite.tileIndex <= 0x01FF ? debugHashChrTile(sprite.tileIndex) : 0;
                     candidate.palette[0] = static_cast<uint8_t>(m_palette[0x11 + ((sprite.attr & 0x03) << 2)] & 0x3F);
                     candidate.palette[1] = static_cast<uint8_t>(m_palette[0x12 + ((sprite.attr & 0x03) << 2)] & 0x3F);
                     candidate.palette[2] = static_cast<uint8_t>(m_palette[0x13 + ((sprite.attr & 0x03) << 2)] & 0x3F);
@@ -2083,7 +2083,12 @@ yyy NN YYYYY XXXXX
         }
 
         SpritePatternInfo info;
-        info.tileIndex = static_cast<uint16_t>((base >> 4) + tileIndex);
+        const int32_t absoluteChrAddress = m_cartridge.mapper() != nullptr
+            ? m_cartridge.mapper()->debugToAbsoluteChrAddress(static_cast<uint16_t>(base + (tileIndex << 4) + row))
+            : -1;
+        info.tileIndex = static_cast<uint16_t>(absoluteChrAddress >= 0
+            ? (absoluteChrAddress >> 4)
+            : ((base >> 4) + tileIndex));
         // Keep the captured row in display-local 0..7 space. The mirror flag remains
         // authoritative for source sampling; the fetched pattern address already points
         // at the mirrored tile row used by the PPU.
@@ -2855,7 +2860,12 @@ yyy NNYY YYYX XXXX
         const uint8_t offsetY = static_cast<uint8_t>(m_tileAddr & 0x07);
         for(uint8_t x = 0; x < 8; ++x) {
             DebugModBackgroundShiftPixel& pixel = m_debugModBackgroundShift[8 + x];
-            pixel.tileIndex = static_cast<uint16_t>((m_tileAddr >> 4) & 0x01FF);
+            const int32_t absoluteChrAddress = m_cartridge.mapper() != nullptr
+                ? m_cartridge.mapper()->debugToAbsoluteChrAddress(m_tileAddr)
+                : -1;
+            pixel.tileIndex = static_cast<uint16_t>(absoluteChrAddress >= 0
+                ? (absoluteChrAddress >> 4)
+                : ((m_tileAddr >> 4) & 0x01FF));
             pixel.paletteOffset = m_paletteOffset;
             pixel.offsetX = x;
             pixel.offsetY = offsetY;
