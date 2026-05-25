@@ -4773,7 +4773,7 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
         return key;
     };
 
-    auto findOverride = [&](ChrOverride::Target target, int tileIndex, int fullTileIndex, int currentPatternTable, const std::array<uint8_t, 3>& palette, bool hMirror, bool vMirror, bool bgPriority, const ConditionContext& ctx) -> const PreparedOverride* {
+    auto findOverride = [&](ChrOverride::Target target, int tileIndex, int fullTileIndex, int currentPatternTable, const std::array<uint8_t, 3>& palette, bool hMirror, bool vMirror, bool bgPriority, const ConditionContext& ctx, bool* cacheableByOrigin = nullptr) -> const PreparedOverride* {
         MODMANAGER_PROFILE_SCOPE(ComposeChrFrameFindOverride);
         MODMANAGER_PROFILE_COUNT(overrideFindCalls, 1);
         static const std::vector<const PreparedOverride*> emptyCandidates;
@@ -4845,6 +4845,9 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
             }
         }
         if(!hasDynamicCandidates && !hasStaticExactCandidates && !hasDefaultCandidates) {
+            if(cacheableByOrigin != nullptr) {
+                *cacheableByOrigin = false;
+            }
             if(canUseOverrideLookupCache) {
                 overrideLookupCache.emplace(lookupKey, nullptr);
                 MODMANAGER_PROFILE_COUNT(overrideLookupStores, 1);
@@ -4927,6 +4930,9 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
         };
 
         const auto storeCachedResult = [&](const PreparedOverride* result) {
+            if(cacheableByOrigin != nullptr) {
+                *cacheableByOrigin = hasTileOriginContext && tileOriginCacheable;
+            }
             if(canUseOverrideLookupCache && !hasDynamicCandidates) {
                 overrideLookupCache.emplace(lookupKey, result);
                 MODMANAGER_PROFILE_COUNT(overrideLookupStores, 1);
@@ -5240,8 +5246,11 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
     midBeforeTileScanlineLayers.reserve(midBeforeTileBackgrounds.size());
     midAfterTileScanlineLayers.reserve(midAfterTileBackgrounds.size());
     highPriorityScanlineLayers.reserve(highPriorityBackgrounds.size());
+    std::unordered_map<uint64_t, const PreparedOverride*> spriteOverrideRowCache;
+    spriteOverrideRowCache.reserve(256);
     MODMANAGER_PROFILE_SCOPE(ComposeChrFrameMainLoop);
     for(int nesY = activeNesY0; nesY < activeNesY1; ++nesY) {
+        spriteOverrideRowCache.clear();
         const uint32_t* srcRow = sourceFramebuffer + static_cast<size_t>(nesY) * PPU::SCREEN_WIDTH;
         const int blockY0 = std::max(activeTop, nesY * scale);
         const int blockY1 = std::min(activeBottom, (nesY + 1) * scale);
@@ -6419,6 +6428,21 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
             const auto allowOriginalSpriteFallbackFor = [&](const PPU::DebugModSpriteCandidate& candidate) {
                 return candidate.colorLowBits != 0;
             };
+            const auto makeSpriteOverrideRowCacheKey = [&](const PPU::DebugModSpriteCandidate& candidate,
+                                                           int spriteFullTileIndex,
+                                                           const std::array<uint8_t, 3>& spritePalette) {
+                uint64_t key = static_cast<uint64_t>(static_cast<uint32_t>(spriteFullTileIndex));
+                key ^= static_cast<uint64_t>((nesX - static_cast<int>(candidate.offsetX)) & 0x01FF) << 16u;
+                key ^= static_cast<uint64_t>((nesY - static_cast<int>(candidate.offsetY)) & 0x01FF) << 25u;
+                key ^= static_cast<uint64_t>(spritePalette[0] & 0x3F) << 34u;
+                key ^= static_cast<uint64_t>(spritePalette[1] & 0x3F) << 40u;
+                key ^= static_cast<uint64_t>(spritePalette[2] & 0x3F) << 46u;
+                key ^= static_cast<uint64_t>(candidate.horizontalMirror ? 1u : 0u) << 52u;
+                key ^= static_cast<uint64_t>(candidate.verticalMirror ? 1u : 0u) << 53u;
+                key ^= static_cast<uint64_t>(candidate.behindBackground ? 1u : 0u) << 54u;
+                key ^= static_cast<uint64_t>(candidate.tileHash) * 0x9E3779B185EBCA87ULL;
+                return key;
+            };
 
             for(int i = static_cast<int>(spritePixel->count) - 1; i >= 0; --i) {
                 const PPU::DebugModSpriteCandidate& candidate = spritePixel->candidates[static_cast<size_t>(i)];
@@ -6439,17 +6463,28 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
                 const int spriteFullTileIndex = candidate.tileIndex != 0xFFFF ? static_cast<int>(candidate.tileIndex) : -1;
                 if(spriteFullTileIndex >= 0) {
                     const ConditionContext context = { nesX, nesY, bgPixel, &candidate };
-                    resolvedCandidate.spriteOverride =
-                        findOverride(
-                            ChrOverride::Target::Sprite,
-                            spriteFullTileIndex & 0xFF,
-                            spriteFullTileIndex,
-                            spriteFullTileIndex / 256,
-                            resolvedCandidate.spritePalette,
-                            candidate.horizontalMirror,
-                            candidate.verticalMirror,
-                            candidate.behindBackground,
-                            context);
+                    const uint64_t spriteOverrideRowCacheKey =
+                        makeSpriteOverrideRowCacheKey(candidate, spriteFullTileIndex, resolvedCandidate.spritePalette);
+                    if(const auto it = spriteOverrideRowCache.find(spriteOverrideRowCacheKey); it != spriteOverrideRowCache.end()) {
+                        resolvedCandidate.spriteOverride = it->second;
+                    } else {
+                        bool cacheableByOrigin = false;
+                        resolvedCandidate.spriteOverride =
+                            findOverride(
+                                ChrOverride::Target::Sprite,
+                                spriteFullTileIndex & 0xFF,
+                                spriteFullTileIndex,
+                                spriteFullTileIndex / 256,
+                                resolvedCandidate.spritePalette,
+                                candidate.horizontalMirror,
+                                candidate.verticalMirror,
+                                candidate.behindBackground,
+                                context,
+                                &cacheableByOrigin);
+                        if(cacheableByOrigin) {
+                            spriteOverrideRowCache.emplace(spriteOverrideRowCacheKey, resolvedCandidate.spriteOverride);
+                        }
+                    }
                 }
                 resolvedCandidate.participates = resolvedCandidate.spriteOverride != nullptr || candidate.colorLowBits != 0;
                 if(!resolvedCandidate.participates) {
