@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <array>
 #include <cctype>
+#include <chrono>
 #include <cmath>
 #include <cstring>
 #include <cstdlib>
@@ -19,11 +20,215 @@
 #include "stb_image.h"
 #include "zip/zip.h"
 
+#define GERANES_MODMANAGER_PROFILE 1
+
 namespace {
 using mz_ulong = unsigned long;
 extern "C" int mz_uncompress(unsigned char* pDest, mz_ulong* pDest_len, const unsigned char* pSource, mz_ulong source_len);
 constexpr int MZ_OK = 0;
 constexpr uint8_t kPngSignature[8] = { 0x89u, 'P', 'N', 'G', '\r', '\n', 0x1Au, '\n' };
+
+#if GERANES_MODMANAGER_PROFILE
+enum class ModManagerProfileSection : size_t {
+    ComposeFrameOnEmuThread,
+    ComposeFrameSnapshotCapture,
+    UpdateFrameConditions,
+    RebuildRenderComposeCache,
+    ComposeChrFrame,
+    ComposeChrFrameSetup,
+    ComposeChrFrameAdditionalSpriteAugment,
+    ComposeChrFrameBackgroundPrep,
+    ComposeChrFrameMainLoop,
+    ComposeChrFrameFindOverride,
+    ComposeChrFrameConditionMatches,
+    Count
+};
+
+struct ModManagerProfileStats {
+    static constexpr uint64_t ReportEveryFrames = 180;
+
+    std::array<uint64_t, static_cast<size_t>(ModManagerProfileSection::Count)> totalNs = {};
+    std::array<uint64_t, static_cast<size_t>(ModManagerProfileSection::Count)> maxNs = {};
+    std::array<uint64_t, static_cast<size_t>(ModManagerProfileSection::Count)> calls = {};
+
+    uint64_t frames = 0;
+    uint64_t renderCacheRebuilds = 0;
+    uint64_t frameConditionCacheChanges = 0;
+    uint64_t frameConditionMemoryReads = 0;
+    uint64_t preparedOverrideCount = 0;
+    uint64_t preparedBackgroundCount = 0;
+    uint64_t compiledAdditionalSpriteRuleCount = 0;
+    uint64_t overrideFindCalls = 0;
+    uint64_t overrideLookupCacheHits = 0;
+    uint64_t tileOriginOverrideCacheHits = 0;
+    uint64_t overrideLookupStores = 0;
+    uint64_t overrideFastRejects = 0;
+    uint64_t conditionMatchesCalls = 0;
+    uint64_t matchesOverrideCalls = 0;
+    uint64_t scanCandidatesCalls = 0;
+    uint64_t scanMergedCandidatesCalls = 0;
+    uint64_t additionalSpriteMemoHits = 0;
+    uint64_t additionalSpriteMemoMisses = 0;
+    uint64_t additionalSpriteResolvedRules = 0;
+    uint64_t additionalSpriteSourceCandidates = 0;
+    uint64_t syntheticSpriteCandidatesAdded = 0;
+
+    void addDuration(ModManagerProfileSection section, uint64_t ns)
+    {
+        const size_t index = static_cast<size_t>(section);
+        totalNs[index] += ns;
+        maxNs[index] = std::max(maxNs[index], ns);
+        calls[index] += 1;
+    }
+
+    static const char* sectionName(ModManagerProfileSection section)
+    {
+        switch(section) {
+        case ModManagerProfileSection::ComposeFrameOnEmuThread: return "composeFrameOnEmuThread";
+        case ModManagerProfileSection::ComposeFrameSnapshotCapture: return "snapshot capture";
+        case ModManagerProfileSection::UpdateFrameConditions: return "updateFrameConditionsForFrame";
+        case ModManagerProfileSection::RebuildRenderComposeCache: return "rebuildRenderComposeCache";
+        case ModManagerProfileSection::ComposeChrFrame: return "composeChrFrame";
+        case ModManagerProfileSection::ComposeChrFrameSetup: return "composeChrFrame setup";
+        case ModManagerProfileSection::ComposeChrFrameAdditionalSpriteAugment: return "additional sprite augment";
+        case ModManagerProfileSection::ComposeChrFrameBackgroundPrep: return "background prep";
+        case ModManagerProfileSection::ComposeChrFrameMainLoop: return "compose main loop";
+        case ModManagerProfileSection::ComposeChrFrameFindOverride: return "findOverride";
+        case ModManagerProfileSection::ComposeChrFrameConditionMatches: return "conditionMatchesAt";
+        case ModManagerProfileSection::Count: break;
+        }
+        return "unknown";
+    }
+
+    static double nsToMs(uint64_t ns)
+    {
+        return static_cast<double>(ns) / 1000000.0;
+    }
+
+    static double nsToUs(uint64_t ns)
+    {
+        return static_cast<double>(ns) / 1000.0;
+    }
+
+    void resetWindow()
+    {
+        *this = {};
+    }
+
+    void logReport() const
+    {
+        std::ostringstream report;
+        report << std::fixed << std::setprecision(3);
+        report << "ModManager profile window: " << frames << " frames";
+
+        const auto appendSection = [&](ModManagerProfileSection section, bool perFrame) {
+            const size_t index = static_cast<size_t>(section);
+            const uint64_t callCount = calls[index];
+            if(callCount == 0) {
+                return;
+            }
+            const double totalMs = nsToMs(totalNs[index]);
+            const double avgMs = totalMs / static_cast<double>(callCount);
+            report << "\n  " << sectionName(section)
+                   << ": total=" << totalMs << " ms"
+                   << ", calls=" << callCount
+                   << ", avg=" << avgMs << " ms"
+                   << ", max=" << nsToMs(maxNs[index]) << " ms";
+            if(perFrame && frames > 0) {
+                report << ", per-frame=" << (totalMs / static_cast<double>(frames)) << " ms";
+            }
+        };
+
+        appendSection(ModManagerProfileSection::ComposeFrameOnEmuThread, true);
+        appendSection(ModManagerProfileSection::ComposeFrameSnapshotCapture, true);
+        appendSection(ModManagerProfileSection::UpdateFrameConditions, true);
+        appendSection(ModManagerProfileSection::RebuildRenderComposeCache, false);
+        appendSection(ModManagerProfileSection::ComposeChrFrame, true);
+        appendSection(ModManagerProfileSection::ComposeChrFrameSetup, true);
+        appendSection(ModManagerProfileSection::ComposeChrFrameAdditionalSpriteAugment, true);
+        appendSection(ModManagerProfileSection::ComposeChrFrameBackgroundPrep, true);
+        appendSection(ModManagerProfileSection::ComposeChrFrameMainLoop, true);
+        appendSection(ModManagerProfileSection::ComposeChrFrameFindOverride, false);
+        appendSection(ModManagerProfileSection::ComposeChrFrameConditionMatches, false);
+
+        if(overrideFindCalls > 0) {
+            report << "\n  override lookup counters:"
+                   << " calls=" << overrideFindCalls
+                   << ", tile-origin-hits=" << tileOriginOverrideCacheHits
+                   << ", cache-hits=" << overrideLookupCacheHits
+                   << ", stores=" << overrideLookupStores
+                   << ", fast-rejects=" << overrideFastRejects;
+        }
+        if(conditionMatchesCalls > 0 || matchesOverrideCalls > 0) {
+            report << "\n  rule evaluation counters:"
+                   << " conditionMatches=" << conditionMatchesCalls
+                   << ", matchesOverride=" << matchesOverrideCalls
+                   << ", scanCandidates=" << scanCandidatesCalls
+                   << ", scanMergedCandidates=" << scanMergedCandidatesCalls;
+        }
+        if(additionalSpriteSourceCandidates > 0 || syntheticSpriteCandidatesAdded > 0) {
+            report << "\n  additional sprite counters:"
+                   << " source-candidates=" << additionalSpriteSourceCandidates
+                   << ", memo-hits=" << additionalSpriteMemoHits
+                   << ", memo-misses=" << additionalSpriteMemoMisses
+                   << ", resolved-rules=" << additionalSpriteResolvedRules
+                   << ", synthetic-added=" << syntheticSpriteCandidatesAdded;
+        }
+        report << "\n  cache/build counters:"
+               << " render-cache-rebuilds=" << renderCacheRebuilds
+               << ", frame-condition-cache-changes=" << frameConditionCacheChanges
+               << ", frame-condition-memory-reads=" << frameConditionMemoryReads
+               << ", prepared-overrides=" << preparedOverrideCount
+               << ", prepared-backgrounds=" << preparedBackgroundCount
+               << ", compiled-additional-sprite-rules=" << compiledAdditionalSpriteRuleCount;
+
+        Logger::instance().log(report.str(), Logger::Type::INFO);
+    }
+
+    void onFrameComplete()
+    {
+        ++frames;
+        if(frames < ReportEveryFrames) {
+            return;
+        }
+        logReport();
+        resetWindow();
+    }
+};
+
+using ModManagerProfileClock = std::chrono::steady_clock;
+
+static ModManagerProfileStats g_modManagerProfile;
+
+class ModManagerProfileScope {
+public:
+    explicit ModManagerProfileScope(ModManagerProfileSection section)
+        : m_section(section), m_startedAt(ModManagerProfileClock::now())
+    {
+    }
+
+    ~ModManagerProfileScope()
+    {
+        const uint64_t elapsedNs = static_cast<uint64_t>(
+            std::chrono::duration_cast<std::chrono::nanoseconds>(
+                ModManagerProfileClock::now() - m_startedAt)
+                .count());
+        g_modManagerProfile.addDuration(m_section, elapsedNs);
+    }
+
+private:
+    ModManagerProfileSection m_section;
+    ModManagerProfileClock::time_point m_startedAt;
+};
+
+#define MODMANAGER_PROFILE_SCOPE_JOIN_IMPL(a, b) a##b
+#define MODMANAGER_PROFILE_SCOPE_JOIN(a, b) MODMANAGER_PROFILE_SCOPE_JOIN_IMPL(a, b)
+#define MODMANAGER_PROFILE_SCOPE(section) ModManagerProfileScope MODMANAGER_PROFILE_SCOPE_JOIN(modManagerProfileScope, __LINE__)(ModManagerProfileSection::section)
+#define MODMANAGER_PROFILE_COUNT(field, delta) do { g_modManagerProfile.field += static_cast<uint64_t>(delta); } while(false)
+#else
+#define MODMANAGER_PROFILE_SCOPE(section) do { } while(false)
+#define MODMANAGER_PROFILE_COUNT(field, delta) do { } while(false)
+#endif
 
 
 bool evaluateMemoryCondition(const ModManager::MemoryCondition& condition, uint32_t actual, uint32_t expected)
@@ -674,6 +879,7 @@ bool ModManager::composeFrameOnEmuThread(
     int activeBottom,
     bool captureDebugSnapshot)
 {
+    MODMANAGER_PROFILE_SCOPE(ComposeFrameOnEmuThread);
     auto resetSnapshotForReuse = [&](bool releaseViews) {
         snapshot.scrollX = 0;
         snapshot.scrollY = 0;
@@ -711,28 +917,31 @@ bool ModManager::composeFrameOnEmuThread(
     }
 
     PPU& ppu = emu.getConsole().ppu();
-    resetSnapshotForReuse(false);
-    for(int y = 0; y < PPU::SCREEN_HEIGHT; ++y) {
-        snapshot.scrollXByLine[static_cast<size_t>(y)] = ppu.debugPresentedScanlineScrollX(y);
-        snapshot.scrollYByLine[static_cast<size_t>(y)] = ppu.debugPresentedScanlineScrollY(y);
-    }
-    snapshot.scrollX = snapshot.scrollXByLine[0];
-    snapshot.scrollY = snapshot.scrollYByLine[0];
-    snapshot.universalBgColor = static_cast<uint8_t>(ppu.debugPeekPpuMemory(0x3F00) & 0x3F);
-    ppu.debugCopyPresentedBackgroundPixels(snapshot.backgroundPixels);
-    ppu.debugCopyPresentedSpritePixels(snapshot.spritePixels);
-    snapshot.backgroundPixelsView = snapshot.backgroundPixels.data();
-    snapshot.backgroundPixelsViewCount = snapshot.backgroundPixels.size();
-    snapshot.spritePixelsView = snapshot.spritePixels.data();
-    snapshot.spritePixelsViewCount = snapshot.spritePixels.size();
-    snapshot.frameConditionStateView = &m_frameConditionState;
-    for(size_t i = 0; i < snapshot.paletteColors.size(); ++i) {
-        snapshot.paletteColors[i] = ppu.NESToRGBAColor(static_cast<uint8_t>(i));
-    }
-    const bool needsTileHashes = captureDebugSnapshot || m_renderComposeCache.needsTileHashes;
-    if(needsTileHashes) {
-        for(size_t i = 0; i < snapshot.tileHashes.size(); ++i) {
-            snapshot.tileHashes[i] = ppu.debugHashChrTile(static_cast<int>(i));
+    {
+        MODMANAGER_PROFILE_SCOPE(ComposeFrameSnapshotCapture);
+        resetSnapshotForReuse(false);
+        for(int y = 0; y < PPU::SCREEN_HEIGHT; ++y) {
+            snapshot.scrollXByLine[static_cast<size_t>(y)] = ppu.debugPresentedScanlineScrollX(y);
+            snapshot.scrollYByLine[static_cast<size_t>(y)] = ppu.debugPresentedScanlineScrollY(y);
+        }
+        snapshot.scrollX = snapshot.scrollXByLine[0];
+        snapshot.scrollY = snapshot.scrollYByLine[0];
+        snapshot.universalBgColor = static_cast<uint8_t>(ppu.debugPeekPpuMemory(0x3F00) & 0x3F);
+        ppu.debugCopyPresentedBackgroundPixels(snapshot.backgroundPixels);
+        ppu.debugCopyPresentedSpritePixels(snapshot.spritePixels);
+        snapshot.backgroundPixelsView = snapshot.backgroundPixels.data();
+        snapshot.backgroundPixelsViewCount = snapshot.backgroundPixels.size();
+        snapshot.spritePixelsView = snapshot.spritePixels.data();
+        snapshot.spritePixelsViewCount = snapshot.spritePixels.size();
+        snapshot.frameConditionStateView = &m_frameConditionState;
+        for(size_t i = 0; i < snapshot.paletteColors.size(); ++i) {
+            snapshot.paletteColors[i] = ppu.NESToRGBAColor(static_cast<uint8_t>(i));
+        }
+        const bool needsTileHashes = captureDebugSnapshot || m_renderComposeCache.needsTileHashes;
+        if(needsTileHashes) {
+            for(size_t i = 0; i < snapshot.tileHashes.size(); ++i) {
+                snapshot.tileHashes[i] = ppu.debugHashChrTile(static_cast<int>(i));
+            }
         }
     }
 
@@ -757,6 +966,7 @@ bool ModManager::composeFrameOnEmuThread(
     if(captureDebugSnapshot) {
         snapshot.frameConditionState = m_frameConditionState;
     }
+    g_modManagerProfile.onFrameComplete();
     return true;
 }
 
@@ -1469,6 +1679,7 @@ void ModManager::onFrame(GeraNESEmu& emu)
 
 void ModManager::updateFrameConditionsForFrame(GeraNESEmu& emu)
 {
+    MODMANAGER_PROFILE_SCOPE(UpdateFrameConditions);
     constexpr uint32_t DynamicAssetEvictionFrames = 3600;
     const uint32_t frameCount = emu.frameCount();
     if(m_lastFrameConditionUpdate == frameCount) {
@@ -1483,6 +1694,7 @@ void ModManager::updateFrameConditionsForFrame(GeraNESEmu& emu)
 
     m_frameConditionState.frameCount = frameCount;
     m_frameConditionState.memoryValues.resize(m_frameConditionPlan.uniqueMemoryReads.size());
+    MODMANAGER_PROFILE_COUNT(frameConditionMemoryReads, m_frameConditionPlan.uniqueMemoryReads.size());
 
     auto memoryConditionMatchesCached = [&](const FrameConditionPlan::CompiledMemoryCondition& compiledCondition) {
         const MemoryCondition& condition = *compiledCondition.condition;
@@ -1555,6 +1767,7 @@ void ModManager::updateFrameConditionsForFrame(GeraNESEmu& emu)
     }
     m_lastFrameConditionUpdate = frameCount;
     if(renderComposeCacheChanged) {
+        MODMANAGER_PROFILE_COUNT(frameConditionCacheChanges, 1);
         m_renderComposeCacheDirty = true;
     }
 }
@@ -1813,9 +2026,12 @@ void ModManager::populateOverrideLookupCache(RenderComposeCache& cache, const st
 
 void ModManager::rebuildRenderComposeCache()
 {
+    MODMANAGER_PROFILE_SCOPE(RebuildRenderComposeCache);
+    MODMANAGER_PROFILE_COUNT(renderCacheRebuilds, 1);
     m_renderComposeCache = {};
     m_renderComposeCache.scale = std::max(1, m_resolutionMultiplier);
     m_renderComposeCache.needsTileHashes = false;
+
     auto makeAdditionalSpriteRuleKey = [](int tile, uint32_t paletteKey) {
         return (static_cast<uint64_t>(static_cast<uint32_t>(tile)) << 32u) | static_cast<uint64_t>(paletteKey);
     };
@@ -1900,6 +2116,9 @@ void ModManager::rebuildRenderComposeCache()
 
     m_renderComposeCache.valid = true;
     m_renderComposeCacheDirty = false;
+    MODMANAGER_PROFILE_COUNT(preparedOverrideCount, m_renderComposeCache.preparedOverrides.size());
+    MODMANAGER_PROFILE_COUNT(preparedBackgroundCount, m_renderComposeCache.preparedBackgrounds.size());
+    MODMANAGER_PROFILE_COUNT(compiledAdditionalSpriteRuleCount, m_renderComposeCache.additionalSpriteRuleStorage.size());
 }
 
 ModManager::RenderComposeCache ModManager::buildFilteredRenderComposeCache(const std::vector<const ChrOverride*>& activeOverrideFilter)
@@ -2787,6 +3006,8 @@ std::optional<ModManager::DebugComposePixel> ModManager::debugComposePixel(const
     };
 
     auto conditionMatchesAt = [&](const MemoryCondition& condition, const ConditionContext& ctx) {
+        MODMANAGER_PROFILE_SCOPE(ComposeChrFrameConditionMatches);
+        MODMANAGER_PROFILE_COUNT(conditionMatchesCalls, 1);
         bool match = false;
         switch(condition.kind) {
         case MemoryCondition::Kind::MemoryCheck: {
@@ -2960,6 +3181,7 @@ std::optional<ModManager::DebugComposePixel> ModManager::debugComposePixel(const
     };
 
     auto matchesOverride = [&](const PreparedOverride& preparedOverride, ChrOverride::Target target, bool allowDefaultTileFallback, int tileIndex, int fullTileIndex, int currentPatternTable, const std::array<uint8_t, 3>& palette, bool hMirror, bool vMirror, bool bgPriority, const ConditionContext& ctx) {
+        MODMANAGER_PROFILE_COUNT(matchesOverrideCalls, 1);
         const ChrOverride& override = *preparedOverride.override;
         if(override.target != ChrOverride::Target::Both && override.target != target) {
             return false;
@@ -3656,6 +3878,7 @@ std::optional<ModManager::DecodedImage> ModManager::decodeImage(const std::vecto
 
 void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, int height, int activeTop, int activeBottom, int scale, const uint32_t* sourceFramebuffer, const ChrRenderSnapshot& snapshot, const std::vector<const ChrOverride*>* activeOverrideFilter)
 {
+    MODMANAGER_PROFILE_SCOPE(ComposeChrFrame);
 
     if(sourceFramebuffer == nullptr || framebuffer.empty() || width <= 0 || height <= 0 || scale <= 0) {
         return;
@@ -3770,6 +3993,10 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
         return;
     }
 
+    MODMANAGER_PROFILE_COUNT(preparedOverrideCount, preparedOverrides.size());
+    MODMANAGER_PROFILE_COUNT(preparedBackgroundCount, preparedBackgrounds.size());
+    const auto composeChrFrameSetupStartedAt = ModManagerProfileClock::now();
+
     auto tileHash = [&](int tileIndex) {
         if(tileIndex < 0) {
             return 0u;
@@ -3820,6 +4047,12 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
         }
         return canonicalTileIndex(tileIndex, currentHash);
     };
+    g_modManagerProfile.addDuration(
+        ModManagerProfileSection::ComposeChrFrameSetup,
+        static_cast<uint64_t>(
+            std::chrono::duration_cast<std::chrono::nanoseconds>(
+                ModManagerProfileClock::now() - composeChrFrameSetupStartedAt)
+                .count()));
     const PPU::DebugModBackgroundPixel* const backgroundPixelsData =
         snapshot.backgroundPixelsView != nullptr ? snapshot.backgroundPixelsView : snapshot.backgroundPixels.data();
     const size_t backgroundPixelsCount =
@@ -3881,6 +4114,7 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
         added.valid = true;
 
         targetPixel.candidates[targetPixel.count++] = added;
+        MODMANAGER_PROFILE_COUNT(syntheticSpriteCandidatesAdded, 1);
         if(!targetPixel.valid) {
             targetPixel.tileIndex = added.tileIndex;
             targetPixel.tileHash = added.tileHash;
@@ -3918,6 +4152,7 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
 
     const std::vector<PPU::DebugModSpritePixel>* augmentedSpritePixels = nullptr;
     if(hasAdditionalSpriteRules) {
+        MODMANAGER_PROFILE_SCOPE(ComposeChrFrameAdditionalSpriteAugment);
         const size_t totalSpritePixels = static_cast<size_t>(PPU::SCREEN_WIDTH * PPU::SCREEN_HEIGHT);
         m_augmentedSpritePixelsScratch.resize(totalSpritePixels);
         const size_t copySpritePixelCount = std::min(totalSpritePixels, rawSpritePixelsCount);
@@ -3934,6 +4169,7 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
             const int y = static_cast<int>(index / PPU::SCREEN_WIDTH);
             const int x = static_cast<int>(index % PPU::SCREEN_WIDTH);
             for(uint8_t i = 0; i < pixel.count; ++i) {
+                MODMANAGER_PROFILE_COUNT(additionalSpriteSourceCandidates, 1);
                 const PPU::DebugModSpriteCandidate& source = pixel.candidates[static_cast<size_t>(i)];
                 const uint32_t sourceHash = source.tileHash != 0 ? source.tileHash : tileHash(source.tileIndex);
                 const int resolvedTileIndex = canonicalSnapshotTileIndex(source.tileIndex, sourceHash);
@@ -3943,9 +4179,11 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
                 const uint64_t sourceRuleKey = makeAdditionalSpriteRuleKey(resolvedTileIndex, sourcePaletteKey);
                 auto resolvedRuleIt = m_resolvedAdditionalSpriteRuleMemo.find(sourceRuleKey);
                 if(resolvedRuleIt == m_resolvedAdditionalSpriteRuleMemo.end()) {
+                    MODMANAGER_PROFILE_COUNT(additionalSpriteMemoMisses, 1);
                     const size_t rulesOffset = m_resolvedAdditionalSpriteRulesScratch.size();
                     appendResolvedAdditionalSpriteRules(m_resolvedAdditionalSpriteRulesScratch, sourceRuleKey, resolvedTileIndex);
                     const size_t rulesCount = m_resolvedAdditionalSpriteRulesScratch.size() - rulesOffset;
+                    MODMANAGER_PROFILE_COUNT(additionalSpriteResolvedRules, rulesCount);
                     const auto inserted = m_resolvedAdditionalSpriteRuleMemo.emplace(
                         sourceRuleKey,
                         RenderComposeCache::AdditionalSpriteRuleSpan { rulesOffset, rulesCount });
@@ -3953,6 +4191,8 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
                     if(rulesCount == 0) {
                         continue;
                     }
+                } else {
+                    MODMANAGER_PROFILE_COUNT(additionalSpriteMemoHits, 1);
                 }
                 const RenderComposeCache::AdditionalSpriteRuleSpan& resolvedSpan = resolvedRuleIt->second;
                 if(resolvedSpan.count == 0) {
@@ -4208,6 +4448,7 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
     };
 
     auto scanCandidates = [&](const std::vector<const PreparedOverride*>& candidates, bool allowDefaultTileFallback, ChrOverride::Target target, int tileIndex, int fullTileIndex, int currentPatternTable, const std::array<uint8_t, 3>& palette, bool hMirror, bool vMirror, bool bgPriority, const ConditionContext& ctx, bool* tileOriginCacheable = nullptr) -> const PreparedOverride* {
+        MODMANAGER_PROFILE_COUNT(scanCandidatesCalls, 1);
         for(const PreparedOverride* candidate : candidates) {
             if(tileOriginCacheable != nullptr && candidate != nullptr && !candidate->tileOriginCacheable) {
                 *tileOriginCacheable = false;
@@ -4220,6 +4461,7 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
     };
 
     auto scanMergedCandidates = [&](const std::vector<const PreparedOverride*>& staticCandidates, const std::vector<const PreparedOverride*>& dynamicCandidates, bool allowDefaultTileFallback, ChrOverride::Target target, int tileIndex, int fullTileIndex, int currentPatternTable, const std::array<uint8_t, 3>& palette, bool hMirror, bool vMirror, bool bgPriority, const ConditionContext& ctx, bool* tileOriginCacheable = nullptr) -> const PreparedOverride* {
+        MODMANAGER_PROFILE_COUNT(scanMergedCandidatesCalls, 1);
         size_t staticIndex = 0;
         size_t dynamicIndex = 0;
         while(staticIndex < staticCandidates.size() || dynamicIndex < dynamicCandidates.size()) {
@@ -4296,6 +4538,8 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
     };
 
     auto findOverride = [&](ChrOverride::Target target, int tileIndex, int fullTileIndex, int currentPatternTable, const std::array<uint8_t, 3>& palette, bool hMirror, bool vMirror, bool bgPriority, const ConditionContext& ctx) -> const PreparedOverride* {
+        MODMANAGER_PROFILE_SCOPE(ComposeChrFrameFindOverride);
+        MODMANAGER_PROFILE_COUNT(overrideFindCalls, 1);
         static const std::vector<const PreparedOverride*> emptyCandidates;
         const uint32_t lookupHash = tileHash(fullTileIndex);
         const uint32_t currentTileHash =
@@ -4354,18 +4598,22 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
              hasDefaultOverridesByRelativeTile[static_cast<size_t>(tileIndex)]);
         if(hasTileOriginContext) {
             if(const auto it = tileOriginOverrideLookupCache.find(tileOriginLookupKey); it != tileOriginOverrideLookupCache.end()) {
+                MODMANAGER_PROFILE_COUNT(tileOriginOverrideCacheHits, 1);
                 return it->second;
             }
         }
         if(canUseOverrideLookupCache && !hasDynamicCandidates) {
             if(const auto it = overrideLookupCache.find(lookupKey); it != overrideLookupCache.end()) {
+                MODMANAGER_PROFILE_COUNT(overrideLookupCacheHits, 1);
                 return it->second;
             }
         }
         if(!hasDynamicCandidates && !hasStaticExactCandidates && !hasDefaultCandidates) {
             if(canUseOverrideLookupCache) {
                 overrideLookupCache.emplace(lookupKey, nullptr);
+                MODMANAGER_PROFILE_COUNT(overrideLookupStores, 1);
             }
+            MODMANAGER_PROFILE_COUNT(overrideFastRejects, 1);
             return nullptr;
         }
         bool tileOriginCacheable = hasTileOriginContext;
@@ -4445,6 +4693,7 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
         const auto storeCachedResult = [&](const PreparedOverride* result) {
             if(canUseOverrideLookupCache && !hasDynamicCandidates) {
                 overrideLookupCache.emplace(lookupKey, result);
+                MODMANAGER_PROFILE_COUNT(overrideLookupStores, 1);
             }
             if(hasTileOriginContext && tileOriginCacheable) {
                 tileOriginOverrideLookupCache.emplace(tileOriginLookupKey, result);
@@ -4597,19 +4846,22 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
 
     const ConditionContext backgroundConditionContext = {};
     std::array<const PreparedBackground*, 40> activeBackgroundsByPriority = {};
-    for(const PreparedBackground& prepared : preparedBackgrounds) {
-        if(activeBackgroundsByPriority[static_cast<size_t>(prepared.priority)] != nullptr) {
-            continue;
-        }
-        bool matches = true;
-        for(const MemoryCondition* condition : prepared.runtimeConditions) {
-            if(condition != nullptr && !conditionMatchesAt(*condition, backgroundConditionContext)) {
-                matches = false;
-                break;
+    {
+        MODMANAGER_PROFILE_SCOPE(ComposeChrFrameBackgroundPrep);
+        for(const PreparedBackground& prepared : preparedBackgrounds) {
+            if(activeBackgroundsByPriority[static_cast<size_t>(prepared.priority)] != nullptr) {
+                continue;
             }
-        }
-        if(matches) {
-            activeBackgroundsByPriority[static_cast<size_t>(prepared.priority)] = &prepared;
+            bool matches = true;
+            for(const MemoryCondition* condition : prepared.runtimeConditions) {
+                if(condition != nullptr && !conditionMatchesAt(*condition, backgroundConditionContext)) {
+                    matches = false;
+                    break;
+                }
+            }
+            if(matches) {
+                activeBackgroundsByPriority[static_cast<size_t>(prepared.priority)] = &prepared;
+            }
         }
     }
 
@@ -4749,6 +5001,7 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
     midBeforeTileScanlineLayers.reserve(midBeforeTileBackgrounds.size());
     midAfterTileScanlineLayers.reserve(midAfterTileBackgrounds.size());
     highPriorityScanlineLayers.reserve(highPriorityBackgrounds.size());
+    MODMANAGER_PROFILE_SCOPE(ComposeChrFrameMainLoop);
     for(int nesY = activeNesY0; nesY < activeNesY1; ++nesY) {
         const uint32_t* srcRow = sourceFramebuffer + static_cast<size_t>(nesY) * PPU::SCREEN_WIDTH;
         const int blockY0 = std::max(activeTop, nesY * scale);
