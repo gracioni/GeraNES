@@ -3874,6 +3874,28 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
         return tileIndex;
     };
 
+    std::array<int, 512> canonicalSnapshotTileIndices = {};
+    for(size_t i = 0; i < canonicalSnapshotTileIndices.size(); ++i) {
+        canonicalSnapshotTileIndices[i] = static_cast<int>(i);
+    }
+    if(!m_chrRomCanonicalTileByHash.empty()) {
+        for(size_t i = 0; i < canonicalSnapshotTileIndices.size(); ++i) {
+            const uint32_t currentHash = snapshot.tileHashes[i];
+            if(currentHash != 0) {
+                if(const auto it = m_chrRomCanonicalTileByHash.find(currentHash); it != m_chrRomCanonicalTileByHash.end()) {
+                    canonicalSnapshotTileIndices[i] = it->second;
+                }
+            }
+        }
+    }
+
+    auto canonicalSnapshotTileIndex = [&](int tileIndex, uint32_t currentHash) {
+        if(tileIndex >= 0 && tileIndex <= 0x01FF) {
+            return canonicalSnapshotTileIndices[static_cast<size_t>(tileIndex)];
+        }
+        return canonicalTileIndex(tileIndex, currentHash);
+    };
+
     const PPU::DebugModBackgroundPixel* const backgroundPixelsData =
         snapshot.backgroundPixelsView != nullptr ? snapshot.backgroundPixelsView : snapshot.backgroundPixels.data();
     const size_t backgroundPixelsCount =
@@ -3914,85 +3936,79 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
 
     std::vector<PPU::DebugModSpritePixel> augmentedSpritePixels;
     if(!m_additionalSpriteRules.empty()) {
-        augmentedSpritePixels.resize(static_cast<size_t>(PPU::SCREEN_WIDTH * PPU::SCREEN_HEIGHT));
-        for(int y = 0; y < PPU::SCREEN_HEIGHT; ++y) {
-            for(int x = 0; x < PPU::SCREEN_WIDTH; ++x) {
-                const size_t index = static_cast<size_t>(y) * PPU::SCREEN_WIDTH + static_cast<size_t>(x);
-                if(const PPU::DebugModSpritePixel* srcPixel = rawSpritePixelAt(x, y); srcPixel != nullptr) {
-                    augmentedSpritePixels[index] = *srcPixel;
-                }
-            }
+        const size_t totalSpritePixels = static_cast<size_t>(PPU::SCREEN_WIDTH * PPU::SCREEN_HEIGHT);
+        augmentedSpritePixels.resize(totalSpritePixels);
+        const size_t copySpritePixelCount = std::min(totalSpritePixels, rawSpritePixelsCount);
+        if(copySpritePixelCount > 0) {
+            std::copy_n(rawSpritePixelsData, copySpritePixelCount, augmentedSpritePixels.begin());
         }
 
-        for(int y = 0; y < PPU::SCREEN_HEIGHT; ++y) {
-            for(int x = 0; x < PPU::SCREEN_WIDTH; ++x) {
-                const PPU::DebugModSpritePixel* pixel = rawSpritePixelAt(x, y);
-                if(pixel == nullptr) {
+        for(size_t index = 0; index < copySpritePixelCount; ++index) {
+            const PPU::DebugModSpritePixel& pixel = rawSpritePixelsData[index];
+            const int y = static_cast<int>(index / PPU::SCREEN_WIDTH);
+            const int x = static_cast<int>(index % PPU::SCREEN_WIDTH);
+            for(uint8_t i = 0; i < pixel.count; ++i) {
+                const PPU::DebugModSpriteCandidate& source = pixel.candidates[static_cast<size_t>(i)];
+                const uint32_t sourceHash = source.tileHash != 0 ? source.tileHash : tileHash(source.tileIndex);
+                const int resolvedTileIndex = canonicalSnapshotTileIndex(source.tileIndex, sourceHash);
+                const uint32_t sourcePaletteKey = candidatePaletteKey(source);
+                const int originX = x - static_cast<int>(source.offsetX);
+                const int originY = y - static_cast<int>(source.offsetY);
+
+                const auto ruleIt = additionalSpriteRulesByOriginalTile.find(resolvedTileIndex);
+                if(ruleIt == additionalSpriteRulesByOriginalTile.end()) {
                     continue;
                 }
-                for(uint8_t i = 0; i < pixel->count; ++i) {
-                    const PPU::DebugModSpriteCandidate& source = pixel->candidates[static_cast<size_t>(i)];
-                    const uint32_t sourceHash = source.tileHash != 0 ? source.tileHash : tileHash(source.tileIndex);
-                    const int resolvedTileIndex = canonicalTileIndex(source.tileIndex, sourceHash);
-                    const uint32_t sourcePaletteKey = candidatePaletteKey(source);
-                    const int originX = x - static_cast<int>(source.offsetX);
-                    const int originY = y - static_cast<int>(source.offsetY);
-
-                    const auto ruleIt = additionalSpriteRulesByOriginalTile.find(resolvedTileIndex);
-                    if(ruleIt == additionalSpriteRulesByOriginalTile.end()) {
+                for(const AdditionalSpriteRule* rulePtr : ruleIt->second) {
+                    if(rulePtr == nullptr) {
                         continue;
                     }
-                    for(const AdditionalSpriteRule* rulePtr : ruleIt->second) {
-                        if(rulePtr == nullptr) {
-                            continue;
-                        }
-                        const AdditionalSpriteRule& rule = *rulePtr;
-                        if(rule.originalTile != resolvedTileIndex) {
-                            continue;
-                        }
-                        if(!rule.ignorePalette && rule.originalPaletteKey != sourcePaletteKey) {
-                            continue;
-                        }
+                    const AdditionalSpriteRule& rule = *rulePtr;
+                    if(rule.originalTile != resolvedTileIndex) {
+                        continue;
+                    }
+                    if(!rule.ignorePalette && rule.originalPaletteKey != sourcePaletteKey) {
+                        continue;
+                    }
 
-                        const int targetX = x + rule.offsetX;
-                        const int targetY = y + rule.offsetY;
-                        if(targetX < 0 || targetX >= PPU::SCREEN_WIDTH || targetY < 0 || targetY >= PPU::SCREEN_HEIGHT) {
-                            continue;
-                        }
+                    const int targetX = x + rule.offsetX;
+                    const int targetY = y + rule.offsetY;
+                    if(targetX < 0 || targetX >= PPU::SCREEN_WIDTH || targetY < 0 || targetY >= PPU::SCREEN_HEIGHT) {
+                        continue;
+                    }
 
-                        PPU::DebugModSpritePixel& targetPixel = augmentedSpritePixels[static_cast<size_t>(targetY) * PPU::SCREEN_WIDTH + static_cast<size_t>(targetX)];
-                        if(targetPixel.count >= targetPixel.candidates.size()) {
-                            continue;
-                        }
+                    PPU::DebugModSpritePixel& targetPixel = augmentedSpritePixels[static_cast<size_t>(targetY) * PPU::SCREEN_WIDTH + static_cast<size_t>(targetX)];
+                    if(targetPixel.count >= targetPixel.candidates.size()) {
+                        continue;
+                    }
 
-                        PPU::DebugModSpriteCandidate added = source;
-                        added.tileIndex = static_cast<uint16_t>(std::clamp(rule.additionalTile, 0, 0xFFFF));
-                        added.tileHash = tileHash(rule.additionalTile);
-                        decodeSpritePaletteKey(rule.additionalPaletteKey, added.palette);
-                        added.paletteSlot = source.paletteSlot;
-                        added.offsetX = static_cast<uint8_t>(std::clamp(targetX - originX, 0, 255));
-                        added.offsetY = static_cast<uint8_t>(std::clamp(targetY - originY, 0, 255));
-                        added.colorLowBits = 0;
-                        added.synthetic = true;
-                        added.valid = true;
+                    PPU::DebugModSpriteCandidate added = source;
+                    added.tileIndex = static_cast<uint16_t>(std::clamp(rule.additionalTile, 0, 0xFFFF));
+                    added.tileHash = tileHash(rule.additionalTile);
+                    decodeSpritePaletteKey(rule.additionalPaletteKey, added.palette);
+                    added.paletteSlot = source.paletteSlot;
+                    added.offsetX = static_cast<uint8_t>(std::clamp(targetX - originX, 0, 255));
+                    added.offsetY = static_cast<uint8_t>(std::clamp(targetY - originY, 0, 255));
+                    added.colorLowBits = 0;
+                    added.synthetic = true;
+                    added.valid = true;
 
-                        targetPixel.candidates[targetPixel.count++] = added;
-                        if(!targetPixel.valid) {
-                            targetPixel.tileIndex = added.tileIndex;
-                            targetPixel.tileHash = added.tileHash;
-                            targetPixel.palette[0] = added.palette[0];
-                            targetPixel.palette[1] = added.palette[1];
-                            targetPixel.palette[2] = added.palette[2];
-                            targetPixel.paletteSlot = added.paletteSlot;
-                            targetPixel.colorLowBits = added.colorLowBits;
-                            targetPixel.offsetX = added.offsetX;
-                            targetPixel.offsetY = added.offsetY;
-                            targetPixel.behindBackground = added.behindBackground;
-                            targetPixel.horizontalMirror = added.horizontalMirror;
-                            targetPixel.verticalMirror = added.verticalMirror;
-                            targetPixel.synthetic = added.synthetic;
-                            targetPixel.valid = true;
-                        }
+                    targetPixel.candidates[targetPixel.count++] = added;
+                    if(!targetPixel.valid) {
+                        targetPixel.tileIndex = added.tileIndex;
+                        targetPixel.tileHash = added.tileHash;
+                        targetPixel.palette[0] = added.palette[0];
+                        targetPixel.palette[1] = added.palette[1];
+                        targetPixel.palette[2] = added.palette[2];
+                        targetPixel.paletteSlot = added.paletteSlot;
+                        targetPixel.colorLowBits = added.colorLowBits;
+                        targetPixel.offsetX = added.offsetX;
+                        targetPixel.offsetY = added.offsetY;
+                        targetPixel.behindBackground = added.behindBackground;
+                        targetPixel.horizontalMirror = added.horizontalMirror;
+                        targetPixel.verticalMirror = added.verticalMirror;
+                        targetPixel.synthetic = added.synthetic;
+                        targetPixel.valid = true;
                     }
                 }
             }
@@ -4092,7 +4108,7 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
                     return false;
                 }
             } else if(condition.expectedTileIndex >= 0 &&
-                      canonicalTileIndex(static_cast<int>(pixel.tileIndex), pixelHash) != condition.expectedTileIndex) {
+                      canonicalSnapshotTileIndex(static_cast<int>(pixel.tileIndex), pixelHash) != condition.expectedTileIndex) {
                 return false;
             }
         }
@@ -4113,7 +4129,7 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
                     return false;
                 }
             } else if(condition.expectedTileIndex >= 0 &&
-                      canonicalTileIndex(static_cast<int>(candidate.tileIndex), candidateHash) != condition.expectedTileIndex) {
+                      canonicalSnapshotTileIndex(static_cast<int>(candidate.tileIndex), candidateHash) != condition.expectedTileIndex) {
                 return false;
             }
         }
@@ -4313,7 +4329,7 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
             target == ChrOverride::Target::Sprite
                 ? ((ctx.spriteCandidate != nullptr && ctx.spriteCandidate->tileHash != 0) ? ctx.spriteCandidate->tileHash : lookupHash)
                 : ((ctx.backgroundPixel != nullptr && ctx.backgroundPixel->tileHash != 0) ? ctx.backgroundPixel->tileHash : lookupHash);
-        const int resolvedFullTileIndex = canonicalTileIndex(fullTileIndex, currentTileHash);
+        const int resolvedFullTileIndex = canonicalSnapshotTileIndex(fullTileIndex, currentTileHash);
         const uint64_t lookupKey = makeOverrideLookupKey(target, resolvedFullTileIndex, currentPatternTable, currentTileHash, palette, hMirror, vMirror, bgPriority);
         const bool hasStaticExactCandidates =
             hasWholeChrOverrides ||
