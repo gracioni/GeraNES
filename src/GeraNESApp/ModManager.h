@@ -390,6 +390,7 @@ private:
         std::array<bool, 256> hasDynamicOverridesByRelativeTile = {};
         std::unordered_set<uint32_t> dynamicOverrideHashes;
         std::vector<RenderPreparedBackground> preparedBackgrounds;
+        std::unordered_map<int, std::vector<const AdditionalSpriteRule*>> additionalSpriteRulesByOriginalTile;
     };
 
     std::unordered_map<std::string, ImageCacheEntry> m_imageCache;

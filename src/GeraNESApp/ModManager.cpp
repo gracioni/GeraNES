@@ -1532,6 +1532,29 @@ void ModManager::updateFrameConditionsForFrame(GeraNESEmu& emu)
 void ModManager::rebuildFrameConditionPlan()
 {
     m_frameConditionPlan = {};
+    std::unordered_map<uint64_t, size_t> memoryReadIndexByKey;
+
+    auto ensureMemoryRead = [&](MemoryCondition::MemorySource source, uint32_t address, bool word, int scale, uint64_t& cacheKey) {
+        if(cacheKey == 0) {
+            cacheKey = makeMemoryCacheKey(source, address, word, scale);
+        }
+        if(const auto it = memoryReadIndexByKey.find(cacheKey); it != memoryReadIndexByKey.end()) {
+            return it->second;
+        }
+
+        FrameConditionPlan::CachedMemoryRead cachedRead;
+        cachedRead.key = cacheKey;
+        cachedRead.readIndex = m_frameConditionPlan.uniqueMemoryReads.size();
+        cachedRead.condition.memorySource = source;
+        cachedRead.condition.address = address;
+        cachedRead.condition.word = word;
+        cachedRead.condition.scale = scale;
+
+        const size_t readIndex = cachedRead.readIndex;
+        m_frameConditionPlan.uniqueMemoryReads.push_back(std::move(cachedRead));
+        memoryReadIndexByKey.emplace(cacheKey, readIndex);
+        return readIndex;
+    };
 
     auto appendGlobalConditions = [&](const std::vector<MemoryCondition>& source, FrameConditionPlan::RuleConditions& globals) {
         for(const MemoryCondition& condition : source) {
@@ -1543,54 +1566,19 @@ void ModManager::rebuildFrameConditionPlan()
                 continue;
             }
             MemoryCondition compiledCondition = condition;
-            if(compiledCondition.memoryCacheKey == 0) {
-                compiledCondition.memoryCacheKey = makeMemoryCacheKey(
-                    compiledCondition.memorySource,
-                    compiledCondition.address,
-                    compiledCondition.word,
-                    compiledCondition.scale);
-            }
-            const uint64_t key = compiledCondition.memoryCacheKey;
-            const auto duplicateIt = std::find_if(
-                m_frameConditionPlan.uniqueMemoryReads.begin(),
-                m_frameConditionPlan.uniqueMemoryReads.end(),
-                [key](const FrameConditionPlan::CachedMemoryRead& cachedRead) { return cachedRead.key == key; });
-            if(duplicateIt == m_frameConditionPlan.uniqueMemoryReads.end()) {
-                FrameConditionPlan::CachedMemoryRead cachedRead;
-                cachedRead.key = key;
-                cachedRead.readIndex = m_frameConditionPlan.uniqueMemoryReads.size();
-                cachedRead.condition = compiledCondition;
-                m_frameConditionPlan.uniqueMemoryReads.push_back(std::move(cachedRead));
-                compiledCondition.readIndex = m_frameConditionPlan.uniqueMemoryReads.back().readIndex;
-            } else {
-                compiledCondition.readIndex = duplicateIt->readIndex;
-            }
+            compiledCondition.readIndex = ensureMemoryRead(
+                compiledCondition.memorySource,
+                compiledCondition.address,
+                compiledCondition.word,
+                compiledCondition.scale,
+                compiledCondition.memoryCacheKey);
             if(compiledCondition.compareAgainstMemory) {
-                if(compiledCondition.rhsMemoryCacheKey == 0) {
-                    compiledCondition.rhsMemoryCacheKey = makeMemoryCacheKey(
-                        compiledCondition.rhsMemorySource,
-                        compiledCondition.rhsAddress,
-                        compiledCondition.rhsWord,
-                        compiledCondition.rhsScale);
-                }
-                const uint64_t rhsKey = compiledCondition.rhsMemoryCacheKey;
-                const auto rhsDuplicateIt = std::find_if(
-                    m_frameConditionPlan.uniqueMemoryReads.begin(),
-                    m_frameConditionPlan.uniqueMemoryReads.end(),
-                    [rhsKey](const FrameConditionPlan::CachedMemoryRead& cachedRead) { return cachedRead.key == rhsKey; });
-                if(rhsDuplicateIt == m_frameConditionPlan.uniqueMemoryReads.end()) {
-                    FrameConditionPlan::CachedMemoryRead rhsCachedRead;
-                    rhsCachedRead.key = rhsKey;
-                    rhsCachedRead.readIndex = m_frameConditionPlan.uniqueMemoryReads.size();
-                    rhsCachedRead.condition.memorySource = compiledCondition.rhsMemorySource;
-                    rhsCachedRead.condition.address = compiledCondition.rhsAddress;
-                    rhsCachedRead.condition.word = compiledCondition.rhsWord;
-                    rhsCachedRead.condition.scale = compiledCondition.rhsScale;
-                    m_frameConditionPlan.uniqueMemoryReads.push_back(std::move(rhsCachedRead));
-                    compiledCondition.rhsReadIndex = m_frameConditionPlan.uniqueMemoryReads.back().readIndex;
-                } else {
-                    compiledCondition.rhsReadIndex = rhsDuplicateIt->readIndex;
-                }
+                compiledCondition.rhsReadIndex = ensureMemoryRead(
+                    compiledCondition.rhsMemorySource,
+                    compiledCondition.rhsAddress,
+                    compiledCondition.rhsWord,
+                    compiledCondition.rhsScale,
+                    compiledCondition.rhsMemoryCacheKey);
             }
             globals.memoryConditions.push_back(std::move(compiledCondition));
         }
@@ -1784,6 +1772,14 @@ void ModManager::rebuildRenderComposeCache()
             }
         }
         m_renderComposeCache.preparedBackgrounds.push_back(std::move(prepared));
+    }
+
+    m_renderComposeCache.additionalSpriteRulesByOriginalTile.clear();
+    for(const AdditionalSpriteRule& rule : m_additionalSpriteRules) {
+        if(rule.originalTile < 0) {
+            continue;
+        }
+        m_renderComposeCache.additionalSpriteRulesByOriginalTile[rule.originalTile].push_back(&rule);
     }
 
     m_renderComposeCache.valid = true;
@@ -3547,6 +3543,8 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
     const std::array<bool, 256>* hasDynamicOverridesByRelativeTilePtr = nullptr;
     const std::unordered_set<uint32_t>* dynamicOverrideHashesPtr = nullptr;
     const std::vector<RenderPreparedBackground>* preparedBackgroundsPtr = nullptr;
+    std::unordered_map<int, std::vector<const AdditionalSpriteRule*>> additionalSpriteRulesByOriginalTileLocal;
+    const std::unordered_map<int, std::vector<const AdditionalSpriteRule*>>* additionalSpriteRulesByOriginalTilePtr = nullptr;
 
     if(activeOverrideFilter == nullptr) {
         if(m_renderComposeCacheDirty || !m_renderComposeCache.valid || m_renderComposeCache.scale != std::max(1, m_resolutionMultiplier)) {
@@ -3579,6 +3577,7 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
         hasDynamicOverridesByRelativeTilePtr = &m_renderComposeCache.hasDynamicOverridesByRelativeTile;
         dynamicOverrideHashesPtr = &m_renderComposeCache.dynamicOverrideHashes;
         preparedBackgroundsPtr = &m_renderComposeCache.preparedBackgrounds;
+        additionalSpriteRulesByOriginalTilePtr = &m_renderComposeCache.additionalSpriteRulesByOriginalTile;
     } else {
         activeOverridesLocal = *activeOverrideFilter;
         if(!activeOverridesLocal.empty()) {
@@ -3720,6 +3719,12 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
             appendRuntimeConditions(replacement.conditions, prepared.runtimeConditions);
             preparedBackgroundsLocal.push_back(std::move(prepared));
         }
+        for(const AdditionalSpriteRule& rule : m_additionalSpriteRules) {
+            if(rule.originalTile < 0) {
+                continue;
+            }
+            additionalSpriteRulesByOriginalTileLocal[rule.originalTile].push_back(&rule);
+        }
         activeOverridesPtr = &activeOverridesLocal;
         preparedOverridesPtr = &preparedOverridesLocal;
         overridesByFullTilePtr = &overridesByFullTileLocal;
@@ -3747,6 +3752,7 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
         hasDynamicOverridesByRelativeTilePtr = &hasDynamicOverridesByRelativeTileLocal;
         dynamicOverrideHashesPtr = &dynamicOverrideHashesLocal;
         preparedBackgroundsPtr = &preparedBackgroundsLocal;
+        additionalSpriteRulesByOriginalTilePtr = &additionalSpriteRulesByOriginalTileLocal;
     }
 
     const auto& activeOverrides = *activeOverridesPtr;
@@ -3774,6 +3780,7 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
     const auto& hasDynamicOverridesByRelativeTile = *hasDynamicOverridesByRelativeTilePtr;
     const auto& dynamicOverrideHashes = *dynamicOverrideHashesPtr;
     const auto& preparedBackgrounds = *preparedBackgroundsPtr;
+    const auto& additionalSpriteRulesByOriginalTile = *additionalSpriteRulesByOriginalTilePtr;
     const bool canUseOverrideLookupCache = !preparedOverrides.empty();
     using PreparedOverride = RenderPreparedOverride;
     using PreparedBackground = RenderPreparedBackground;
@@ -3897,7 +3904,15 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
                     const int originX = x - static_cast<int>(source.offsetX);
                     const int originY = y - static_cast<int>(source.offsetY);
 
-                    for(const AdditionalSpriteRule& rule : m_additionalSpriteRules) {
+                    const auto ruleIt = additionalSpriteRulesByOriginalTile.find(resolvedTileIndex);
+                    if(ruleIt == additionalSpriteRulesByOriginalTile.end()) {
+                        continue;
+                    }
+                    for(const AdditionalSpriteRule* rulePtr : ruleIt->second) {
+                        if(rulePtr == nullptr) {
+                            continue;
+                        }
+                        const AdditionalSpriteRule& rule = *rulePtr;
                         if(rule.originalTile != resolvedTileIndex) {
                             continue;
                         }
@@ -4824,6 +4839,14 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
     const PreparedOverride* lastBackgroundOverride = nullptr;
     const int activeNesY0 = std::max(0, activeTop / scale);
     const int activeNesY1 = std::min(PPU::SCREEN_HEIGHT, (activeBottom + scale - 1) / scale);
+    std::vector<ScanlineBackgroundLayer> lowPriorityScanlineLayers;
+    std::vector<ScanlineBackgroundLayer> midBeforeTileScanlineLayers;
+    std::vector<ScanlineBackgroundLayer> midAfterTileScanlineLayers;
+    std::vector<ScanlineBackgroundLayer> highPriorityScanlineLayers;
+    lowPriorityScanlineLayers.reserve(lowPriorityBackgrounds.size());
+    midBeforeTileScanlineLayers.reserve(midBeforeTileBackgrounds.size());
+    midAfterTileScanlineLayers.reserve(midAfterTileBackgrounds.size());
+    highPriorityScanlineLayers.reserve(highPriorityBackgrounds.size());
     for(int nesY = activeNesY0; nesY < activeNesY1; ++nesY) {
         const uint32_t* srcRow = sourceFramebuffer + static_cast<size_t>(nesY) * PPU::SCREEN_WIDTH;
         const int blockY0 = std::max(activeTop, nesY * scale);
@@ -4847,9 +4870,8 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
         std::array<uint8_t, 3> noSpriteDirectRowCachePalette = {};
         std::array<std::array<uint32_t, 4>, 8> noSpriteDirectRowCacheBlocks = {};
 
-        auto buildScanlineLayers = [&](const std::vector<ActiveBackgroundLayer>& activeLayers) {
-            std::vector<ScanlineBackgroundLayer> scanlineLayers;
-            scanlineLayers.reserve(activeLayers.size());
+        auto buildScanlineLayers = [&](const std::vector<ActiveBackgroundLayer>& activeLayers, std::vector<ScanlineBackgroundLayer>& scanlineLayers) {
+            scanlineLayers.clear();
             for(const ActiveBackgroundLayer& activeLayer : activeLayers) {
                 if(activeLayer.prepared == nullptr || activeLayer.prepared->image == nullptr) {
                     continue;
@@ -4878,13 +4900,12 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
                     scanlineLayers.push_back(scanlineLayer);
                 }
             }
-            return scanlineLayers;
         };
 
-        const std::vector<ScanlineBackgroundLayer> lowPriorityScanlineLayers = buildScanlineLayers(lowPriorityBackgrounds);
-        const std::vector<ScanlineBackgroundLayer> midBeforeTileScanlineLayers = buildScanlineLayers(midBeforeTileBackgrounds);
-        const std::vector<ScanlineBackgroundLayer> midAfterTileScanlineLayers = buildScanlineLayers(midAfterTileBackgrounds);
-        const std::vector<ScanlineBackgroundLayer> highPriorityScanlineLayers = buildScanlineLayers(highPriorityBackgrounds);
+        buildScanlineLayers(lowPriorityBackgrounds, lowPriorityScanlineLayers);
+        buildScanlineLayers(midBeforeTileBackgrounds, midBeforeTileScanlineLayers);
+        buildScanlineLayers(midAfterTileBackgrounds, midAfterTileScanlineLayers);
+        buildScanlineLayers(highPriorityBackgrounds, highPriorityScanlineLayers);
 
         for(int nesX = 0; nesX < PPU::SCREEN_WIDTH; ++nesX) {
             const uint32_t baseColor = srcRow[nesX];
