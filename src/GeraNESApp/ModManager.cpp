@@ -6408,8 +6408,11 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
                 const PreparedOverride* spriteOverride = nullptr;
                 uint32_t fixedFallbackColor = 0;
                 std::array<uint8_t, 3> spritePalette = {};
+                std::array<uint32_t, 64> overrideSampleColors = {};
                 int candidateIndex = std::numeric_limits<int>::max();
+                uint64_t overrideCoverageMask = 0;
                 bool fallbackUsesCurrentColor = true;
+                bool overrideSamplesComputed = false;
                 bool participates = false;
             };
 
@@ -6503,104 +6506,141 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
             }
             const bool applyBehindSprites = resolvedBehindSpriteCandidateCount > 0;
             const bool applyFrontSprites = resolvedFrontSpriteCandidateCount > 0;
-
-            auto spriteCandidateCoversSubpixel = [&](const ResolvedSpriteCandidate& resolvedCandidate, int subX, int subY) {
-                if(!resolvedCandidate.participates || resolvedCandidate.candidate == nullptr) {
-                    return false;
+            auto overrideSampleIndexFor = [](int subX, int subY) {
+                return static_cast<size_t>(subY) * 8u + static_cast<size_t>(subX);
+            };
+            auto ensureResolvedSpriteCandidateSamples = [&](ResolvedSpriteCandidate& resolvedCandidate) {
+                if(resolvedCandidate.overrideSamplesComputed) {
+                    return;
+                }
+                resolvedCandidate.overrideSamplesComputed = true;
+                resolvedCandidate.overrideCoverageMask = 0;
+                if(!resolvedCandidate.participates || resolvedCandidate.candidate == nullptr || resolvedCandidate.spriteOverride == nullptr) {
+                    return;
                 }
 
                 const PPU::DebugModSpriteCandidate& candidate = *resolvedCandidate.candidate;
-                if(resolvedCandidate.spriteOverride == nullptr) {
-                    return allowOriginalSpriteFallbackFor(candidate);
-                }
-
                 const PreparedOverride* prepared = resolvedCandidate.spriteOverride;
                 const ChrOverride* override = prepared->override;
                 const DecodedImage* image = prepared->image;
                 if(override == nullptr || image == nullptr) {
-                    return false;
+                    return;
                 }
 
                 const int localOffsetX = static_cast<int>(candidate.offsetX) & 0x07;
                 const int localOffsetY = static_cast<int>(candidate.offsetY) & 0x07;
                 const int sourceScale = prepared->sourceScale;
-                const int sourceSubX = std::clamp((subX * sourceScale) / scale, 0, sourceScale - 1);
-                const int sourceSubY = std::clamp((subY * sourceScale) / scale, 0, sourceScale - 1);
-                const int tileSubX =
-                    candidate.horizontalMirror
-                        ? (7 - localOffsetX) * sourceScale + (sourceScale - 1 - sourceSubX)
-                        : localOffsetX * sourceScale + sourceSubX;
-                const int tileSubY =
-                    candidate.verticalMirror
-                        ? (7 - localOffsetY) * sourceScale + (sourceScale - 1 - sourceSubY)
-                        : localOffsetY * sourceScale + sourceSubY;
-                int srcX = override->hasSourcePosition() ? override->sourceX + tileSubX : tileSubX;
-                int srcY = override->hasSourcePosition() ? override->sourceY + tileSubY : tileSubY;
                 const int tilePixelSize = 8 * sourceScale;
-                const bool atlasImage =
-                    !override->hasSourcePosition() &&
-                    (override->wholeChr() ||
-                     override->sourceTileOffset > 0 ||
-                     (image->width >= override->columns * tilePixelSize && image->height > tilePixelSize));
-                if(atlasImage) {
-                    int sourceColumn = 0;
-                    int sourceRow = 0;
-                    if(override->wholeChr()) {
-                        const int spriteTileIndex = candidate.tileIndex != 0xFFFF ? static_cast<int>(candidate.tileIndex) : -1;
-                        if(spriteTileIndex < 0) {
-                            return false;
-                        }
-                        const int sourceTile = spriteTileIndex + override->sourceTileOffset;
-                        if(prepared->wholeChrLayout == ChrOverride::SourceLayout::PatternTables) {
+                int sourceBaseX = override->hasSourcePosition() ? override->sourceX : 0;
+                int sourceBaseY = override->hasSourcePosition() ? override->sourceY : 0;
+                if(!override->hasSourcePosition()) {
+                    const bool atlasImage =
+                        override->wholeChr() ||
+                        override->sourceTileOffset > 0 ||
+                        (image->width >= override->columns * tilePixelSize && image->height > tilePixelSize);
+                    if(atlasImage) {
+                        int sourceColumn = 0;
+                        int sourceRow = 0;
+                        if(override->wholeChr()) {
+                            const int spriteTileIndex = candidate.tileIndex != 0xFFFF ? static_cast<int>(candidate.tileIndex) : -1;
+                            if(spriteTileIndex < 0) {
+                                return;
+                            }
+                            const int sourceTile = spriteTileIndex + override->sourceTileOffset;
+                            if(prepared->wholeChrLayout == ChrOverride::SourceLayout::PatternTables) {
+                                const int table = sourceTile / 256;
+                                const int tileInTable = sourceTile & 0xFF;
+                                sourceColumn = (table * 16) + (tileInTable & 0x0F);
+                                sourceRow = tileInTable >> 4;
+                            } else {
+                                sourceColumn = sourceTile % override->columns;
+                                sourceRow = sourceTile / override->columns;
+                            }
+                        } else if(override->sourceLayout == ChrOverride::SourceLayout::PatternTables) {
+                            const int sourceTile = override->sourceTileOffset;
                             const int table = sourceTile / 256;
                             const int tileInTable = sourceTile & 0xFF;
                             sourceColumn = (table * 16) + (tileInTable & 0x0F);
                             sourceRow = tileInTable >> 4;
                         } else {
+                            const int sourceTile = override->sourceTileOffset;
                             sourceColumn = sourceTile % override->columns;
                             sourceRow = sourceTile / override->columns;
                         }
-                    } else if(override->sourceLayout == ChrOverride::SourceLayout::PatternTables) {
-                        const int sourceTile = override->sourceTileOffset;
-                        const int table = sourceTile / 256;
-                        const int tileInTable = sourceTile & 0xFF;
-                        sourceColumn = (table * 16) + (tileInTable & 0x0F);
-                        sourceRow = tileInTable >> 4;
-                    } else {
-                        const int sourceTile = override->sourceTileOffset;
-                        sourceColumn = sourceTile % override->columns;
-                        sourceRow = sourceTile / override->columns;
+                        sourceBaseX = sourceColumn * tilePixelSize;
+                        sourceBaseY = sourceRow * tilePixelSize;
                     }
-                    srcX += sourceColumn * tilePixelSize;
-                    srcY += sourceRow * tilePixelSize;
                 }
 
-                if(srcX < 0 || srcY < 0 || srcX >= image->width || srcY >= image->height) {
-                    return false;
-                }
+                for(int subY = subYStart; subY < subYEnd; ++subY) {
+                    const int sourceSubY = std::clamp((subY * sourceScale) / scale, 0, sourceScale - 1);
+                    const int tileSubY =
+                        candidate.verticalMirror
+                            ? (7 - localOffsetY) * sourceScale + (sourceScale - 1 - sourceSubY)
+                            : localOffsetY * sourceScale + sourceSubY;
+                    const int srcY = sourceBaseY + tileSubY;
+                    if(srcY < 0 || srcY >= image->height) {
+                        continue;
+                    }
+                    for(int subX = 0; subX < blockWidth; ++subX) {
+                        const int sourceSubX = std::clamp((subX * sourceScale) / scale, 0, sourceScale - 1);
+                        const int tileSubX =
+                            candidate.horizontalMirror
+                                ? (7 - localOffsetX) * sourceScale + (sourceScale - 1 - sourceSubX)
+                                : localOffsetX * sourceScale + sourceSubX;
+                        const int srcX = sourceBaseX + tileSubX;
+                        if(srcX < 0 || srcX >= image->width) {
+                            continue;
+                        }
 
-                const size_t sourcePixelIndex = static_cast<size_t>(srcY) * static_cast<size_t>(image->width) + static_cast<size_t>(srcX);
-                const uint32_t sourcePixel = image->rgba[sourcePixelIndex];
-                const uint8_t sourceAlpha = static_cast<uint8_t>((sourcePixel >> 24u) & 0xFFu);
-                if(sourceAlpha == 0) {
-                    return false;
+                        const size_t sourcePixelIndex = static_cast<size_t>(srcY) * static_cast<size_t>(image->width) + static_cast<size_t>(srcX);
+                        const uint32_t sourcePixel = image->rgba[sourcePixelIndex];
+                        const uint8_t sourceAlpha = static_cast<uint8_t>((sourcePixel >> 24u) & 0xFFu);
+                        if(sourceAlpha == 0) {
+                            continue;
+                        }
+
+                        uint32_t sampleColor = 0;
+                        if(override->ignorePalette) {
+                            sampleColor = (sourcePixel & 0x00FFFFFFu) | (static_cast<uint32_t>(sourceAlpha) << 24u);
+                        } else {
+                            if(!image->indexedFourColor || image->indexedPixels.size() != image->rgba.size()) {
+                                continue;
+                            }
+                            const uint8_t sourcePaletteIndex = image->indexedPixels[sourcePixelIndex];
+                            if(sourcePaletteIndex == 0) {
+                                continue;
+                            }
+                            const int paletteIndex = static_cast<int>(sourcePaletteIndex) - 1;
+                            if(paletteIndex < 0 || paletteIndex >= static_cast<int>(resolvedCandidate.spritePalette.size())) {
+                                continue;
+                            }
+                            sampleColor =
+                                (snapshot.paletteColors[resolvedCandidate.spritePalette[static_cast<size_t>(paletteIndex)] & 0x3F] & 0x00FFFFFFu) |
+                                (static_cast<uint32_t>(sourceAlpha) << 24u);
+                        }
+
+                        const size_t sampleIndex = overrideSampleIndexFor(subX, subY);
+                        resolvedCandidate.overrideSampleColors[sampleIndex] = sampleColor;
+                        resolvedCandidate.overrideCoverageMask |= (uint64_t{1} << sampleIndex);
+                    }
                 }
-                if(override->ignorePalette) {
-                    return true;
-                }
-                if(!image->indexedFourColor || image->indexedPixels.size() != image->rgba.size()) {
-                    return false;
-                }
-                return image->indexedPixels[sourcePixelIndex] != 0;
             };
 
             auto blockedByHigherPriorityBehindSprite = [&](int frontCandidateIndex, int subX, int subY) {
                 for(size_t behindIndex = 0; behindIndex < resolvedBehindSpriteCandidateCount; ++behindIndex) {
-                    const ResolvedSpriteCandidate& behindCandidate = resolvedBehindSpriteCandidates[behindIndex];
+                    ResolvedSpriteCandidate& behindCandidate = resolvedBehindSpriteCandidates[behindIndex];
                     if(behindCandidate.candidateIndex >= frontCandidateIndex) {
                         continue;
                     }
-                    if(spriteCandidateCoversSubpixel(behindCandidate, subX, subY)) {
+                    if(behindCandidate.spriteOverride == nullptr) {
+                        if(behindCandidate.candidate != nullptr && allowOriginalSpriteFallbackFor(*behindCandidate.candidate)) {
+                            return true;
+                        }
+                        continue;
+                    }
+                    ensureResolvedSpriteCandidateSamples(behindCandidate);
+                    if((behindCandidate.overrideCoverageMask & (uint64_t{1} << overrideSampleIndexFor(subX, subY))) != 0) {
                         return true;
                     }
                 }
@@ -6630,22 +6670,19 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
                         uint32_t spriteFallback10 = resolvedCandidate.fallbackUsesCurrentColor ? block10 : resolvedCandidate.fixedFallbackColor;
                         uint32_t spriteFallback11 = resolvedCandidate.fallbackUsesCurrentColor ? block11 : resolvedCandidate.fixedFallbackColor;
                         if(resolvedCandidate.spriteOverride != nullptr) {
-                            block00 = sampleOverridePixel(
-                                block00, block00, resolvedCandidate.spriteOverride, candidate.tileIndex,
-                                candidate.offsetX, candidate.offsetY, 0, 0, candidate.colorLowBits,
-                                resolvedCandidate.spritePalette, candidate.horizontalMirror, candidate.verticalMirror, true);
-                            block01 = sampleOverridePixel(
-                                block01, block01, resolvedCandidate.spriteOverride, candidate.tileIndex,
-                                candidate.offsetX, candidate.offsetY, 1, 0, candidate.colorLowBits,
-                                resolvedCandidate.spritePalette, candidate.horizontalMirror, candidate.verticalMirror, true);
-                            block10 = sampleOverridePixel(
-                                block10, block10, resolvedCandidate.spriteOverride, candidate.tileIndex,
-                                candidate.offsetX, candidate.offsetY, 0, 1, candidate.colorLowBits,
-                                resolvedCandidate.spritePalette, candidate.horizontalMirror, candidate.verticalMirror, true);
-                            block11 = sampleOverridePixel(
-                                block11, block11, resolvedCandidate.spriteOverride, candidate.tileIndex,
-                                candidate.offsetX, candidate.offsetY, 1, 1, candidate.colorLowBits,
-                                resolvedCandidate.spritePalette, candidate.horizontalMirror, candidate.verticalMirror, true);
+                            ensureResolvedSpriteCandidateSamples(const_cast<ResolvedSpriteCandidate&>(resolvedCandidate));
+                            if((resolvedCandidate.overrideCoverageMask & (uint64_t{1} << overrideSampleIndexFor(0, 0))) != 0) {
+                                block00 = blendPixel(block00, resolvedCandidate.overrideSampleColors[overrideSampleIndexFor(0, 0)], 255);
+                            }
+                            if((resolvedCandidate.overrideCoverageMask & (uint64_t{1} << overrideSampleIndexFor(1, 0))) != 0) {
+                                block01 = blendPixel(block01, resolvedCandidate.overrideSampleColors[overrideSampleIndexFor(1, 0)], 255);
+                            }
+                            if((resolvedCandidate.overrideCoverageMask & (uint64_t{1} << overrideSampleIndexFor(0, 1))) != 0) {
+                                block10 = blendPixel(block10, resolvedCandidate.overrideSampleColors[overrideSampleIndexFor(0, 1)], 255);
+                            }
+                            if((resolvedCandidate.overrideCoverageMask & (uint64_t{1} << overrideSampleIndexFor(1, 1))) != 0) {
+                                block11 = blendPixel(block11, resolvedCandidate.overrideSampleColors[overrideSampleIndexFor(1, 1)], 255);
+                            }
                         } else if(allowOriginalSpriteFallbackFor(candidate)) {
                             block00 = spriteFallback00;
                             block01 = spriteFallback01;
@@ -6677,21 +6714,11 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
                             const uint32_t spriteFallbackColor =
                                 resolvedCandidate.fallbackUsesCurrentColor ? color : resolvedCandidate.fixedFallbackColor;
                             if(resolvedCandidate.spriteOverride != nullptr) {
-                                color = sampleOverridePixel(
-                                    color,
-                                    color,
-                                    resolvedCandidate.spriteOverride,
-                                    candidate.tileIndex,
-                                    candidate.offsetX,
-                                    candidate.offsetY,
-                                    subX,
-                                    subY,
-                                    candidate.colorLowBits,
-                                    resolvedCandidate.spritePalette,
-                                    candidate.horizontalMirror,
-                                    candidate.verticalMirror,
-                                    true
-                                );
+                                ensureResolvedSpriteCandidateSamples(const_cast<ResolvedSpriteCandidate&>(resolvedCandidate));
+                                const size_t sampleIndex = overrideSampleIndexFor(subX, subY);
+                                if((resolvedCandidate.overrideCoverageMask & (uint64_t{1} << sampleIndex)) != 0) {
+                                    color = blendPixel(color, resolvedCandidate.overrideSampleColors[sampleIndex], 255);
+                                }
                             } else if(allowOriginalSpriteFallbackFor(candidate)) {
                                 color = spriteFallbackColor;
                             }
