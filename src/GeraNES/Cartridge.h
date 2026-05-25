@@ -966,6 +966,16 @@ public:
         m_writePrgFn(m_mapper, addr, data);
     }
 
+    GERANES_INLINE BaseMapper* mapper()
+    {
+        return m_mapper;
+    }
+
+    GERANES_INLINE const BaseMapper* mapper() const
+    {
+        return m_mapper;
+    }
+
     GERANES_INLINE uint8_t readPrg(int addr)
     {
         return m_readPrgFn(m_mapper, addr);
