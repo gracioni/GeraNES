@@ -210,6 +210,7 @@ private:
     bool m_showNetplayWindow = false;
     bool m_showPaletteWindow = false;
     bool m_showShaderStackWindow = false;
+    bool m_showOverscanWindow = false;
     bool m_showCpuDebuggerWindow = false;
     bool m_showCpuBreakpointsWindow = false;
     bool m_showMemoryViewerWindow = false;
@@ -475,6 +476,7 @@ private:
     void createNewPalette();
     void deleteCurrentPalette();
     void drawPaletteWindow();
+    void drawOverscanWindow();
     void drawPpuViewerWindow();
     void drawModPixelInspectorWindow();
     void drawEventViewerWindow();

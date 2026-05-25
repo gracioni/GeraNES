@@ -71,6 +71,10 @@ inline void GeraNESApp::showGui()
         drawPaletteWindow();
     }
 
+    if(m_showOverscanWindow) {
+        drawOverscanWindow();
+    }
+
     if(m_showShaderStackWindow) {
         drawShaderStackWindow();
     }

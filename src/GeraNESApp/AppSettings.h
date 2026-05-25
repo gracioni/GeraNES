@@ -121,6 +121,10 @@ public:
         bool fullScreen = false;
         int fullScreenMode = 0;
         std::string paletteName = "";
+        int overscanTop = 8;
+        int overscanRight = 0;
+        int overscanBottom = 8;
+        int overscanLeft = 0;
 
         friend void to_json(nlohmann::json& j, const Video& value)
         {
@@ -135,7 +139,11 @@ public:
                 {"horizontalStretch", value.horizontalStretch},
                 {"fullScreen", value.fullScreen},
                 {"fullScreenMode", value.fullScreenMode},
-                {"paletteName", value.paletteName}
+                {"paletteName", value.paletteName},
+                {"overscanTop", value.overscanTop},
+                {"overscanRight", value.overscanRight},
+                {"overscanBottom", value.overscanBottom},
+                {"overscanLeft", value.overscanLeft}
             };
         }
 
@@ -198,6 +206,10 @@ public:
             value.fullScreen = j.value("fullScreen", defaults.fullScreen);
             value.fullScreenMode = j.value("fullScreenMode", defaults.fullScreenMode);
             value.paletteName = j.value("paletteName", defaults.paletteName);
+            value.overscanTop = j.value("overscanTop", defaults.overscanTop);
+            value.overscanRight = j.value("overscanRight", defaults.overscanRight);
+            value.overscanBottom = j.value("overscanBottom", defaults.overscanBottom);
+            value.overscanLeft = j.value("overscanLeft", defaults.overscanLeft);
         }
     };    
 

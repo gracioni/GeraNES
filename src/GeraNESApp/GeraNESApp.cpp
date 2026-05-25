@@ -1748,6 +1748,17 @@ void GeraNESApp::syncSettings()
         std::clamp(cfg.video.scaleMode, static_cast<int>(ASPECT_FIT), static_cast<int>(PIXEL_PERFECT_BEST_FIT))
     );
     m_pixelPerfectScale = std::clamp(cfg.video.pixelPerfectScale, 1, 16);
+    m_overscanConfig.enabled = true;
+    m_overscanConfig.top = std::clamp(cfg.video.overscanTop, 0, PPU::SCREEN_HEIGHT - 1);
+    m_overscanConfig.right = std::clamp(cfg.video.overscanRight, 0, PPU::SCREEN_WIDTH - 1);
+    m_overscanConfig.bottom = std::clamp(cfg.video.overscanBottom, 0, PPU::SCREEN_HEIGHT - 1);
+    m_overscanConfig.left = std::clamp(cfg.video.overscanLeft, 0, PPU::SCREEN_WIDTH - 1);
+    if(m_overscanConfig.top + m_overscanConfig.bottom >= PPU::SCREEN_HEIGHT) {
+        m_overscanConfig.bottom = PPU::SCREEN_HEIGHT - m_overscanConfig.top - 1;
+    }
+    if(m_overscanConfig.left + m_overscanConfig.right >= PPU::SCREEN_WIDTH) {
+        m_overscanConfig.right = PPU::SCREEN_WIDTH - m_overscanConfig.left - 1;
+    }
     m_fullScreen = cfg.video.fullScreen;
     m_fullScreenMode = std::clamp(cfg.video.fullScreenMode, 0, 1);
     AppSettings::instance().data.debug.cpuDebuggerEnabled = false;
