@@ -1613,15 +1613,8 @@ void ModManager::rebuildFrameConditionPlan()
     }
 }
 
-void ModManager::rebuildRenderComposeCache()
+void ModManager::populateOverrideLookupCache(RenderComposeCache& cache, const std::vector<const ChrOverride*>& activeOverrides, bool trackTileHashNeeds)
 {
-    m_renderComposeCache = {};
-    m_renderComposeCache.scale = std::max(1, m_resolutionMultiplier);
-    m_renderComposeCache.needsTileHashes = false;
-    auto makeAdditionalSpriteRuleKey = [](int tile, uint32_t paletteKey) {
-        return (static_cast<uint64_t>(static_cast<uint32_t>(tile)) << 32u) | static_cast<uint64_t>(paletteKey);
-    };
-
     auto appendRuntimeConditions = [](const std::vector<MemoryCondition>& conditions, auto& runtimeConditions) {
         runtimeConditions.clear();
         runtimeConditions.reserve(conditions.size());
@@ -1640,23 +1633,18 @@ void ModManager::rebuildRenderComposeCache()
         });
     };
 
-    m_renderComposeCache.activeOverrides.reserve(m_chrOverrides.size());
-    for(const ChrOverride& override : m_chrOverrides) {
-        if(override.enabled && !override.assetPath.empty()) {
-            m_renderComposeCache.activeOverrides.push_back(&override);
-        }
-    }
-    if(!m_renderComposeCache.activeOverrides.empty()) {
-        std::stable_sort(m_renderComposeCache.activeOverrides.begin(), m_renderComposeCache.activeOverrides.end(), [](const ChrOverride* a, const ChrOverride* b) {
+    cache.activeOverrides = activeOverrides;
+    if(!cache.activeOverrides.empty()) {
+        std::stable_sort(cache.activeOverrides.begin(), cache.activeOverrides.end(), [](const ChrOverride* a, const ChrOverride* b) {
             return a->priority > b->priority;
         });
     }
 
-    m_renderComposeCache.preparedOverrides.reserve(m_renderComposeCache.activeOverrides.size());
-    for(const ChrOverride* override : m_renderComposeCache.activeOverrides) {
+    cache.preparedOverrides.reserve(cache.activeOverrides.size());
+    for(const ChrOverride* override : cache.activeOverrides) {
         RenderPreparedOverride prepared;
         prepared.override = override;
-        prepared.sequence = m_renderComposeCache.preparedOverrides.size();
+        prepared.sequence = cache.preparedOverrides.size();
         prepared.image = decodedImage(override->assetPath);
         if(prepared.image == nullptr || prepared.image->rgba.empty()) {
             continue;
@@ -1673,12 +1661,12 @@ void ModManager::rebuildRenderComposeCache()
                 ? ChrOverride::SourceLayout::PatternTables
                 : override->sourceLayout;
         appendRuntimeConditions(override->conditions, prepared.runtimeConditions);
-        if(override->hasChrHash) {
-            m_renderComposeCache.needsTileHashes = true;
+        if(trackTileHashNeeds && override->hasChrHash) {
+            cache.needsTileHashes = true;
         }
         for(const MemoryCondition* condition : prepared.runtimeConditions) {
-            if(condition != nullptr && condition->hasExpectedTile && condition->expectedTileByHash) {
-                m_renderComposeCache.needsTileHashes = true;
+            if(trackTileHashNeeds && condition != nullptr && condition->hasExpectedTile && condition->expectedTileByHash) {
+                cache.needsTileHashes = true;
             }
         }
         prepared.hasDynamicConditions = std::any_of(
@@ -1692,91 +1680,144 @@ void ModManager::rebuildRenderComposeCache()
                         condition->kind == MemoryCondition::Kind::SpriteNearby);
             });
         prepared.tileOriginCacheable = conditionsAllowTileOriginCache(prepared.runtimeConditions);
-        m_renderComposeCache.preparedOverrides.push_back(std::move(prepared));
-        const RenderPreparedOverride* preparedPtr = &m_renderComposeCache.preparedOverrides.back();
+        cache.preparedOverrides.push_back(std::move(prepared));
+        const RenderPreparedOverride* preparedPtr = &cache.preparedOverrides.back();
         if(override->wholeChr()) {
             if(override->hasChrHash) {
-                m_renderComposeCache.staticOverrideHashes.insert(override->chrHash);
+                cache.staticOverrideHashes.insert(override->chrHash);
                 if(override->defaultTile) {
-                    m_renderComposeCache.defaultOverrideHashes.insert(override->chrHash);
+                    cache.defaultOverrideHashes.insert(override->chrHash);
                 }
                 if(preparedPtr->hasDynamicConditions) {
-                    m_renderComposeCache.dynamicOverridesByChrHash[override->chrHash].push_back(preparedPtr);
+                    cache.dynamicOverridesByChrHash[override->chrHash].push_back(preparedPtr);
                 } else {
-                    m_renderComposeCache.overridesByChrHash[override->chrHash].push_back(preparedPtr);
+                    cache.overridesByChrHash[override->chrHash].push_back(preparedPtr);
                 }
             } else if(preparedPtr->hasDynamicConditions) {
                 if(override->defaultTile) {
-                    m_renderComposeCache.hasWholeChrDefaultOverrides = true;
+                    cache.hasWholeChrDefaultOverrides = true;
                 }
-                m_renderComposeCache.dynamicWholeChrOverrides.push_back(preparedPtr);
+                cache.dynamicWholeChrOverrides.push_back(preparedPtr);
             } else {
-                m_renderComposeCache.hasWholeChrOverrides = true;
+                cache.hasWholeChrOverrides = true;
                 if(override->defaultTile) {
-                    m_renderComposeCache.hasWholeChrDefaultOverrides = true;
+                    cache.hasWholeChrDefaultOverrides = true;
                 }
-                m_renderComposeCache.wholeChrOverrides.push_back(preparedPtr);
+                cache.wholeChrOverrides.push_back(preparedPtr);
             }
         } else if(override->absoluteTile) {
             if(override->tile >= 0) {
-                if(override->tile < static_cast<int>(m_renderComposeCache.overridesByFullTile.size())) {
-                    m_renderComposeCache.hasStaticOverridesByFullTile[static_cast<size_t>(override->tile)] = true;
+                if(override->tile < static_cast<int>(cache.overridesByFullTile.size())) {
+                    cache.hasStaticOverridesByFullTile[static_cast<size_t>(override->tile)] = true;
                     if(override->defaultTile) {
-                        m_renderComposeCache.hasDefaultOverridesByFullTile[static_cast<size_t>(override->tile)] = true;
+                        cache.hasDefaultOverridesByFullTile[static_cast<size_t>(override->tile)] = true;
                     }
                     if(preparedPtr->hasDynamicConditions) {
-                        m_renderComposeCache.dynamicOverridesByFullTile[static_cast<size_t>(override->tile)].push_back(preparedPtr);
+                        cache.dynamicOverridesByFullTile[static_cast<size_t>(override->tile)].push_back(preparedPtr);
                     } else {
-                        m_renderComposeCache.overridesByFullTile[static_cast<size_t>(override->tile)].push_back(preparedPtr);
+                        cache.overridesByFullTile[static_cast<size_t>(override->tile)].push_back(preparedPtr);
                     }
                 } else {
-                    m_renderComposeCache.staticOverflowFullTiles.insert(override->tile);
+                    cache.staticOverflowFullTiles.insert(override->tile);
                     if(override->defaultTile) {
-                        m_renderComposeCache.defaultOverflowFullTiles.insert(override->tile);
+                        cache.defaultOverflowFullTiles.insert(override->tile);
                     }
                     if(preparedPtr->hasDynamicConditions) {
-                        m_renderComposeCache.dynamicOverflowFullTiles.insert(override->tile);
-                        m_renderComposeCache.dynamicOverridesByOverflowFullTile[override->tile].push_back(preparedPtr);
+                        cache.dynamicOverflowFullTiles.insert(override->tile);
+                        cache.dynamicOverridesByOverflowFullTile[override->tile].push_back(preparedPtr);
                     } else {
-                        m_renderComposeCache.overridesByOverflowFullTile[override->tile].push_back(preparedPtr);
+                        cache.overridesByOverflowFullTile[override->tile].push_back(preparedPtr);
                     }
                 }
             }
         } else if(override->tile >= 0) {
-            if(override->tile < static_cast<int>(m_renderComposeCache.overridesByRelativeTile.size())) {
-                m_renderComposeCache.hasStaticOverridesByRelativeTile[static_cast<size_t>(override->tile)] = true;
+            if(override->tile < static_cast<int>(cache.overridesByRelativeTile.size())) {
+                cache.hasStaticOverridesByRelativeTile[static_cast<size_t>(override->tile)] = true;
                 if(override->defaultTile) {
-                    m_renderComposeCache.hasDefaultOverridesByRelativeTile[static_cast<size_t>(override->tile)] = true;
+                    cache.hasDefaultOverridesByRelativeTile[static_cast<size_t>(override->tile)] = true;
                 }
                 if(preparedPtr->hasDynamicConditions) {
-                    m_renderComposeCache.dynamicOverridesByRelativeTile[static_cast<size_t>(override->tile)].push_back(preparedPtr);
+                    cache.dynamicOverridesByRelativeTile[static_cast<size_t>(override->tile)].push_back(preparedPtr);
                 } else {
-                    m_renderComposeCache.overridesByRelativeTile[static_cast<size_t>(override->tile)].push_back(preparedPtr);
+                    cache.overridesByRelativeTile[static_cast<size_t>(override->tile)].push_back(preparedPtr);
                 }
-            } else if(override->tile < static_cast<int>(m_renderComposeCache.overridesByFullTile.size())) {
-                m_renderComposeCache.hasStaticOverridesByFullTile[static_cast<size_t>(override->tile)] = true;
+            } else if(override->tile < static_cast<int>(cache.overridesByFullTile.size())) {
+                cache.hasStaticOverridesByFullTile[static_cast<size_t>(override->tile)] = true;
                 if(override->defaultTile) {
-                    m_renderComposeCache.hasDefaultOverridesByFullTile[static_cast<size_t>(override->tile)] = true;
+                    cache.hasDefaultOverridesByFullTile[static_cast<size_t>(override->tile)] = true;
                 }
                 if(preparedPtr->hasDynamicConditions) {
-                    m_renderComposeCache.dynamicOverridesByFullTile[static_cast<size_t>(override->tile)].push_back(preparedPtr);
+                    cache.dynamicOverridesByFullTile[static_cast<size_t>(override->tile)].push_back(preparedPtr);
                 } else {
-                    m_renderComposeCache.overridesByFullTile[static_cast<size_t>(override->tile)].push_back(preparedPtr);
+                    cache.overridesByFullTile[static_cast<size_t>(override->tile)].push_back(preparedPtr);
                 }
             }
         }
     }
 
-    for(size_t i = 0; i < m_renderComposeCache.dynamicOverridesByFullTile.size(); ++i) {
-        m_renderComposeCache.hasDynamicOverridesByFullTile[i] = !m_renderComposeCache.dynamicOverridesByFullTile[i].empty();
+    for(size_t i = 0; i < cache.dynamicOverridesByFullTile.size(); ++i) {
+        cache.hasDynamicOverridesByFullTile[i] = !cache.dynamicOverridesByFullTile[i].empty();
     }
-    for(size_t i = 0; i < m_renderComposeCache.dynamicOverridesByRelativeTile.size(); ++i) {
-        m_renderComposeCache.hasDynamicOverridesByRelativeTile[i] = !m_renderComposeCache.dynamicOverridesByRelativeTile[i].empty();
+    for(size_t i = 0; i < cache.dynamicOverridesByRelativeTile.size(); ++i) {
+        cache.hasDynamicOverridesByRelativeTile[i] = !cache.dynamicOverridesByRelativeTile[i].empty();
     }
-    m_renderComposeCache.dynamicOverrideHashes.reserve(m_renderComposeCache.dynamicOverridesByChrHash.size());
-    for(const auto& [hash, _] : m_renderComposeCache.dynamicOverridesByChrHash) {
-        m_renderComposeCache.dynamicOverrideHashes.insert(hash);
+    cache.dynamicOverrideHashes.reserve(cache.dynamicOverridesByChrHash.size());
+    for(const auto& [hash, _] : cache.dynamicOverridesByChrHash) {
+        cache.dynamicOverrideHashes.insert(hash);
     }
+
+    cache.onlyWholeChrOverrides = std::all_of(
+        cache.activeOverrides.begin(),
+        cache.activeOverrides.end(),
+        [](const ChrOverride* override) {
+            return override != nullptr &&
+                   override->wholeChr() &&
+                   !override->hasChrHash &&
+                   override->paletteIndices.empty() &&
+                   override->patternTable < 0 &&
+                   !override->defaultTile &&
+                   !override->absoluteTile;
+        });
+    if(cache.onlyWholeChrOverrides) {
+        for(const RenderPreparedOverride& prepared : cache.preparedOverrides) {
+            const ChrOverride* override = prepared.override;
+            if(override != nullptr &&
+               !prepared.hasDynamicConditions &&
+               (override->target == ChrOverride::Target::Both || override->target == ChrOverride::Target::Background)) {
+                cache.fastBackgroundOverride = &prepared;
+                break;
+            }
+        }
+    }
+}
+
+void ModManager::rebuildRenderComposeCache()
+{
+    m_renderComposeCache = {};
+    m_renderComposeCache.scale = std::max(1, m_resolutionMultiplier);
+    m_renderComposeCache.needsTileHashes = false;
+    auto makeAdditionalSpriteRuleKey = [](int tile, uint32_t paletteKey) {
+        return (static_cast<uint64_t>(static_cast<uint32_t>(tile)) << 32u) | static_cast<uint64_t>(paletteKey);
+    };
+    auto appendRuntimeConditions = [](const std::vector<MemoryCondition>& conditions, auto& runtimeConditions) {
+        runtimeConditions.clear();
+        runtimeConditions.reserve(conditions.size());
+        for(const MemoryCondition& condition : conditions) {
+            if(condition.kind != MemoryCondition::Kind::MemoryCheck &&
+               condition.kind != MemoryCondition::Kind::FrameRange) {
+                runtimeConditions.push_back(&condition);
+            }
+        }
+    };
+
+    std::vector<const ChrOverride*> activeOverrides;
+    activeOverrides.reserve(m_chrOverrides.size());
+    for(const ChrOverride& override : m_chrOverrides) {
+        if(override.enabled && !override.assetPath.empty()) {
+            activeOverrides.push_back(&override);
+        }
+    }
+    populateOverrideLookupCache(m_renderComposeCache, activeOverrides, true);
 
     m_renderComposeCache.preparedBackgrounds.reserve(m_backgroundReplacements.size());
     for(const BackgroundReplacement& replacement : m_backgroundReplacements) {
@@ -1869,174 +1910,7 @@ ModManager::RenderComposeCache ModManager::buildFilteredRenderComposeCache(const
 {
     RenderComposeCache filteredCache = {};
     filteredCache.scale = std::max(1, m_resolutionMultiplier);
-
-    auto appendRuntimeConditions = [](const std::vector<MemoryCondition>& conditions, auto& runtimeConditions) {
-        runtimeConditions.clear();
-        runtimeConditions.reserve(conditions.size());
-        for(const MemoryCondition& condition : conditions) {
-            if(condition.kind != MemoryCondition::Kind::MemoryCheck &&
-               condition.kind != MemoryCondition::Kind::FrameRange) {
-                runtimeConditions.push_back(&condition);
-            }
-        }
-    };
-    auto conditionsAllowTileOriginCache = [](const auto& runtimeConditions) {
-        return std::all_of(runtimeConditions.begin(), runtimeConditions.end(), [](const MemoryCondition* condition) {
-            return condition == nullptr ||
-                   (condition->kind != MemoryCondition::Kind::TileNearby &&
-                    condition->kind != MemoryCondition::Kind::SpriteNearby);
-        });
-    };
-
-    filteredCache.activeOverrides = activeOverrideFilter;
-    if(!filteredCache.activeOverrides.empty()) {
-        std::stable_sort(filteredCache.activeOverrides.begin(), filteredCache.activeOverrides.end(), [](const ChrOverride* a, const ChrOverride* b) {
-            return a->priority > b->priority;
-        });
-    }
-
-    filteredCache.preparedOverrides.reserve(filteredCache.activeOverrides.size());
-    for(const ChrOverride* override : filteredCache.activeOverrides) {
-        RenderPreparedOverride prepared;
-        prepared.override = override;
-        prepared.sequence = filteredCache.preparedOverrides.size();
-        prepared.image = decodedImage(override->assetPath);
-        if(prepared.image == nullptr || prepared.image->rgba.empty()) {
-            continue;
-        }
-        prepared.sourceScale = std::max(1, m_resolutionMultiplier);
-        if(!override->wholeChr() && !override->hasSourcePosition() && override->sourceLayout != ChrOverride::SourceLayout::PatternTables) {
-            const int scaleX = prepared.image->width / std::max(1, override->columns * 8);
-            if(scaleX > 0) {
-                prepared.sourceScale = scaleX;
-            }
-        }
-        prepared.wholeChrLayout =
-            override->sourceLayout == ChrOverride::SourceLayout::Auto
-                ? ChrOverride::SourceLayout::PatternTables
-                : override->sourceLayout;
-        appendRuntimeConditions(override->conditions, prepared.runtimeConditions);
-        prepared.hasDynamicConditions = std::any_of(
-            prepared.runtimeConditions.begin(),
-            prepared.runtimeConditions.end(),
-            [](const MemoryCondition* condition) {
-                return condition != nullptr &&
-                       (condition->kind == MemoryCondition::Kind::TileAtPosition ||
-                        condition->kind == MemoryCondition::Kind::TileNearby ||
-                        condition->kind == MemoryCondition::Kind::SpriteAtPosition ||
-                        condition->kind == MemoryCondition::Kind::SpriteNearby);
-            });
-        prepared.tileOriginCacheable = conditionsAllowTileOriginCache(prepared.runtimeConditions);
-        filteredCache.preparedOverrides.push_back(std::move(prepared));
-        const RenderPreparedOverride* preparedPtr = &filteredCache.preparedOverrides.back();
-        if(override->wholeChr()) {
-            if(override->hasChrHash) {
-                filteredCache.staticOverrideHashes.insert(override->chrHash);
-                if(override->defaultTile) {
-                    filteredCache.defaultOverrideHashes.insert(override->chrHash);
-                }
-                if(preparedPtr->hasDynamicConditions) {
-                    filteredCache.dynamicOverridesByChrHash[override->chrHash].push_back(preparedPtr);
-                } else {
-                    filteredCache.overridesByChrHash[override->chrHash].push_back(preparedPtr);
-                }
-            } else if(preparedPtr->hasDynamicConditions) {
-                if(override->defaultTile) {
-                    filteredCache.hasWholeChrDefaultOverrides = true;
-                }
-                filteredCache.dynamicWholeChrOverrides.push_back(preparedPtr);
-            } else {
-                filteredCache.hasWholeChrOverrides = true;
-                if(override->defaultTile) {
-                    filteredCache.hasWholeChrDefaultOverrides = true;
-                }
-                filteredCache.wholeChrOverrides.push_back(preparedPtr);
-            }
-        } else if(override->absoluteTile) {
-            if(override->tile >= 0) {
-                if(override->tile < static_cast<int>(filteredCache.overridesByFullTile.size())) {
-                    filteredCache.hasStaticOverridesByFullTile[static_cast<size_t>(override->tile)] = true;
-                    if(override->defaultTile) {
-                        filteredCache.hasDefaultOverridesByFullTile[static_cast<size_t>(override->tile)] = true;
-                    }
-                    if(preparedPtr->hasDynamicConditions) {
-                        filteredCache.dynamicOverridesByFullTile[static_cast<size_t>(override->tile)].push_back(preparedPtr);
-                    } else {
-                        filteredCache.overridesByFullTile[static_cast<size_t>(override->tile)].push_back(preparedPtr);
-                    }
-                } else {
-                    filteredCache.staticOverflowFullTiles.insert(override->tile);
-                    if(override->defaultTile) {
-                        filteredCache.defaultOverflowFullTiles.insert(override->tile);
-                    }
-                    if(preparedPtr->hasDynamicConditions) {
-                        filteredCache.dynamicOverflowFullTiles.insert(override->tile);
-                        filteredCache.dynamicOverridesByOverflowFullTile[override->tile].push_back(preparedPtr);
-                    } else {
-                        filteredCache.overridesByOverflowFullTile[override->tile].push_back(preparedPtr);
-                    }
-                }
-            }
-        } else if(override->tile >= 0) {
-            if(override->tile < static_cast<int>(filteredCache.overridesByRelativeTile.size())) {
-                filteredCache.hasStaticOverridesByRelativeTile[static_cast<size_t>(override->tile)] = true;
-                if(override->defaultTile) {
-                    filteredCache.hasDefaultOverridesByRelativeTile[static_cast<size_t>(override->tile)] = true;
-                }
-                if(preparedPtr->hasDynamicConditions) {
-                    filteredCache.dynamicOverridesByRelativeTile[static_cast<size_t>(override->tile)].push_back(preparedPtr);
-                } else {
-                    filteredCache.overridesByRelativeTile[static_cast<size_t>(override->tile)].push_back(preparedPtr);
-                }
-            } else if(override->tile < static_cast<int>(filteredCache.overridesByFullTile.size())) {
-                filteredCache.hasStaticOverridesByFullTile[static_cast<size_t>(override->tile)] = true;
-                if(override->defaultTile) {
-                    filteredCache.hasDefaultOverridesByFullTile[static_cast<size_t>(override->tile)] = true;
-                }
-                if(preparedPtr->hasDynamicConditions) {
-                    filteredCache.dynamicOverridesByFullTile[static_cast<size_t>(override->tile)].push_back(preparedPtr);
-                } else {
-                    filteredCache.overridesByFullTile[static_cast<size_t>(override->tile)].push_back(preparedPtr);
-                }
-            }
-        }
-    }
-
-    for(size_t i = 0; i < filteredCache.dynamicOverridesByFullTile.size(); ++i) {
-        filteredCache.hasDynamicOverridesByFullTile[i] = !filteredCache.dynamicOverridesByFullTile[i].empty();
-    }
-    for(size_t i = 0; i < filteredCache.dynamicOverridesByRelativeTile.size(); ++i) {
-        filteredCache.hasDynamicOverridesByRelativeTile[i] = !filteredCache.dynamicOverridesByRelativeTile[i].empty();
-    }
-    filteredCache.dynamicOverrideHashes.reserve(filteredCache.dynamicOverridesByChrHash.size());
-    for(const auto& [hash, _] : filteredCache.dynamicOverridesByChrHash) {
-        filteredCache.dynamicOverrideHashes.insert(hash);
-    }
-
-    filteredCache.onlyWholeChrOverrides = std::all_of(
-        filteredCache.activeOverrides.begin(),
-        filteredCache.activeOverrides.end(),
-        [](const ChrOverride* override) {
-            return override != nullptr &&
-                   override->wholeChr() &&
-                   !override->hasChrHash &&
-                   override->paletteIndices.empty() &&
-                   override->patternTable < 0 &&
-                   !override->defaultTile &&
-                   !override->absoluteTile;
-        });
-    if(filteredCache.onlyWholeChrOverrides) {
-        for(const RenderPreparedOverride& prepared : filteredCache.preparedOverrides) {
-            const ChrOverride* override = prepared.override;
-            if(override != nullptr &&
-               !prepared.hasDynamicConditions &&
-               (override->target == ChrOverride::Target::Both || override->target == ChrOverride::Target::Background)) {
-                filteredCache.fastBackgroundOverride = &prepared;
-                break;
-            }
-        }
-    }
-
+    populateOverrideLookupCache(filteredCache, activeOverrideFilter, false);
     filteredCache.valid = true;
     return filteredCache;
 }
@@ -2307,16 +2181,6 @@ std::optional<std::vector<uint8_t>> ModManager::readZipEntry(const std::filesyst
     std::vector<uint8_t> data(buffer, buffer + bufferSize);
     std::free(buffer);
     return data;
-}
-
-bool ModManager::zipHasEntry(const std::filesystem::path& zipPath, const std::string& entryName)
-{
-    zip_t* zip = zip_open(zipPath.string().c_str(), 0, 'r');
-    if(zip == nullptr) return false;
-    const int openResult = zip_entry_open(zip, normalizeZipPath(entryName).c_str());
-    if(openResult == 0) zip_entry_close(zip);
-    zip_close(zip);
-    return openResult == 0;
 }
 
 bool ModManager::writeBinaryFile(const std::filesystem::path& path, const std::vector<uint8_t>& data, std::string& error)

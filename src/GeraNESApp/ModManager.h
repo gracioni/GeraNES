@@ -427,7 +427,6 @@ private:
     bool sourceHasEntry(const std::string& entryName) const;
     std::optional<std::vector<uint8_t>> readSourceEntry(const std::string& entryName) const;
     static std::optional<std::vector<uint8_t>> readZipEntry(const std::filesystem::path& zipPath, const std::string& entryName);
-    static bool zipHasEntry(const std::filesystem::path& zipPath, const std::string& entryName);
     static bool writeBinaryFile(const std::filesystem::path& path, const std::vector<uint8_t>& data, std::string& error);
     static std::optional<std::vector<uint8_t>> applyIpsPatch(
         const std::vector<uint8_t>& romData,
@@ -449,6 +448,7 @@ private:
     bool loadMesenHiresFile();
     void rebuildFrameConditionPlan();
     void invalidateRenderComposeCache();
+    void populateOverrideLookupCache(RenderComposeCache& cache, const std::vector<const ChrOverride*>& activeOverrides, bool trackTileHashNeeds);
     void rebuildRenderComposeCache();
     RenderComposeCache buildFilteredRenderComposeCache(const std::vector<const ChrOverride*>& activeOverrideFilter);
     static uint32_t blendPixel(uint32_t dst, uint32_t src, int alphaScale);
