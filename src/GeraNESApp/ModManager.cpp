@@ -4388,6 +4388,9 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
         bool valid = false;
         int baseSrcX = 0;
         int baseSrcY = 0;
+        const uint32_t* row0 = nullptr;
+        const uint32_t* row1 = nullptr;
+        int maxSub = 0;
         bool uniformBlock = false;
         uint32_t uniformColor = 0;
     };
@@ -4767,6 +4770,9 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
         resolved.valid = true;
         resolved.baseSrcX = (activeLayer.srcBaseX + nesX) * prepared.backgroundScale;
         resolved.baseSrcY = activeLayer.baseSrcY;
+        resolved.row0 = activeLayer.row0;
+        resolved.row1 = activeLayer.row1;
+        resolved.maxSub = activeLayer.maxSub;
         if(prepared.backgroundScale == 1) {
             resolved.uniformBlock = true;
             resolved.uniformColor =
@@ -4788,10 +4794,12 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
             }
             return blendPixel(dstColor, resolved.uniformColor, prepared.alphaScale);
         }
-        const DecodedImage& image = *prepared.image;
-        const int srcX = resolved.baseSrcX + std::clamp(subX, 0, prepared.backgroundScale - 1);
-        const int srcY = resolved.baseSrcY + std::clamp(subY, 0, prepared.backgroundScale - 1);
-        const uint32_t src = image.rgba[static_cast<size_t>(srcY) * static_cast<size_t>(image.width) + static_cast<size_t>(srcX)];
+        if(resolved.row0 == nullptr || resolved.row1 == nullptr) {
+            return dstColor;
+        }
+        const int srcX0 = resolved.baseSrcX + std::clamp(subX, 0, resolved.maxSub);
+        const uint32_t* srcRow = subY <= 0 ? resolved.row0 : resolved.row1;
+        const uint32_t src = srcRow[static_cast<size_t>(srcX0)];
         if(prepared.opaqueCopy && ((src >> 24u) & 0xFFu) == 0xFFu) {
             return src;
         }
@@ -4926,6 +4934,9 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
 
                 resolved.prepared = prepared;
                 resolved.baseSrcY = activeLayer.baseSrcY;
+                resolved.row0 = activeLayer.row0;
+                resolved.row1 = activeLayer.row1;
+                resolved.maxSub = activeLayer.maxSub;
                 const bool validNow = nesX >= activeLayer.minNesX && nesX <= activeLayer.maxNesX;
                 if(!validNow) {
                     resolved.valid = false;
@@ -5179,6 +5190,54 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
                 return alpha == 0xFF ? mappedPixel : blendPixel(color, mappedPixel, 255);
             };
 
+            auto applyPreparedBackgroundBlockScale2 = [&](const PreparedBackground& prepared,
+                                                         const uint32_t* row0,
+                                                         const uint32_t* row1,
+                                                         int baseSrcX,
+                                                         int maxSub,
+                                                         uint32_t& block00,
+                                                         uint32_t& block01,
+                                                         uint32_t& block10,
+                                                         uint32_t& block11) {
+                if(prepared.backgroundScale == 1) {
+                    const uint32_t src = row0[static_cast<size_t>(baseSrcX)];
+                    if(prepared.opaqueCopy && ((src >> 24u) & 0xFFu) == 0xFFu) {
+                        block00 = src;
+                        block01 = src;
+                        block10 = src;
+                        block11 = src;
+                    } else {
+                        block00 = blendPixel(block00, src, prepared.alphaScale);
+                        block01 = blendPixel(block01, src, prepared.alphaScale);
+                        block10 = blendPixel(block10, src, prepared.alphaScale);
+                        block11 = blendPixel(block11, src, prepared.alphaScale);
+                    }
+                    return;
+                }
+
+                const int srcX0 = baseSrcX;
+                const int srcX1 = baseSrcX + std::clamp(1, 0, maxSub);
+                const uint32_t src00 = row0[static_cast<size_t>(srcX0)];
+                const uint32_t src01 = row0[static_cast<size_t>(srcX1)];
+                const uint32_t src10 = row1[static_cast<size_t>(srcX0)];
+                const uint32_t src11 = row1[static_cast<size_t>(srcX1)];
+                if(prepared.opaqueCopy &&
+                    ((src00 >> 24u) & 0xFFu) == 0xFFu &&
+                    ((src01 >> 24u) & 0xFFu) == 0xFFu &&
+                    ((src10 >> 24u) & 0xFFu) == 0xFFu &&
+                    ((src11 >> 24u) & 0xFFu) == 0xFFu) {
+                    block00 = src00;
+                    block01 = src01;
+                    block10 = src10;
+                    block11 = src11;
+                } else {
+                    block00 = blendPixel(block00, src00, prepared.alphaScale);
+                    block01 = blendPixel(block01, src01, prepared.alphaScale);
+                    block10 = blendPixel(block10, src10, prepared.alphaScale);
+                    block11 = blendPixel(block11, src11, prepared.alphaScale);
+                }
+            };
+
             const bool canUseScale2NoSpriteDirectScanlinePath =
                 scale == 2 &&
                 blockWidth == 2 &&
@@ -5197,42 +5256,7 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
                     }
                     const PreparedBackground& prepared = *layer.prepared;
                     const int baseSrcX = (layer.srcBaseX + pixelX) * prepared.backgroundScale;
-                    if(prepared.backgroundScale == 1) {
-                        const uint32_t src = layer.row0[static_cast<size_t>(baseSrcX)];
-                        if(prepared.opaqueCopy && ((src >> 24u) & 0xFFu) == 0xFFu) {
-                            block00 = src;
-                            block01 = src;
-                            block10 = src;
-                            block11 = src;
-                        } else {
-                            block00 = blendPixel(block00, src, prepared.alphaScale);
-                            block01 = blendPixel(block01, src, prepared.alphaScale);
-                            block10 = blendPixel(block10, src, prepared.alphaScale);
-                            block11 = blendPixel(block11, src, prepared.alphaScale);
-                        }
-                        return;
-                    }
-                    const int srcX0 = baseSrcX;
-                    const int srcX1 = baseSrcX + std::clamp(1, 0, layer.maxSub);
-                    const uint32_t src00 = layer.row0[static_cast<size_t>(srcX0)];
-                    const uint32_t src01 = layer.row0[static_cast<size_t>(srcX1)];
-                    const uint32_t src10 = layer.row1[static_cast<size_t>(srcX0)];
-                    const uint32_t src11 = layer.row1[static_cast<size_t>(srcX1)];
-                    if(prepared.opaqueCopy &&
-                        ((src00 >> 24u) & 0xFFu) == 0xFFu &&
-                        ((src01 >> 24u) & 0xFFu) == 0xFFu &&
-                        ((src10 >> 24u) & 0xFFu) == 0xFFu &&
-                        ((src11 >> 24u) & 0xFFu) == 0xFFu) {
-                        block00 = src00;
-                        block01 = src01;
-                        block10 = src10;
-                        block11 = src11;
-                    } else {
-                        block00 = blendPixel(block00, src00, prepared.alphaScale);
-                        block01 = blendPixel(block01, src01, prepared.alphaScale);
-                        block10 = blendPixel(block10, src10, prepared.alphaScale);
-                        block11 = blendPixel(block11, src11, prepared.alphaScale);
-                    }
+                    applyPreparedBackgroundBlockScale2(prepared, layer.row0, layer.row1, baseSrcX, layer.maxSub, block00, block01, block10, block11);
                 };
 
                 auto sampleBackgroundOverrideScale2 = [&](uint32_t color, int subX, int subY) {
@@ -5340,49 +5364,10 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
                                 continue;
                             }
                             const PreparedBackground& prepared = *layer.prepared;
-                            if(prepared.backgroundScale == 1) {
-                                for(int tileOffsetX = startOffset; tileOffsetX <= endOffset; ++tileOffsetX) {
-                                    auto& block = noSpriteDirectRowCacheBlocks[static_cast<size_t>(tileOffsetX)];
-                                    const int srcX = layer.srcBaseX + tileOriginX + tileOffsetX;
-                                    const uint32_t src = layer.row0[static_cast<size_t>(srcX)];
-                                    if(prepared.opaqueCopy && ((src >> 24u) & 0xFFu) == 0xFFu) {
-                                        block[0] = src;
-                                        block[1] = src;
-                                        block[2] = src;
-                                        block[3] = src;
-                                    } else {
-                                        block[0] = blendPixel(block[0], src, prepared.alphaScale);
-                                        block[1] = blendPixel(block[1], src, prepared.alphaScale);
-                                        block[2] = blendPixel(block[2], src, prepared.alphaScale);
-                                        block[3] = blendPixel(block[3], src, prepared.alphaScale);
-                                    }
-                                }
-                                continue;
-                            }
-
                             for(int tileOffsetX = startOffset; tileOffsetX <= endOffset; ++tileOffsetX) {
                                 auto& block = noSpriteDirectRowCacheBlocks[static_cast<size_t>(tileOffsetX)];
-                                const int srcX0 = (layer.srcBaseX + tileOriginX + tileOffsetX) * prepared.backgroundScale;
-                                const int srcX1 = srcX0 + std::clamp(1, 0, layer.maxSub);
-                                const uint32_t src00 = layer.row0[static_cast<size_t>(srcX0)];
-                                const uint32_t src01 = layer.row0[static_cast<size_t>(srcX1)];
-                                const uint32_t src10 = layer.row1[static_cast<size_t>(srcX0)];
-                                const uint32_t src11 = layer.row1[static_cast<size_t>(srcX1)];
-                                if(prepared.opaqueCopy &&
-                                    ((src00 >> 24u) & 0xFFu) == 0xFFu &&
-                                    ((src01 >> 24u) & 0xFFu) == 0xFFu &&
-                                    ((src10 >> 24u) & 0xFFu) == 0xFFu &&
-                                    ((src11 >> 24u) & 0xFFu) == 0xFFu) {
-                                    block[0] = src00;
-                                    block[1] = src01;
-                                    block[2] = src10;
-                                    block[3] = src11;
-                                } else {
-                                    block[0] = blendPixel(block[0], src00, prepared.alphaScale);
-                                    block[1] = blendPixel(block[1], src01, prepared.alphaScale);
-                                    block[2] = blendPixel(block[2], src10, prepared.alphaScale);
-                                    block[3] = blendPixel(block[3], src11, prepared.alphaScale);
-                                }
+                                const int baseSrcX = (layer.srcBaseX + tileOriginX + tileOffsetX) * prepared.backgroundScale;
+                                applyPreparedBackgroundBlockScale2(prepared, layer.row0, layer.row1, baseSrcX, layer.maxSub, block[0], block[1], block[2], block[3]);
                             }
                         }
                     };
@@ -5606,42 +5591,15 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
                     }
 
                     const DecodedImage& image = *prepared.image;
-                    const int maxSub = prepared.backgroundScale - 1;
-                    const int srcX0 = resolved.baseSrcX;
-                    const int srcX1 = resolved.baseSrcX + std::clamp(1, 0, maxSub);
                     const int srcY0 = resolved.baseSrcY;
-                    const int srcY1 = resolved.baseSrcY + std::clamp(1, 0, maxSub);
-                    const size_t row0 = static_cast<size_t>(srcY0) * static_cast<size_t>(image.width);
-                    const size_t row1 = static_cast<size_t>(srcY1) * static_cast<size_t>(image.width);
-                    const uint32_t src00 = image.rgba[row0 + static_cast<size_t>(srcX0)];
-                    const uint32_t src01 = image.rgba[row0 + static_cast<size_t>(srcX1)];
-                    const uint32_t src10 = image.rgba[row1 + static_cast<size_t>(srcX0)];
-                    const uint32_t src11 = image.rgba[row1 + static_cast<size_t>(srcX1)];
-                    if(prepared.opaqueCopy &&
-                        ((src00 >> 24u) & 0xFFu) == 0xFFu &&
-                        ((src01 >> 24u) & 0xFFu) == 0xFFu &&
-                        ((src10 >> 24u) & 0xFFu) == 0xFFu &&
-                        ((src11 >> 24u) & 0xFFu) == 0xFFu) {
-                        block00 = src00;
-                        block01 = src01;
-                        block10 = src10;
-                        block11 = src11;
-                    } else {
-                        block00 = blendPixel(block00, src00, prepared.alphaScale);
-                        block01 = blendPixel(block01, src01, prepared.alphaScale);
-                        block10 = blendPixel(block10, src10, prepared.alphaScale);
-                        block11 = blendPixel(block11, src11, prepared.alphaScale);
-                    }
+                    const int srcY1 = resolved.baseSrcY + std::clamp(1, 0, prepared.backgroundScale - 1);
+                    const uint32_t* row0 = image.rgba.data() + static_cast<size_t>(srcY0) * static_cast<size_t>(image.width);
+                    const uint32_t* row1 = image.rgba.data() + static_cast<size_t>(srcY1) * static_cast<size_t>(image.width);
+                    applyPreparedBackgroundBlockScale2(prepared, row0, row1, resolved.baseSrcX, prepared.backgroundScale - 1, block00, block01, block10, block11);
                 };
 
                 auto getOpaqueBackgroundOverrideColorScale2 = [&](int subX, int subY, uint32_t& outColor) {
-                    if(backgroundOverride == nullptr || bgPixel == nullptr || !backgroundOverrideTileSrcValid || backgroundOverrideImage == nullptr) {
-                        return false;
-                    }
-
-                    const ChrOverride* override = backgroundOverride->override;
-                    const DecodedImage* image = backgroundOverrideImage;
-                    if(override == nullptr) {
+                    if(backgroundOverride == nullptr || bgPixel == nullptr || !backgroundOverrideTileSrcValid) {
                         return false;
                     }
 
@@ -5652,38 +5610,11 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
                     const int sourceSubY = std::clamp((subY * sourceScale) / 2, 0, sourceScale - 1);
                     const int srcX = backgroundOverrideTileSrcX + localOffsetX * sourceScale + sourceSubX;
                     const int srcY = backgroundOverrideTileSrcY + localOffsetY * sourceScale + sourceSubY;
-
-                    if(srcX < 0 || srcY < 0 || srcX >= image->width || srcY >= image->height) {
+                    const uint32_t mappedPixel = mappedBackgroundOverridePixelAt(srcX, srcY);
+                    if(((mappedPixel >> 24u) & 0xFFu) != 0xFFu) {
                         return false;
                     }
-
-                    const size_t sourcePixelIndex =
-                        static_cast<size_t>(srcY) * static_cast<size_t>(image->width) + static_cast<size_t>(srcX);
-                    const uint32_t sourcePixel = image->rgba[sourcePixelIndex];
-                    const uint8_t sourceAlpha = static_cast<uint8_t>((sourcePixel >> 24u) & 0xFFu);
-                    if(sourceAlpha != 0xFF) {
-                        return false;
-                    }
-
-                    if(override->ignorePalette) {
-                        outColor = (sourcePixel & 0x00FFFFFFu) | 0xFF000000u;
-                        return true;
-                    }
-                    if(!image->indexedFourColor || image->indexedPixels.size() != image->rgba.size()) {
-                        return false;
-                    }
-
-                    const uint8_t sourcePaletteIndex = image->indexedPixels[sourcePixelIndex];
-                    if(sourcePaletteIndex == 0) {
-                        outColor = backgroundMappedPalette[0];
-                        return true;
-                    }
-
-                    const int paletteIndex = static_cast<int>(sourcePaletteIndex) - 1;
-                    if(paletteIndex < 0 || paletteIndex >= static_cast<int>(backgroundPalette.size())) {
-                        return false;
-                    }
-                    outColor = backgroundMappedPalette[static_cast<size_t>(paletteIndex + 1)];
+                    outColor = mappedPixel;
                     return true;
                 };
 
