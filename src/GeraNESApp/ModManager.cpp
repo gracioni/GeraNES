@@ -4898,7 +4898,71 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
         buildScanlineLayers(midAfterTileBackgrounds, midAfterTileScanlineLayers);
         buildScanlineLayers(highPriorityBackgrounds, highPriorityScanlineLayers);
 
+        auto initResolvedLayerStates = [&](const std::vector<ScanlineBackgroundLayer>& activeLayers, auto& resolvedLayers, size_t& resolvedCount, int nesX) {
+            resolvedCount = std::min(activeLayers.size(), resolvedLayers.size());
+            for(size_t i = 0; i < resolvedCount; ++i) {
+                resolvedLayers[i] = resolveBackgroundLayer(activeLayers[i], nesX);
+            }
+        };
+        auto advanceResolvedLayerStates = [&](const std::vector<ScanlineBackgroundLayer>& activeLayers, auto& resolvedLayers, size_t resolvedCount, int nesX) {
+            for(size_t i = 0; i < resolvedCount; ++i) {
+                const ScanlineBackgroundLayer& activeLayer = activeLayers[i];
+                ResolvedBackgroundLayer& resolved = resolvedLayers[i];
+                const PreparedBackground* prepared = activeLayer.prepared;
+                if(prepared == nullptr) {
+                    resolved = {};
+                    continue;
+                }
+
+                resolved.prepared = prepared;
+                resolved.baseSrcY = activeLayer.baseSrcY;
+                const bool validNow = nesX >= activeLayer.minNesX && nesX <= activeLayer.maxNesX;
+                if(!validNow) {
+                    resolved.valid = false;
+                    resolved.uniformBlock = false;
+                    continue;
+                }
+
+                const bool wasValid = resolved.valid;
+                resolved.valid = true;
+                if(wasValid) {
+                    resolved.baseSrcX += prepared->backgroundScale;
+                } else {
+                    resolved.baseSrcX = (activeLayer.srcBaseX + nesX) * prepared->backgroundScale;
+                }
+                if(prepared->backgroundScale == 1) {
+                    resolved.uniformBlock = true;
+                    resolved.uniformColor = activeLayer.row0[static_cast<size_t>(resolved.baseSrcX)];
+                } else {
+                    resolved.uniformBlock = false;
+                }
+            }
+        };
+
+        std::array<ResolvedBackgroundLayer, 10> resolvedLowPriorityBackgrounds = {};
+        size_t resolvedLowPriorityBackgroundCount = 0;
+        std::array<ResolvedBackgroundLayer, 10> resolvedMidBeforeTileBackgrounds = {};
+        size_t resolvedMidBeforeTileBackgroundCount = 0;
+        std::array<ResolvedBackgroundLayer, 10> resolvedMidAfterTileBackgrounds = {};
+        size_t resolvedMidAfterTileBackgroundCount = 0;
+        std::array<ResolvedBackgroundLayer, 10> resolvedHighPriorityBackgrounds = {};
+        size_t resolvedHighPriorityBackgroundCount = 0;
+        bool resolvedBackgroundStatesInitialized = false;
+
         for(int nesX = 0; nesX < PPU::SCREEN_WIDTH; ++nesX) {
+            if(!resolvedBackgroundStatesInitialized) {
+                initResolvedLayerStates(lowPriorityScanlineLayers, resolvedLowPriorityBackgrounds, resolvedLowPriorityBackgroundCount, nesX);
+                initResolvedLayerStates(midBeforeTileScanlineLayers, resolvedMidBeforeTileBackgrounds, resolvedMidBeforeTileBackgroundCount, nesX);
+                initResolvedLayerStates(midAfterTileScanlineLayers, resolvedMidAfterTileBackgrounds, resolvedMidAfterTileBackgroundCount, nesX);
+                initResolvedLayerStates(highPriorityScanlineLayers, resolvedHighPriorityBackgrounds, resolvedHighPriorityBackgroundCount, nesX);
+                resolvedBackgroundStatesInitialized = true;
+            } else {
+                advanceResolvedLayerStates(lowPriorityScanlineLayers, resolvedLowPriorityBackgrounds, resolvedLowPriorityBackgroundCount, nesX);
+                advanceResolvedLayerStates(midBeforeTileScanlineLayers, resolvedMidBeforeTileBackgrounds, resolvedMidBeforeTileBackgroundCount, nesX);
+                advanceResolvedLayerStates(midAfterTileScanlineLayers, resolvedMidAfterTileBackgrounds, resolvedMidAfterTileBackgroundCount, nesX);
+                advanceResolvedLayerStates(highPriorityScanlineLayers, resolvedHighPriorityBackgrounds, resolvedHighPriorityBackgroundCount, nesX);
+            }
+
             const uint32_t baseColor = srcRow[nesX];
             const size_t pixelIndex = static_cast<size_t>(nesY) * PPU::SCREEN_WIDTH + static_cast<size_t>(nesX);
             const PPU::DebugModBackgroundPixel* bgPixel =
@@ -5441,42 +5505,6 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
                 dstRows[1][0] = block10;
                 dstRows[1][1] = block11;
                 continue;
-            }
-
-            std::array<ResolvedBackgroundLayer, 10> resolvedLowPriorityBackgrounds = {};
-            size_t resolvedLowPriorityBackgroundCount = 0;
-            for(const ScanlineBackgroundLayer& activeLayer : lowPriorityScanlineLayers) {
-                if(resolvedLowPriorityBackgroundCount >= resolvedLowPriorityBackgrounds.size()) {
-                    break;
-                }
-                resolvedLowPriorityBackgrounds[resolvedLowPriorityBackgroundCount++] = resolveBackgroundLayer(activeLayer, nesX);
-            }
-
-            std::array<ResolvedBackgroundLayer, 10> resolvedMidBeforeTileBackgrounds = {};
-            size_t resolvedMidBeforeTileBackgroundCount = 0;
-            for(const ScanlineBackgroundLayer& activeLayer : midBeforeTileScanlineLayers) {
-                if(resolvedMidBeforeTileBackgroundCount >= resolvedMidBeforeTileBackgrounds.size()) {
-                    break;
-                }
-                resolvedMidBeforeTileBackgrounds[resolvedMidBeforeTileBackgroundCount++] = resolveBackgroundLayer(activeLayer, nesX);
-            }
-
-            std::array<ResolvedBackgroundLayer, 10> resolvedMidAfterTileBackgrounds = {};
-            size_t resolvedMidAfterTileBackgroundCount = 0;
-            for(const ScanlineBackgroundLayer& activeLayer : midAfterTileScanlineLayers) {
-                if(resolvedMidAfterTileBackgroundCount >= resolvedMidAfterTileBackgrounds.size()) {
-                    break;
-                }
-                resolvedMidAfterTileBackgrounds[resolvedMidAfterTileBackgroundCount++] = resolveBackgroundLayer(activeLayer, nesX);
-            }
-
-            std::array<ResolvedBackgroundLayer, 10> resolvedHighPriorityBackgrounds = {};
-            size_t resolvedHighPriorityBackgroundCount = 0;
-            for(const ScanlineBackgroundLayer& activeLayer : highPriorityScanlineLayers) {
-                if(resolvedHighPriorityBackgroundCount >= resolvedHighPriorityBackgrounds.size()) {
-                    break;
-                }
-                resolvedHighPriorityBackgrounds[resolvedHighPriorityBackgroundCount++] = resolveBackgroundLayer(activeLayer, nesX);
             }
 
             const bool lowUniform = blockIsUniform(resolvedLowPriorityBackgrounds, resolvedLowPriorityBackgroundCount);
