@@ -354,6 +354,9 @@ private:
         ChrOverride::SourceLayout wholeChrLayout = ChrOverride::SourceLayout::PatternTables;
         bool hasDynamicConditions = false;
         bool tileOriginCacheable = true;
+        uint8_t targetMask = 0;
+        uint8_t patternTableMask = 0;
+        uint8_t requirementMask = 0;
         std::vector<const MemoryCondition*> runtimeConditions;
         size_t sequence = 0;
     };

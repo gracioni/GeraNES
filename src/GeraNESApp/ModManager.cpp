@@ -1939,6 +1939,12 @@ void ModManager::populateOverrideLookupCache(RenderComposeCache& cache, const st
                     condition->kind != MemoryCondition::Kind::SpriteNearby);
         });
     };
+    auto requirementMatchesValue = [](int requirement, bool value) {
+        if(requirement == 0) {
+            return true;
+        }
+        return requirement > 0 ? value : !value;
+    };
 
     cache.activeOverrides = activeOverrides;
     if(!cache.activeOverrides.empty()) {
@@ -1987,6 +1993,25 @@ void ModManager::populateOverrideLookupCache(RenderComposeCache& cache, const st
                         condition->kind == MemoryCondition::Kind::SpriteNearby);
             });
         prepared.tileOriginCacheable = conditionsAllowTileOriginCache(prepared.runtimeConditions);
+        prepared.targetMask =
+            override->target == ChrOverride::Target::Both
+                ? static_cast<uint8_t>(0x3u)
+                : static_cast<uint8_t>(override->target == ChrOverride::Target::Background ? 0x1u : 0x2u);
+        prepared.patternTableMask =
+            override->patternTable >= 0
+                ? static_cast<uint8_t>(1u << (override->patternTable & 0x03))
+                : static_cast<uint8_t>(0x0Fu);
+        prepared.requirementMask = 0;
+        for(int combo = 0; combo < 8; ++combo) {
+            const bool hMirror = (combo & 0x1) != 0;
+            const bool vMirror = (combo & 0x2) != 0;
+            const bool bgPriority = (combo & 0x4) != 0;
+            if(requirementMatchesValue(override->hMirrorRequirement, hMirror) &&
+               requirementMatchesValue(override->vMirrorRequirement, vMirror) &&
+               requirementMatchesValue(override->bgPriorityRequirement, bgPriority)) {
+                prepared.requirementMask |= static_cast<uint8_t>(1u << combo);
+            }
+        }
         cache.preparedOverrides.push_back(std::move(prepared));
         const RenderPreparedOverride* preparedPtr = &cache.preparedOverrides.back();
         if(override->wholeChr()) {
@@ -4500,10 +4525,6 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
         return condition.inverted ? !match : match;
     };
 
-    auto matchesRequirement = [](int requirement, bool value) {
-        return requirement == 0 || (requirement > 0 && value) || (requirement < 0 && !value);
-    };
-
     struct EnabledOverrideCandidateCacheEntry {
         bool initialized = false;
         bool allEnabled = true;
@@ -4530,20 +4551,85 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
         return cacheEntry.allEnabled ? candidates : cacheEntry.filtered;
     };
 
-    auto matchesOverride = [&](const PreparedOverride& preparedOverride, ChrOverride::Target target, bool allowDefaultTileFallback, int tileIndex, int fullTileIndex, int currentPatternTable, const std::array<uint8_t, 3>& palette, bool hMirror, bool vMirror, bool bgPriority, const ConditionContext& ctx) {
+    auto targetMaskFor = [](ChrOverride::Target target) -> uint8_t {
+        return static_cast<uint8_t>(target == ChrOverride::Target::Sprite ? 0x2u : 0x1u);
+    };
+
+    auto coarseStateKeyFor = [&](ChrOverride::Target target, int currentPatternTable, bool hMirror, bool vMirror, bool bgPriority) {
+        uint32_t stateKey = static_cast<uint32_t>(currentPatternTable & 0x03);
+        stateKey |= static_cast<uint32_t>(target == ChrOverride::Target::Sprite ? 1u : 0u) << 2;
+        stateKey |= static_cast<uint32_t>(hMirror ? 1u : 0u) << 3;
+        stateKey |= static_cast<uint32_t>(vMirror ? 1u : 0u) << 4;
+        stateKey |= static_cast<uint32_t>(bgPriority ? 1u : 0u) << 5;
+        return stateKey;
+    };
+
+    struct FilteredOverrideCandidateCacheKey {
+        const std::vector<const PreparedOverride*>* candidates = nullptr;
+        uint32_t stateKey = 0;
+
+        bool operator==(const FilteredOverrideCandidateCacheKey& other) const
+        {
+            return candidates == other.candidates && stateKey == other.stateKey;
+        }
+    };
+
+    struct FilteredOverrideCandidateCacheKeyHash {
+        size_t operator()(const FilteredOverrideCandidateCacheKey& key) const
+        {
+            const size_t ptrHash = std::hash<const void*>{}(key.candidates);
+            const size_t stateHash = std::hash<uint32_t>{}(key.stateKey);
+            return ptrHash ^ (stateHash + 0x9e3779b9u + (ptrHash << 6) + (ptrHash >> 2));
+        }
+    };
+
+    struct FilteredOverrideCandidateCacheEntry {
+        bool allTileOriginCacheable = true;
+        std::vector<const PreparedOverride*> filtered;
+    };
+
+    std::unordered_map<FilteredOverrideCandidateCacheKey, FilteredOverrideCandidateCacheEntry, FilteredOverrideCandidateCacheKeyHash> filteredOverrideCandidateCache;
+    filteredOverrideCandidateCache.reserve(4096);
+
+    auto filteredCandidatesFor = [&](const std::vector<const PreparedOverride*>& candidates,
+                                     ChrOverride::Target target,
+                                     int currentPatternTable,
+                                     bool hMirror,
+                                     bool vMirror,
+                                     bool bgPriority) -> const FilteredOverrideCandidateCacheEntry& {
+        const auto& enabledCandidates = enabledCandidatesFor(candidates);
+        const FilteredOverrideCandidateCacheKey cacheKey {
+            &enabledCandidates,
+            coarseStateKeyFor(target, currentPatternTable, hMirror, vMirror, bgPriority)
+        };
+        auto [it, inserted] = filteredOverrideCandidateCache.emplace(cacheKey, FilteredOverrideCandidateCacheEntry {});
+        if(inserted) {
+            FilteredOverrideCandidateCacheEntry& cacheEntry = it->second;
+            cacheEntry.filtered.reserve(enabledCandidates.size());
+            const uint8_t targetMask = targetMaskFor(target);
+            const uint8_t patternTableMask = static_cast<uint8_t>(1u << (currentPatternTable & 0x03));
+            const uint8_t requirementBit = static_cast<uint8_t>(1u << ((hMirror ? 1 : 0) | (vMirror ? 2 : 0) | (bgPriority ? 4 : 0)));
+            for(const PreparedOverride* candidate : enabledCandidates) {
+                if(candidate == nullptr) {
+                    continue;
+                }
+                if((candidate->targetMask & targetMask) == 0 ||
+                   (candidate->patternTableMask & patternTableMask) == 0 ||
+                   (candidate->requirementMask & requirementBit) == 0) {
+                    continue;
+                }
+                cacheEntry.filtered.push_back(candidate);
+                if(!candidate->tileOriginCacheable) {
+                    cacheEntry.allTileOriginCacheable = false;
+                }
+            }
+        }
+        return it->second;
+    };
+
+    auto matchesOverride = [&](const PreparedOverride& preparedOverride, ChrOverride::Target target, bool allowDefaultTileFallback, int tileIndex, int fullTileIndex, const std::array<uint8_t, 3>& palette, const ConditionContext& ctx) {
         const ChrOverride& override = *preparedOverride.override;
         if(!override.enabled) {
-            return false;
-        }
-        if(override.target != ChrOverride::Target::Both && override.target != target) {
-            return false;
-        }
-        if(!matchesRequirement(override.hMirrorRequirement, hMirror) ||
-           !matchesRequirement(override.vMirrorRequirement, vMirror) ||
-           !matchesRequirement(override.bgPriorityRequirement, bgPriority)) {
-            return false;
-        }
-        if(override.patternTable >= 0 && override.patternTable != currentPatternTable) {
             return false;
         }
         if(!override.wholeChr()) {
@@ -4575,12 +4661,13 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
 
     auto scanCandidates = [&](const std::vector<const PreparedOverride*>& candidates, bool allowDefaultTileFallback, ChrOverride::Target target, int tileIndex, int fullTileIndex, int currentPatternTable, const std::array<uint8_t, 3>& palette, bool hMirror, bool vMirror, bool bgPriority, const ConditionContext& ctx, bool* tileOriginCacheable = nullptr) -> const PreparedOverride* {
         MODMANAGER_PROFILE_COUNT(scanCandidatesCalls, 1);
-        const std::vector<const PreparedOverride*>& enabledCandidates = enabledCandidatesFor(candidates);
-        for(const PreparedOverride* candidate : enabledCandidates) {
-            if(tileOriginCacheable != nullptr && candidate != nullptr && !candidate->tileOriginCacheable) {
-                *tileOriginCacheable = false;
-            }
-            if(matchesOverride(*candidate, target, allowDefaultTileFallback, tileIndex, fullTileIndex, currentPatternTable, palette, hMirror, vMirror, bgPriority, ctx)) {
+        const FilteredOverrideCandidateCacheEntry& filteredCandidates =
+            filteredCandidatesFor(candidates, target, currentPatternTable, hMirror, vMirror, bgPriority);
+        if(tileOriginCacheable != nullptr && !filteredCandidates.allTileOriginCacheable) {
+            *tileOriginCacheable = false;
+        }
+        for(const PreparedOverride* candidate : filteredCandidates.filtered) {
+            if(matchesOverride(*candidate, target, allowDefaultTileFallback, tileIndex, fullTileIndex, palette, ctx)) {
                 return candidate;
             }
         }
@@ -4589,8 +4676,16 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
 
     auto scanMergedCandidates = [&](const std::vector<const PreparedOverride*>& staticCandidates, const std::vector<const PreparedOverride*>& dynamicCandidates, bool allowDefaultTileFallback, ChrOverride::Target target, int tileIndex, int fullTileIndex, int currentPatternTable, const std::array<uint8_t, 3>& palette, bool hMirror, bool vMirror, bool bgPriority, const ConditionContext& ctx, bool* tileOriginCacheable = nullptr) -> const PreparedOverride* {
         MODMANAGER_PROFILE_COUNT(scanMergedCandidatesCalls, 1);
-        const std::vector<const PreparedOverride*>& enabledStaticCandidates = enabledCandidatesFor(staticCandidates);
-        const std::vector<const PreparedOverride*>& enabledDynamicCandidates = enabledCandidatesFor(dynamicCandidates);
+        const FilteredOverrideCandidateCacheEntry& filteredStaticCandidates =
+            filteredCandidatesFor(staticCandidates, target, currentPatternTable, hMirror, vMirror, bgPriority);
+        const FilteredOverrideCandidateCacheEntry& filteredDynamicCandidates =
+            filteredCandidatesFor(dynamicCandidates, target, currentPatternTable, hMirror, vMirror, bgPriority);
+        if(tileOriginCacheable != nullptr &&
+           (!filteredStaticCandidates.allTileOriginCacheable || !filteredDynamicCandidates.allTileOriginCacheable)) {
+            *tileOriginCacheable = false;
+        }
+        const std::vector<const PreparedOverride*>& enabledStaticCandidates = filteredStaticCandidates.filtered;
+        const std::vector<const PreparedOverride*>& enabledDynamicCandidates = filteredDynamicCandidates.filtered;
         size_t staticIndex = 0;
         size_t dynamicIndex = 0;
         while(staticIndex < enabledStaticCandidates.size() || dynamicIndex < enabledDynamicCandidates.size()) {
@@ -4605,10 +4700,7 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
                 candidate = enabledDynamicCandidates[dynamicIndex++];
             }
 
-            if(tileOriginCacheable != nullptr && candidate != nullptr && !candidate->tileOriginCacheable) {
-                *tileOriginCacheable = false;
-            }
-            if(matchesOverride(*candidate, target, allowDefaultTileFallback, tileIndex, fullTileIndex, currentPatternTable, palette, hMirror, vMirror, bgPriority, ctx)) {
+            if(matchesOverride(*candidate, target, allowDefaultTileFallback, tileIndex, fullTileIndex, palette, ctx)) {
                 return candidate;
             }
         }
