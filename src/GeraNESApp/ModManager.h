@@ -328,9 +328,7 @@ private:
         int height = 0;
         std::vector<uint32_t> rgba;
         std::vector<uint8_t> indexedPixels;
-        bool indexedPng = false;
         bool indexedFourColor = false;
-        int paletteColorCount = 0;
     };
 
     struct ImageCacheEntry {

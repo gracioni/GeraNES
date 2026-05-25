@@ -98,7 +98,6 @@ uint8_t paethPredictor(uint8_t a, uint8_t b, uint8_t c)
 struct IndexedPngDecode {
     int width = 0;
     int height = 0;
-    int paletteColorCount = 0;
     std::vector<uint32_t> rgba;
     std::vector<uint8_t> indices;
 };
@@ -179,7 +178,6 @@ std::optional<IndexedPngDecode> decodeIndexedPng4(const std::vector<uint8_t>& da
     IndexedPngDecode decoded;
     decoded.width = static_cast<int>(width);
     decoded.height = static_cast<int>(height);
-    decoded.paletteColorCount = static_cast<int>(paletteColorCount);
     decoded.rgba.resize(static_cast<size_t>(width) * static_cast<size_t>(height));
     decoded.indices.resize(static_cast<size_t>(width) * static_cast<size_t>(height));
 
@@ -881,7 +879,7 @@ bool ModManager::loadDefinitionForCurrentMod()
         auto it = chrAssetValidity.find(normalizedPath);
         if(it == chrAssetValidity.end()) {
             const DecodedImage* image = decodedImage(normalizedPath);
-            const bool valid = image != nullptr && image->indexedPng && image->indexedFourColor;
+            const bool valid = image != nullptr && image->indexedFourColor;
             if(!valid) {
                 Logger::instance().log(
                     "CHR sheet must be an indexed PNG with exactly 4 colors: " + normalizedPath,
@@ -3462,9 +3460,7 @@ std::optional<ModManager::DecodedImage> ModManager::decodeImage(const std::vecto
        indexed->width == image.width && indexed->height == image.height &&
        indexed->indices.size() == image.rgba.size()) {
         image.indexedPixels = indexed->indices;
-        image.indexedPng = true;
         image.indexedFourColor = true;
-        image.paletteColorCount = indexed->paletteColorCount;
     }
 
     return image;
