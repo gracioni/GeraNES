@@ -2639,11 +2639,17 @@ std::optional<ModManager::DebugComposePixel> ModManager::debugComposePixel(const
         }
         case MemoryCondition::Kind::SpriteAtPosition:
         case MemoryCondition::Kind::SpriteNearby: {
+            int xSign = 1;
+            int ySign = 1;
+            if(ctx.spriteCandidate != nullptr) {
+                xSign = ctx.spriteCandidate->horizontalMirror ? -1 : 1;
+                ySign = ctx.spriteCandidate->verticalMirror ? -1 : 1;
+            }
             int targetX = condition.x;
             int targetY = condition.y;
             if(condition.kind == MemoryCondition::Kind::SpriteNearby) {
-                targetX = ctx.nesX + condition.x;
-                targetY = ctx.nesY + condition.y;
+                targetX = ctx.nesX + condition.x * xSign;
+                targetY = ctx.nesY + condition.y * ySign;
             }
             const PPU::DebugModSpritePixel* pixel = spritePixelAt(targetX, targetY);
             if(pixel != nullptr) {
@@ -2719,11 +2725,17 @@ std::optional<ModManager::DebugComposePixel> ModManager::debugComposePixel(const
         }
         case MemoryCondition::Kind::SpriteAtPosition:
         case MemoryCondition::Kind::SpriteNearby: {
+            int xSign = 1;
+            int ySign = 1;
+            if(ctx.spriteCandidate != nullptr) {
+                xSign = ctx.spriteCandidate->horizontalMirror ? -1 : 1;
+                ySign = ctx.spriteCandidate->verticalMirror ? -1 : 1;
+            }
             int targetX = condition.x;
             int targetY = condition.y;
             if(condition.kind == MemoryCondition::Kind::SpriteNearby) {
-                targetX = ctx.nesX + condition.x;
-                targetY = ctx.nesY + condition.y;
+                targetX = ctx.nesX + condition.x * xSign;
+                targetY = ctx.nesY + condition.y * ySign;
             }
             out << " (sprite @" << targetX << "," << targetY << ")";
             break;
@@ -4083,11 +4095,17 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
         }
         case MemoryCondition::Kind::SpriteAtPosition:
         case MemoryCondition::Kind::SpriteNearby: {
+            int xSign = 1;
+            int ySign = 1;
+            if(ctx.spriteCandidate != nullptr) {
+                xSign = ctx.spriteCandidate->horizontalMirror ? -1 : 1;
+                ySign = ctx.spriteCandidate->verticalMirror ? -1 : 1;
+            }
             int targetX = condition.x;
             int targetY = condition.y;
             if(condition.kind == MemoryCondition::Kind::SpriteNearby) {
-                targetX = ctx.nesX + condition.x;
-                targetY = ctx.nesY + condition.y;
+                targetX = ctx.nesX + condition.x * xSign;
+                targetY = ctx.nesY + condition.y * ySign;
             }
             const PPU::DebugModSpritePixel* pixel = spritePixelAt(targetX, targetY);
             if(pixel != nullptr) {
