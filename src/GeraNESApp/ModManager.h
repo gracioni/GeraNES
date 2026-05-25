@@ -191,6 +191,14 @@ public:
         std::string message;
     };
 
+    struct OverscanConfig {
+        bool enabled = false;
+        int top = 0;
+        int right = 0;
+        int bottom = 0;
+        int left = 0;
+    };
+
     struct FrameConditionState {
         uint32_t frameCount = 0;
         std::vector<uint32_t> memoryValues;
@@ -275,6 +283,7 @@ public:
     bool hasSelectedSource() const { return !m_modPath.empty(); }
     const std::filesystem::path& modPath() const { return m_modPath; }
     int resolutionMultiplier() const { return m_resolutionMultiplier; }
+    const OverscanConfig& overscanConfig() const { return m_overscanConfig; }
     const std::vector<ChrOverride>& chrOverrides() const { return m_chrOverrides; }
     const std::vector<BackgroundReplacement>& backgroundReplacements() const { return m_backgroundReplacements; }
     std::optional<std::vector<uint8_t>> readAsset(const std::string& assetPath) const;
@@ -298,6 +307,7 @@ private:
     bool m_disableOriginalTiles = false;
     bool m_disableContours = false;
     bool m_automaticFallbackTiles = false;
+    OverscanConfig m_overscanConfig;
     std::optional<std::array<uint32_t, 64>> m_customPalette;
     std::vector<ChrOverride> m_chrOverrides;
     std::vector<BackgroundReplacement> m_backgroundReplacements;

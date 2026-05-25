@@ -559,6 +559,7 @@ void ModManager::clear()
     m_disableOriginalTiles = false;
     m_disableContours = false;
     m_automaticFallbackTiles = false;
+    m_overscanConfig = {};
     m_customPalette.reset();
     m_chrOverrides.clear();
     m_backgroundReplacements.clear();
@@ -976,6 +977,7 @@ bool ModManager::loadMesenHiresFile()
     int lineNumber = 0;
     m_disableOriginalTiles = false;
     m_disableContours = false;
+    m_overscanConfig = {};
     m_supportedRomHashes.clear();
     m_patchAssetPath.clear();
     m_patchExpectedRomHash.clear();
@@ -1062,6 +1064,27 @@ bool ModManager::loadMesenHiresFile()
             continue;
         }
         if(line.rfind("<overscan>", 0) == 0) {
+            const std::vector<std::string> tokens = splitComma(line.substr(10));
+            if(tokens.size() != 4) {
+                Logger::instance().log("Invalid Mesen <overscan> on line " + std::to_string(lineNumber), Logger::Type::ERROR);
+                continue;
+            }
+            try {
+                OverscanConfig overscan;
+                overscan.enabled = true;
+                overscan.top = std::clamp(std::stoi(trimMesenToken(tokens[0])), 0, PPU::SCREEN_HEIGHT);
+                overscan.right = std::clamp(std::stoi(trimMesenToken(tokens[1])), 0, PPU::SCREEN_WIDTH);
+                overscan.bottom = std::clamp(std::stoi(trimMesenToken(tokens[2])), 0, PPU::SCREEN_HEIGHT);
+                overscan.left = std::clamp(std::stoi(trimMesenToken(tokens[3])), 0, PPU::SCREEN_WIDTH);
+                if(overscan.top + overscan.bottom >= PPU::SCREEN_HEIGHT ||
+                   overscan.left + overscan.right >= PPU::SCREEN_WIDTH) {
+                    Logger::instance().log("Invalid Mesen <overscan> dimensions on line " + std::to_string(lineNumber), Logger::Type::ERROR);
+                    continue;
+                }
+                m_overscanConfig = overscan;
+            } catch(...) {
+                Logger::instance().log("Invalid Mesen <overscan> on line " + std::to_string(lineNumber), Logger::Type::ERROR);
+            }
             continue;
         }
         if(line.rfind("<supportedrom>", 0) == 0) {

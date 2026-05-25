@@ -3596,15 +3596,20 @@ void GeraNESApp::updateBuffers()
     const int clientDrawableY = static_cast<int>(std::round(clientArea.y * drawableScaleY));
     const int clientDrawableW = std::max(0, static_cast<int>(std::round(clientArea.w * drawableScaleX)));
     const int clientDrawableH = std::max(0, static_cast<int>(std::round(clientArea.h * drawableScaleY)));
-    const GLfloat sourceWidth = static_cast<GLfloat>(PPU::SCREEN_WIDTH);
-    const GLfloat sourceHeight = static_cast<GLfloat>(PPU::SCREEN_HEIGHT - 2 * m_clipHeightValue);
+    const ModManager::OverscanConfig& modOverscan = m_modManager.overscanConfig();
+    const int visibleLeft = modOverscan.enabled ? modOverscan.left : 0;
+    const int visibleRight = modOverscan.enabled ? PPU::SCREEN_WIDTH - modOverscan.right : PPU::SCREEN_WIDTH;
+    const int visibleTop = std::clamp((modOverscan.enabled ? modOverscan.top : 0) + m_clipHeightValue, 0, PPU::SCREEN_HEIGHT - 1);
+    const int visibleBottom = std::clamp(PPU::SCREEN_HEIGHT - (modOverscan.enabled ? modOverscan.bottom : 0) - m_clipHeightValue, visibleTop + 1, PPU::SCREEN_HEIGHT);
+    const GLfloat sourceWidth = static_cast<GLfloat>(std::max(1, visibleRight - visibleLeft));
+    const GLfloat sourceHeight = static_cast<GLfloat>(std::max(1, visibleBottom - visibleTop));
     GLfloat drawWidth = 0.0f;
     GLfloat drawHeight = 0.0f;
 
-    auto pixelPerfectScale = [this, clientDrawableW, clientDrawableH](int fixedScale) {
+    auto pixelPerfectScale = [clientDrawableW, clientDrawableH, sourceWidth, sourceHeight](int fixedScale) {
         if(fixedScale > 0) return fixedScale;
-        const int maxScaleX = clientDrawableW / PPU::SCREEN_WIDTH;
-        const int maxScaleY = clientDrawableH / (PPU::SCREEN_HEIGHT - 2 * m_clipHeightValue);
+        const int maxScaleX = clientDrawableW / std::max(1, static_cast<int>(std::round(sourceWidth)));
+        const int maxScaleY = clientDrawableH / std::max(1, static_cast<int>(std::round(sourceHeight)));
         return std::max(1, std::min(maxScaleX, maxScaleY));
     };
 
@@ -3657,13 +3662,16 @@ void GeraNESApp::updateBuffers()
     m_nesScreenRect.max = glm::vec2(maxX, maxY);
 
     const int modScale = std::max(1, m_renderTextureWidth / PPU::SCREEN_WIDTH);
+    const GLfloat textureWidth = static_cast<GLfloat>(std::max(1, m_renderTextureWidth));
     const GLfloat textureHeight = static_cast<GLfloat>(std::max(1, m_renderTextureHeight));
-    const GLfloat topUv = static_cast<GLfloat>(m_clipHeightValue * modScale) / textureHeight;
-    const GLfloat bottomUv = static_cast<GLfloat>((PPU::SCREEN_HEIGHT - m_clipHeightValue) * modScale) / textureHeight;
-    setVertex(0u, minX, minY, 0.0f, topUv);
-    setVertex(1u, minX, maxY, 0.0f, bottomUv);
-    setVertex(2u, maxX, minY, 1.0f, topUv);
-    setVertex(3u, maxX, maxY, 1.0f, bottomUv);
+    const GLfloat leftUv = static_cast<GLfloat>(visibleLeft * modScale) / textureWidth;
+    const GLfloat rightUv = static_cast<GLfloat>(visibleRight * modScale) / textureWidth;
+    const GLfloat topUv = static_cast<GLfloat>(visibleTop * modScale) / textureHeight;
+    const GLfloat bottomUv = static_cast<GLfloat>(visibleBottom * modScale) / textureHeight;
+    setVertex(0u, minX, minY, leftUv, topUv);
+    setVertex(1u, minX, maxY, leftUv, bottomUv);
+    setVertex(2u, maxX, minY, rightUv, topUv);
+    setVertex(3u, maxX, maxY, rightUv, bottomUv);
 
     m_vbo.bind();
     if(static_cast<size_t>(m_vbo.size()) != sizeof(data)) {
