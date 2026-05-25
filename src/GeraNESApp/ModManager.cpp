@@ -684,10 +684,12 @@ bool ModManager::composeFrameOnEmuThread(
     snapshot.scrollX = snapshot.scrollXByLine[0];
     snapshot.scrollY = snapshot.scrollYByLine[0];
     snapshot.universalBgColor = static_cast<uint8_t>(ppu.debugPeekPpuMemory(0x3F00) & 0x3F);
-    snapshot.backgroundPixelsView = ppu.debugPresentedBackgroundPixelsData();
-    snapshot.backgroundPixelsViewCount = ppu.debugPresentedBackgroundPixelsCount();
-    snapshot.spritePixelsView = ppu.debugPresentedSpritePixelsData();
-    snapshot.spritePixelsViewCount = ppu.debugPresentedSpritePixelsCount();
+    ppu.debugCopyPresentedBackgroundPixels(snapshot.backgroundPixels);
+    ppu.debugCopyPresentedSpritePixels(snapshot.spritePixels);
+    snapshot.backgroundPixelsView = snapshot.backgroundPixels.data();
+    snapshot.backgroundPixelsViewCount = snapshot.backgroundPixels.size();
+    snapshot.spritePixelsView = snapshot.spritePixels.data();
+    snapshot.spritePixelsViewCount = snapshot.spritePixels.size();
     snapshot.frameConditionStateView = &m_frameConditionState;
     for(size_t i = 0; i < snapshot.paletteColors.size(); ++i) {
         snapshot.paletteColors[i] = ppu.NESToRGBAColor(static_cast<uint8_t>(i));
@@ -722,8 +724,6 @@ bool ModManager::composeFrameOnEmuThread(
         snapshot
     );
     if(captureDebugSnapshot) {
-        ppu.debugCopyPresentedBackgroundPixels(snapshot.backgroundPixels);
-        ppu.debugCopyPresentedSpritePixels(snapshot.spritePixels);
         snapshot.frameConditionState = m_frameConditionState;
     }
     return true;
@@ -2951,8 +2951,7 @@ std::optional<ModManager::DebugComposePixel> ModManager::debugComposePixel(const
     DebugComposePixel result;
     result.valid = true;
     result.baseColor = sourceFramebuffer[static_cast<size_t>(nesY) * PPU::SCREEN_WIDTH + static_cast<size_t>(nesX)];
-    uint32_t color = m_disableOriginalTiles ? 0x00000000u : result.baseColor;
-    result.finalColor = color;
+    result.finalColor = m_disableOriginalTiles ? 0x00000000u : result.baseColor;
 
     std::array<int, 40> backgroundPrunedCounts = {};
     for(const BackgroundReplacement& replacement : m_backgroundReplacements) {
@@ -3026,6 +3025,20 @@ std::optional<ModManager::DebugComposePixel> ModManager::debugComposePixel(const
         snapshot.spritePixelsView != nullptr
             ? (pixelIndex < snapshot.spritePixelsViewCount ? &snapshot.spritePixelsView[pixelIndex] : nullptr)
             : (pixelIndex < snapshot.spritePixels.size() ? &snapshot.spritePixels[pixelIndex] : nullptr);
+    bool hasAnyValidSpriteCandidate = false;
+    if(spritePixel != nullptr) {
+        for(int i = 0; i < static_cast<int>(spritePixel->count); ++i) {
+            if(spritePixel->candidates[static_cast<size_t>(i)].valid) {
+                hasAnyValidSpriteCandidate = true;
+                break;
+            }
+        }
+    }
+    uint32_t color =
+        m_disableOriginalTiles
+            ? 0x00000000u
+            : (hasAnyValidSpriteCandidate ? snapshot.paletteColors[snapshot.universalBgColor & 0x3Fu] : result.baseColor);
+    result.finalColor = color;
 
     const int subX = 0;
     const int subY = 0;
@@ -3071,7 +3084,7 @@ std::optional<ModManager::DebugComposePixel> ModManager::debugComposePixel(const
         return stage;
     };
 
-    auto sampleOverrideStage = [&](uint32_t baseColor, uint32_t fallbackLayerColor, const PreparedOverride* prepared, int tileIndex, int offsetX, int offsetY, const std::array<uint8_t, 3>& palette, bool horizontalMirror, bool verticalMirror, bool preserveSourceAlpha, const char* stageName) -> std::pair<uint32_t, DebugComposeStage> {
+    auto sampleOverrideStage = [&](uint32_t baseColor, uint32_t /*fallbackLayerColor*/, const PreparedOverride* prepared, int tileIndex, int offsetX, int offsetY, const std::array<uint8_t, 3>& palette, bool horizontalMirror, bool verticalMirror, bool preserveSourceAlpha, const char* stageName) -> std::pair<uint32_t, DebugComposeStage> {
         DebugComposeStage stage;
         stage.valid = true;
         stage.stage = stageName;
@@ -3149,8 +3162,8 @@ std::optional<ModManager::DebugComposePixel> ModManager::debugComposePixel(const
         if(override->ignorePalette) {
             if(sourceAlpha == 0) {
                 stage.returnedBaseColor = true;
-                stage.reason = preserveSourceAlpha ? "raw rgba alpha zero -> sprite fallback" : "raw rgba alpha zero";
-                return { preserveSourceAlpha ? fallbackLayerColor : baseColor, stage };
+                stage.reason = preserveSourceAlpha ? "raw rgba alpha zero -> no sprite draw" : "raw rgba alpha zero";
+                return { baseColor, stage };
             }
             const uint32_t opaqueSource = (stage.rawRgba & 0x00FFFFFFu) | 0xFF000000u;
             if(!preserveSourceAlpha) {
@@ -3167,13 +3180,13 @@ std::optional<ModManager::DebugComposePixel> ModManager::debugComposePixel(const
 
         if(sourceAlpha == 0) {
             stage.returnedBaseColor = true;
-            stage.reason = preserveSourceAlpha ? "indexed source alpha zero -> sprite fallback" : "indexed source alpha zero";
-            return { preserveSourceAlpha ? fallbackLayerColor : baseColor, stage };
+            stage.reason = preserveSourceAlpha ? "indexed source alpha zero -> no sprite draw" : "indexed source alpha zero";
+            return { baseColor, stage };
         }
         if(!image->indexedFourColor || image->indexedPixels.size() != image->rgba.size()) {
             stage.returnedBaseColor = true;
-            stage.reason = preserveSourceAlpha ? "not indexed four-color png -> sprite fallback" : "not indexed four-color png";
-            return { preserveSourceAlpha ? fallbackLayerColor : baseColor, stage };
+            stage.reason = preserveSourceAlpha ? "not indexed four-color png -> no sprite draw" : "not indexed four-color png";
+            return { baseColor, stage };
         }
 
         const uint8_t sourcePaletteIndex = image->indexedPixels[sourcePixelIndex];
@@ -3181,8 +3194,8 @@ std::optional<ModManager::DebugComposePixel> ModManager::debugComposePixel(const
         if(sourcePaletteIndex == 0) {
             if(preserveSourceAlpha) {
                 stage.returnedBaseColor = true;
-                stage.reason = "indexed color 0 -> sprite fallback";
-                return { fallbackLayerColor, stage };
+                stage.reason = "indexed color 0 -> no sprite draw";
+                return { baseColor, stage };
             }
             const uint32_t mappedColor =
                 (snapshot.paletteColors[snapshot.universalBgColor & 0x3F] & 0x00FFFFFFu) |
@@ -3217,6 +3230,7 @@ std::optional<ModManager::DebugComposePixel> ModManager::debugComposePixel(const
 
     const PreparedOverride* backgroundOverride = nullptr;
     uint32_t backgroundFallbackColor = result.baseColor;
+    bool backgroundFallbackVisible = false;
     if(bgPixel != nullptr && bgPixel->valid) {
         const int bgFullTileIndex = bgPixel->tileIndex != 0xFFFF ? static_cast<int>(bgPixel->tileIndex) : -1;
         const std::array<uint8_t, 3> bgPalette = { bgPixel->palette[0], bgPixel->palette[1], bgPixel->palette[2] };
@@ -3256,6 +3270,7 @@ std::optional<ModManager::DebugComposePixel> ModManager::debugComposePixel(const
             backgroundOverride = findOverride(ChrOverride::Target::Background, bgFullTileIndex & 0xFF, bgFullTileIndex, bgFullTileIndex / 256, bgPalette, false, false, false, context);
         }
         backgroundFallbackColor = snapshot.paletteColors[bgPixel->paletteIndex & 0x3F];
+        backgroundFallbackVisible = bgPixel->colorLowBits != 0;
     }
     int lowestBgSpriteCandidate = std::numeric_limits<int>::max();
     if(spritePixel != nullptr) {
@@ -3351,7 +3366,7 @@ std::optional<ModManager::DebugComposePixel> ModManager::debugComposePixel(const
             stage.returnedBaseColor = true;
             stage.reason = "no matching override";
             result.backgroundOverride = stage;
-            if(!m_disableOriginalTiles) {
+            if(!m_disableOriginalTiles && backgroundFallbackVisible) {
                 color = backgroundFallbackColor;
             }
         }
@@ -4366,6 +4381,34 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
             return scanMergedCandidates(wholeChrOverrides, dynamicWholeChrOverrides, allowDefaultTileFallback, target, tileIndex, fullTileIndex, currentPatternTable, palette, hMirror, vMirror, bgPriority, ctx);
         };
 
+        if(const PreparedOverride* found = scanMergedFullTile(fullTileIndex, false)) {
+            return found;
+        }
+        if(fullTileIndex != tileIndex) {
+            if(const PreparedOverride* found = scanMergedRelativeTile(tileIndex, false)) {
+                return found;
+            }
+        }
+        if(const PreparedOverride* found = scanMergedHash(false)) {
+            return found;
+        }
+        if(const PreparedOverride* found = scanMergedWhole(false)) {
+            return found;
+        }
+
+        if(const PreparedOverride* found = scanMergedFullTile(fullTileIndex, true)) {
+            return found;
+        }
+        if(const PreparedOverride* found = scanMergedHash(true)) {
+            return found;
+        }
+        if(fullTileIndex == tileIndex) {
+            if(const PreparedOverride* found = scanMergedRelativeTile(tileIndex, true)) {
+                return found;
+            }
+        }
+        return scanMergedWhole(true);
+
         if(!hasDynamicCandidates) {
             if((resolvedFullTileIndex >= 0 && resolvedFullTileIndex < static_cast<int>(hasStaticOverridesByFullTile.size()) &&
                 hasStaticOverridesByFullTile[static_cast<size_t>(resolvedFullTileIndex)]) ||
@@ -4521,7 +4564,7 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
         return nullptr;
     };
 
-    auto sampleOverridePixel = [&](uint32_t baseColor, uint32_t fallbackLayerColor, const PreparedOverride* prepared, int tileIndex, int offsetX, int offsetY, int subX, int subY, uint8_t /*colorLowBits*/, const std::array<uint8_t, 3>& palette, bool horizontalMirror, bool verticalMirror, bool preserveSourceAlpha = false) {
+    auto sampleOverridePixel = [&](uint32_t baseColor, uint32_t /*fallbackLayerColor*/, const PreparedOverride* prepared, int tileIndex, int offsetX, int offsetY, int subX, int subY, uint8_t /*colorLowBits*/, const std::array<uint8_t, 3>& palette, bool horizontalMirror, bool verticalMirror, bool preserveSourceAlpha = false) {
         if(prepared == nullptr) {
             return baseColor;
         }
@@ -4581,7 +4624,7 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
         if(override->ignorePalette) {
             const uint8_t sourceAlpha = static_cast<uint8_t>((sourcePixel >> 24u) & 0xFFu);
             if(sourceAlpha == 0) {
-                return preserveSourceAlpha ? fallbackLayerColor : baseColor;
+                return baseColor;
             }
             const uint32_t opaqueSource = (sourcePixel & 0x00FFFFFFu) | 0xFF000000u;
             if(!preserveSourceAlpha) {
@@ -4594,15 +4637,15 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
         }
         const uint8_t sourceAlpha = static_cast<uint8_t>((sourcePixel >> 24u) & 0xFFu);
         if(sourceAlpha == 0) {
-            return preserveSourceAlpha ? fallbackLayerColor : baseColor;
+            return baseColor;
         }
         if(!image->indexedFourColor || image->indexedPixels.size() != image->rgba.size()) {
-            return preserveSourceAlpha ? fallbackLayerColor : baseColor;
+            return baseColor;
         }
         const uint8_t sourcePaletteIndex = image->indexedPixels[sourcePixelIndex];
         if(sourcePaletteIndex == 0) {
             if(preserveSourceAlpha) {
-                return fallbackLayerColor;
+                return baseColor;
             }
             const uint32_t mappedColor =
                 (snapshot.paletteColors[snapshot.universalBgColor & 0x3F] & 0x00FFFFFFu) |
@@ -5439,7 +5482,10 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
                 midBeforeUniform &&
                 midAfterUniform &&
                 highUniform;
-            const uint32_t initialColor = m_disableOriginalTiles ? 0x00000000u : baseColor;
+            const uint32_t initialColor =
+                m_disableOriginalTiles
+                    ? 0x00000000u
+                    : (hasAnyValidSpriteCandidate ? snapshot.paletteColors[snapshot.universalBgColor & 0x3Fu] : baseColor);
             const bool canPrecomposeBeforeBg = lowUniform && midBeforeUniform;
             const uint32_t precomposedBeforeBgColor =
                 canPrecomposeBeforeBg
@@ -5449,7 +5495,10 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
                         resolvedMidBeforeTileBackgroundCount)
                     : initialColor;
             const bool bgValid = bgPixel != nullptr && bgPixel->valid;
-            const bool applyBackgroundFallback = bgValid && !m_disableOriginalTiles;
+            const bool applyBackgroundFallback =
+                bgValid &&
+                !m_disableOriginalTiles &&
+                bgPixel->colorLowBits != 0;
             const bool hasMidAfterBackgrounds = resolvedMidAfterTileBackgroundCount > 0;
             const bool hasHighPriorityBackgrounds = resolvedHighPriorityBackgroundCount > 0;
             if(canFillUniformBlock) {
