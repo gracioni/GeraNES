@@ -966,7 +966,9 @@ bool ModManager::composeFrameOnEmuThread(
     if(captureDebugSnapshot) {
         snapshot.frameConditionState = m_frameConditionState;
     }
+#if GERANES_MODMANAGER_PROFILE
     g_modManagerProfile.onFrameComplete();
+#endif
     return true;
 }
 
@@ -1106,7 +1108,7 @@ bool ModManager::loadDefinitionForCurrentMod()
 
     std::unordered_map<std::string, bool> chrAssetValidity;
     for(ChrOverride& override : m_chrOverrides) {
-        if(!override.enabled || override.assetPath.empty()) {
+        if(!override.assetAvailable || override.assetPath.empty()) {
             continue;
         }
         if(override.ignorePalette) {
@@ -1114,7 +1116,7 @@ bool ModManager::loadDefinitionForCurrentMod()
                 Logger::instance().log(
                     "Failed to load CHR image asset: " + override.assetPath,
                     Logger::Type::WARNING);
-                override.enabled = false;
+                override.assetAvailable = false;
             }
             continue;
         }
@@ -1131,7 +1133,7 @@ bool ModManager::loadDefinitionForCurrentMod()
             it = chrAssetValidity.emplace(normalizedPath, valid).first;
         }
         if(!it->second) {
-            override.enabled = false;
+            override.assetAvailable = false;
         }
     }
 
@@ -1155,14 +1157,14 @@ void ModManager::preloadStartupAssets()
     };
 
     for(const ChrOverride& override : m_chrOverrides) {
-        if(!override.enabled || override.assetPath.empty()) {
+        if(!override.assetAvailable || override.assetPath.empty()) {
             continue;
         }
         addImageAsset(override.assetPath);
     }
 
     for(const BackgroundReplacement& replacement : m_backgroundReplacements) {
-        if(!replacement.enabled || replacement.assetPath.empty()) {
+        if(!replacement.assetAvailable || replacement.assetPath.empty()) {
             continue;
         }
         addImageAsset(replacement.assetPath);
@@ -1630,7 +1632,7 @@ bool ModManager::loadMesenHiresFile()
 
         std::unordered_map<uint32_t, int> firstOverrideTileByHash;
         for(const ChrOverride& override : m_chrOverrides) {
-            if(!override.enabled || !override.absoluteTile || override.tile < 0) {
+            if(!override.assetAvailable || !override.absoluteTile || override.tile < 0) {
                 continue;
             }
             const uint32_t hash = tileHashForIndex(override.tile);
@@ -1735,41 +1737,24 @@ void ModManager::updateFrameConditionsForFrame(GeraNESEmu& emu)
         }
     }
 
-    bool renderComposeCacheChanged = false;
     const size_t chrCount = std::min(m_chrOverrides.size(), m_frameConditionPlan.chrOverrideGlobalConditions.size());
     for(size_t i = 0; i < chrCount; ++i) {
         const bool enabled = globalConditionsMatch(m_frameConditionPlan.chrOverrideGlobalConditions[i]);
-        if(m_chrOverrides[i].enabled != enabled) {
-            renderComposeCacheChanged = true;
-            m_chrOverrides[i].enabled = enabled;
-        }
+        m_chrOverrides[i].enabled = enabled;
     }
     for(size_t i = chrCount; i < m_chrOverrides.size(); ++i) {
-        if(!m_chrOverrides[i].enabled) {
-            renderComposeCacheChanged = true;
-            m_chrOverrides[i].enabled = true;
-        }
+        m_chrOverrides[i].enabled = true;
     }
 
     const size_t bgCount = std::min(m_backgroundReplacements.size(), m_frameConditionPlan.backgroundGlobalConditions.size());
     for(size_t i = 0; i < bgCount; ++i) {
         const bool enabled = globalConditionsMatch(m_frameConditionPlan.backgroundGlobalConditions[i]);
-        if(m_backgroundReplacements[i].enabled != enabled) {
-            renderComposeCacheChanged = true;
-            m_backgroundReplacements[i].enabled = enabled;
-        }
+        m_backgroundReplacements[i].enabled = enabled;
     }
     for(size_t i = bgCount; i < m_backgroundReplacements.size(); ++i) {
-        if(!m_backgroundReplacements[i].enabled) {
-            renderComposeCacheChanged = true;
-            m_backgroundReplacements[i].enabled = true;
-        }
+        m_backgroundReplacements[i].enabled = true;
     }
     m_lastFrameConditionUpdate = frameCount;
-    if(renderComposeCacheChanged) {
-        MODMANAGER_PROFILE_COUNT(frameConditionCacheChanges, 1);
-        m_renderComposeCacheDirty = true;
-    }
 }
 
 void ModManager::rebuildFrameConditionPlan()
@@ -2049,7 +2034,7 @@ void ModManager::rebuildRenderComposeCache()
     std::vector<const ChrOverride*> activeOverrides;
     activeOverrides.reserve(m_chrOverrides.size());
     for(const ChrOverride& override : m_chrOverrides) {
-        if(override.enabled && !override.assetPath.empty()) {
+        if(override.assetAvailable && !override.assetPath.empty()) {
             activeOverrides.push_back(&override);
         }
     }
@@ -2057,7 +2042,7 @@ void ModManager::rebuildRenderComposeCache()
 
     m_renderComposeCache.preparedBackgrounds.reserve(m_backgroundReplacements.size());
     for(const BackgroundReplacement& replacement : m_backgroundReplacements) {
-        if(!replacement.enabled || replacement.assetPath.empty()) {
+        if(!replacement.assetAvailable || replacement.assetPath.empty()) {
             continue;
         }
         const DecodedImage* image = decodedImage(replacement.assetPath);
@@ -2724,7 +2709,7 @@ std::optional<ModManager::DebugComposePixel> ModManager::debugComposePixel(const
     std::vector<const ChrOverride*> activeOverrides;
     activeOverrides.reserve(m_chrOverrides.size());
     for(const ChrOverride& override : m_chrOverrides) {
-        if(override.enabled && !override.assetPath.empty()) {
+        if(override.assetAvailable && !override.assetPath.empty()) {
             activeOverrides.push_back(&override);
         }
     }
@@ -2818,7 +2803,7 @@ std::optional<ModManager::DebugComposePixel> ModManager::debugComposePixel(const
     std::vector<PreparedBackground> preparedBackgrounds;
     preparedBackgrounds.reserve(m_backgroundReplacements.size());
     for(const BackgroundReplacement& replacement : m_backgroundReplacements) {
-        if(!replacement.enabled || replacement.assetPath.empty()) {
+        if(!replacement.assetAvailable || replacement.assetPath.empty()) {
             continue;
         }
         const DecodedImage* image = decodedImage(replacement.assetPath);
@@ -3183,6 +3168,9 @@ std::optional<ModManager::DebugComposePixel> ModManager::debugComposePixel(const
     auto matchesOverride = [&](const PreparedOverride& preparedOverride, ChrOverride::Target target, bool allowDefaultTileFallback, int tileIndex, int fullTileIndex, int currentPatternTable, const std::array<uint8_t, 3>& palette, bool hMirror, bool vMirror, bool bgPriority, const ConditionContext& ctx) {
         MODMANAGER_PROFILE_COUNT(matchesOverrideCalls, 1);
         const ChrOverride& override = *preparedOverride.override;
+        if(!override.enabled) {
+            return false;
+        }
         if(override.target != ChrOverride::Target::Both && override.target != target) {
             return false;
         }
@@ -3367,17 +3355,33 @@ std::optional<ModManager::DebugComposePixel> ModManager::debugComposePixel(const
     std::array<int, 40> backgroundDebugCounts = {};
     const ConditionContext backgroundConditionContext = {};
     for(const PreparedBackground& prepared : preparedBackgrounds) {
-        const int priority = std::clamp(prepared.replacement->priority, 0, 39);
+        const BackgroundReplacement* replacement = prepared.replacement;
+        if(replacement == nullptr) {
+            continue;
+        }
+        const int priority = std::clamp(replacement->priority, 0, 39);
         DebugComposeStage debugStage;
         debugStage.valid = true;
         debugStage.stage = "bg select";
-        debugStage.assetPath = prepared.replacement->assetPath;
+        debugStage.assetPath = replacement->assetPath;
         debugStage.priority = priority;
+
+        if(!replacement->enabled) {
+            debugStage.returnedBaseColor = true;
+            debugStage.reason = "disabled by frame conditions";
+            if(backgroundDebugCounts[static_cast<size_t>(priority)] < 6 || debugAssetMatchesFilter(replacement->assetPath)) {
+                result.backgroundCandidates.push_back(std::move(debugStage));
+                if(backgroundDebugCounts[static_cast<size_t>(priority)] < 6) {
+                    backgroundDebugCounts[static_cast<size_t>(priority)]++;
+                }
+            }
+            continue;
+        }
 
         if(activeBackgroundsByPriority[static_cast<size_t>(priority)] != nullptr) {
             debugStage.returnedBaseColor = true;
             debugStage.reason = "skipped after earlier selected background";
-            if(backgroundDebugCounts[static_cast<size_t>(priority)] < 6 || debugAssetMatchesFilter(prepared.replacement->assetPath)) {
+            if(backgroundDebugCounts[static_cast<size_t>(priority)] < 6 || debugAssetMatchesFilter(replacement->assetPath)) {
                 result.backgroundCandidates.push_back(std::move(debugStage));
                 if(backgroundDebugCounts[static_cast<size_t>(priority)] < 6) {
                     backgroundDebugCounts[static_cast<size_t>(priority)]++;
@@ -3995,7 +3999,9 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
 
     MODMANAGER_PROFILE_COUNT(preparedOverrideCount, preparedOverrides.size());
     MODMANAGER_PROFILE_COUNT(preparedBackgroundCount, preparedBackgrounds.size());
+#if GERANES_MODMANAGER_PROFILE
     const auto composeChrFrameSetupStartedAt = ModManagerProfileClock::now();
+#endif
 
     auto tileHash = [&](int tileIndex) {
         if(tileIndex < 0) {
@@ -4047,12 +4053,14 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
         }
         return canonicalTileIndex(tileIndex, currentHash);
     };
+#if GERANES_MODMANAGER_PROFILE
     g_modManagerProfile.addDuration(
         ModManagerProfileSection::ComposeChrFrameSetup,
         static_cast<uint64_t>(
             std::chrono::duration_cast<std::chrono::nanoseconds>(
                 ModManagerProfileClock::now() - composeChrFrameSetupStartedAt)
                 .count()));
+#endif
     const PPU::DebugModBackgroundPixel* const backgroundPixelsData =
         snapshot.backgroundPixelsView != nullptr ? snapshot.backgroundPixelsView : snapshot.backgroundPixels.data();
     const size_t backgroundPixelsCount =
@@ -4409,6 +4417,9 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
 
     auto matchesOverride = [&](const PreparedOverride& preparedOverride, ChrOverride::Target target, bool allowDefaultTileFallback, int tileIndex, int fullTileIndex, int currentPatternTable, const std::array<uint8_t, 3>& palette, bool hMirror, bool vMirror, bool bgPriority, const ConditionContext& ctx) {
         const ChrOverride& override = *preparedOverride.override;
+        if(!override.enabled) {
+            return false;
+        }
         if(override.target != ChrOverride::Target::Both && override.target != target) {
             return false;
         }
@@ -4850,6 +4861,9 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
         MODMANAGER_PROFILE_SCOPE(ComposeChrFrameBackgroundPrep);
         for(const PreparedBackground& prepared : preparedBackgrounds) {
             if(activeBackgroundsByPriority[static_cast<size_t>(prepared.priority)] != nullptr) {
+                continue;
+            }
+            if(prepared.replacement == nullptr || !prepared.replacement->enabled) {
                 continue;
             }
             bool matches = true;

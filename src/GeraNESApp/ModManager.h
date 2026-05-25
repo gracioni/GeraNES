@@ -95,6 +95,7 @@ public:
         int tile = -1;
         std::string assetPath;
         bool ignorePalette = false;
+        bool assetAvailable = true;
         bool enabled = true;
         int priority = 0;
         Target target = Target::Both;
@@ -156,6 +157,7 @@ public:
         int scrollY = 0;
         bool repeatX = true;
         bool repeatY = true;
+        bool assetAvailable = true;
         bool enabled = true;
         int priority = 0;
         bool preserveUnmatchedPixels = false;
