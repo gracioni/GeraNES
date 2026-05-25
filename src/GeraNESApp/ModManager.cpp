@@ -3647,25 +3647,42 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
 
     const FrameConditionState& frameConditionState =
         snapshot.frameConditionStateView != nullptr ? *snapshot.frameConditionStateView : snapshot.frameConditionState;
+    const auto blitSourceFramebuffer = [&]() {
+        const int nesYBegin = std::max(0, activeTop / scale);
+        const int nesYEnd = std::min(PPU::SCREEN_HEIGHT, (activeBottom + scale - 1) / scale);
 
-    if(m_chrOverrides.empty()) {
-        for(int nesY = std::max(0, activeTop / scale); nesY < std::min(PPU::SCREEN_HEIGHT, (activeBottom + scale - 1) / scale); ++nesY) {
+        if(scale == 1 && width == PPU::SCREEN_WIDTH) {
+            for(int nesY = nesYBegin; nesY < nesYEnd; ++nesY) {
+                if(nesY < activeTop || nesY >= activeBottom || nesY < 0 || nesY >= height) {
+                    continue;
+                }
+                const uint32_t* srcRow = sourceFramebuffer + static_cast<size_t>(nesY) * PPU::SCREEN_WIDTH;
+                uint32_t* dstRow = framebuffer.data() + static_cast<size_t>(nesY) * static_cast<size_t>(width);
+                std::memcpy(dstRow, srcRow, static_cast<size_t>(PPU::SCREEN_WIDTH) * sizeof(uint32_t));
+            }
+            return;
+        }
+
+        for(int nesY = nesYBegin; nesY < nesYEnd; ++nesY) {
             const uint32_t* srcRow = sourceFramebuffer + static_cast<size_t>(nesY) * PPU::SCREEN_WIDTH;
             for(int sy = 0; sy < scale; ++sy) {
                 const int outY = nesY * scale + sy;
-                if(outY < activeTop || outY >= activeBottom || outY < 0 || outY >= height) continue;
+                if(outY < activeTop || outY >= activeBottom || outY < 0 || outY >= height) {
+                    continue;
+                }
                 uint32_t* dstRow = framebuffer.data() + static_cast<size_t>(outY) * static_cast<size_t>(width);
                 for(int nesX = 0; nesX < PPU::SCREEN_WIDTH; ++nesX) {
-                    const uint32_t color = srcRow[nesX];
-                    for(int sx = 0; sx < scale; ++sx) {
-                        const int outX = nesX * scale + sx;
-                        if(outX >= 0 && outX < width) {
-                            dstRow[outX] = color;
-                        }
-                    }
+                    std::fill_n(
+                        dstRow + static_cast<size_t>(nesX * scale),
+                        static_cast<size_t>(scale),
+                        srcRow[nesX]);
                 }
             }
         }
+    };
+
+    if(m_chrOverrides.empty()) {
+        blitSourceFramebuffer();
         return;
     }
 
@@ -3681,7 +3698,7 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
     const std::vector<const AdditionalSpriteRule*>* additionalSpriteRuleStoragePtr = nullptr;
     bool hasAdditionalSpriteRules = false;
 
-    if(m_renderComposeCacheDirty || !m_renderComposeCache.valid || m_renderComposeCache.scale != std::max(1, m_resolutionMultiplier)) {
+    if(m_renderComposeCacheDirty || !m_renderComposeCache.valid || m_renderComposeCache.scale != scale) {
         rebuildRenderComposeCache();
     }
 
@@ -3734,23 +3751,7 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
     using PreparedBackground = RenderPreparedBackground;
 
     if(preparedOverrides.empty() && preparedBackgrounds.empty()) {
-        for(int nesY = std::max(0, activeTop / scale); nesY < std::min(PPU::SCREEN_HEIGHT, (activeBottom + scale - 1) / scale); ++nesY) {
-            const uint32_t* srcRow = sourceFramebuffer + static_cast<size_t>(nesY) * PPU::SCREEN_WIDTH;
-            for(int sy = 0; sy < scale; ++sy) {
-                const int outY = nesY * scale + sy;
-                if(outY < activeTop || outY >= activeBottom || outY < 0 || outY >= height) continue;
-                uint32_t* dstRow = framebuffer.data() + static_cast<size_t>(outY) * static_cast<size_t>(width);
-                for(int nesX = 0; nesX < PPU::SCREEN_WIDTH; ++nesX) {
-                    const uint32_t color = srcRow[nesX];
-                    for(int sx = 0; sx < scale; ++sx) {
-                        const int outX = nesX * scale + sx;
-                        if(outX >= 0 && outX < width) {
-                            dstRow[outX] = color;
-                        }
-                    }
-                }
-            }
-        }
+        blitSourceFramebuffer();
         return;
     }
 
