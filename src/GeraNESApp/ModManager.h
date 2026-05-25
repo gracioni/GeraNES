@@ -389,6 +389,7 @@ private:
         std::array<bool, 256> hasDynamicOverridesByRelativeTile = {};
         std::unordered_set<uint32_t> dynamicOverrideHashes;
         std::vector<RenderPreparedBackground> preparedBackgrounds;
+        std::unordered_map<uint64_t, std::vector<const AdditionalSpriteRule*>> additionalSpriteRulesByExactKey;
         std::unordered_map<int, std::vector<const AdditionalSpriteRule*>> additionalSpriteRulesByOriginalTile;
         bool onlyWholeChrOverrides = false;
         const RenderPreparedOverride* fastBackgroundOverride = nullptr;

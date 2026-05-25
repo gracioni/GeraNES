@@ -1598,6 +1598,9 @@ void ModManager::rebuildRenderComposeCache()
     m_renderComposeCache = {};
     m_renderComposeCache.scale = std::max(1, m_resolutionMultiplier);
     m_renderComposeCache.needsTileHashes = false;
+    auto makeAdditionalSpriteRuleKey = [](int tile, uint32_t paletteKey) {
+        return (static_cast<uint64_t>(static_cast<uint32_t>(tile)) << 32u) | static_cast<uint64_t>(paletteKey);
+    };
 
     auto appendRuntimeConditions = [](const std::vector<MemoryCondition>& conditions, auto& runtimeConditions) {
         runtimeConditions.clear();
@@ -1780,12 +1783,17 @@ void ModManager::rebuildRenderComposeCache()
         m_renderComposeCache.preparedBackgrounds.push_back(std::move(prepared));
     }
 
+    m_renderComposeCache.additionalSpriteRulesByExactKey.clear();
     m_renderComposeCache.additionalSpriteRulesByOriginalTile.clear();
     for(const AdditionalSpriteRule& rule : m_additionalSpriteRules) {
         if(rule.originalTile < 0) {
             continue;
         }
-        m_renderComposeCache.additionalSpriteRulesByOriginalTile[rule.originalTile].push_back(&rule);
+        if(rule.ignorePalette) {
+            m_renderComposeCache.additionalSpriteRulesByOriginalTile[rule.originalTile].push_back(&rule);
+        } else {
+            m_renderComposeCache.additionalSpriteRulesByExactKey[makeAdditionalSpriteRuleKey(rule.originalTile, rule.originalPaletteKey)].push_back(&rule);
+        }
     }
 
     m_renderComposeCache.onlyWholeChrOverrides = std::all_of(
@@ -3532,6 +3540,10 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
     std::array<bool, 256> hasDynamicOverridesByRelativeTileLocal = {};
     std::unordered_set<uint32_t> dynamicOverrideHashesLocal;
     std::vector<RenderPreparedBackground> preparedBackgroundsLocal;
+    std::unordered_map<uint64_t, std::vector<const AdditionalSpriteRule*>> additionalSpriteRulesByExactKeyLocal;
+    auto makeAdditionalSpriteRuleKey = [](int tile, uint32_t paletteKey) {
+        return (static_cast<uint64_t>(static_cast<uint32_t>(tile)) << 32u) | static_cast<uint64_t>(paletteKey);
+    };
     auto appendRuntimeConditions = [](const std::vector<MemoryCondition>& conditions, auto& runtimeConditions) {
         runtimeConditions.clear();
         runtimeConditions.reserve(conditions.size());
@@ -3576,6 +3588,7 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
     const std::array<bool, 256>* hasDynamicOverridesByRelativeTilePtr = nullptr;
     const std::unordered_set<uint32_t>* dynamicOverrideHashesPtr = nullptr;
     const std::vector<RenderPreparedBackground>* preparedBackgroundsPtr = nullptr;
+    const std::unordered_map<uint64_t, std::vector<const AdditionalSpriteRule*>>* additionalSpriteRulesByExactKeyPtr = nullptr;
     std::unordered_map<int, std::vector<const AdditionalSpriteRule*>> additionalSpriteRulesByOriginalTileLocal;
     const std::unordered_map<int, std::vector<const AdditionalSpriteRule*>>* additionalSpriteRulesByOriginalTilePtr = nullptr;
     bool onlyWholeChrOverrides = false;
@@ -3611,6 +3624,7 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
         hasDynamicOverridesByRelativeTilePtr = &m_renderComposeCache.hasDynamicOverridesByRelativeTile;
         dynamicOverrideHashesPtr = &m_renderComposeCache.dynamicOverrideHashes;
         preparedBackgroundsPtr = &m_renderComposeCache.preparedBackgrounds;
+        additionalSpriteRulesByExactKeyPtr = &m_renderComposeCache.additionalSpriteRulesByExactKey;
         additionalSpriteRulesByOriginalTilePtr = &m_renderComposeCache.additionalSpriteRulesByOriginalTile;
         onlyWholeChrOverrides = m_renderComposeCache.onlyWholeChrOverrides;
         fastBackgroundOverride = m_renderComposeCache.fastBackgroundOverride;
@@ -3760,7 +3774,11 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
             if(rule.originalTile < 0) {
                 continue;
             }
-            additionalSpriteRulesByOriginalTileLocal[rule.originalTile].push_back(&rule);
+            if(rule.ignorePalette) {
+                additionalSpriteRulesByOriginalTileLocal[rule.originalTile].push_back(&rule);
+            } else {
+                additionalSpriteRulesByExactKeyLocal[makeAdditionalSpriteRuleKey(rule.originalTile, rule.originalPaletteKey)].push_back(&rule);
+            }
         }
         onlyWholeChrOverrides = std::all_of(activeOverridesLocal.begin(), activeOverridesLocal.end(), [](const ChrOverride* override) {
             return override != nullptr &&
@@ -3808,6 +3826,7 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
         hasDynamicOverridesByRelativeTilePtr = &hasDynamicOverridesByRelativeTileLocal;
         dynamicOverrideHashesPtr = &dynamicOverrideHashesLocal;
         preparedBackgroundsPtr = &preparedBackgroundsLocal;
+        additionalSpriteRulesByExactKeyPtr = &additionalSpriteRulesByExactKeyLocal;
         additionalSpriteRulesByOriginalTilePtr = &additionalSpriteRulesByOriginalTileLocal;
     }
 
@@ -3835,6 +3854,7 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
     const auto& hasDynamicOverridesByRelativeTile = *hasDynamicOverridesByRelativeTilePtr;
     const auto& dynamicOverrideHashes = *dynamicOverrideHashesPtr;
     const auto& preparedBackgrounds = *preparedBackgroundsPtr;
+    const auto& additionalSpriteRulesByExactKey = *additionalSpriteRulesByExactKeyPtr;
     const auto& additionalSpriteRulesByOriginalTile = *additionalSpriteRulesByOriginalTilePtr;
     const bool canUseOverrideLookupCache = !preparedOverrides.empty();
     using PreparedOverride = RenderPreparedOverride;
@@ -3907,7 +3927,6 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
         }
         return canonicalTileIndex(tileIndex, currentHash);
     };
-
     const PPU::DebugModBackgroundPixel* const backgroundPixelsData =
         snapshot.backgroundPixelsView != nullptr ? snapshot.backgroundPixelsView : snapshot.backgroundPixels.data();
     const size_t backgroundPixelsCount =
@@ -3954,6 +3973,8 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
         if(copySpritePixelCount > 0) {
             std::copy_n(rawSpritePixelsData, copySpritePixelCount, augmentedSpritePixels.begin());
         }
+        std::unordered_map<uint64_t, std::vector<const AdditionalSpriteRule*>> resolvedAdditionalSpriteRulesCache;
+        resolvedAdditionalSpriteRulesCache.reserve(std::min<size_t>(m_additionalSpriteRules.size() * 4u, 4096u));
 
         for(size_t index = 0; index < copySpritePixelCount; ++index) {
             const PPU::DebugModSpritePixel& pixel = rawSpritePixelsData[index];
@@ -3966,23 +3987,73 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
                 const uint32_t sourcePaletteKey = candidatePaletteKey(source);
                 const int originX = x - static_cast<int>(source.offsetX);
                 const int originY = y - static_cast<int>(source.offsetY);
+                const uint64_t sourceRuleKey = makeAdditionalSpriteRuleKey(resolvedTileIndex, sourcePaletteKey);
+                const auto resolvedRuleIt = resolvedAdditionalSpriteRulesCache.find(sourceRuleKey);
+                if(resolvedRuleIt == resolvedAdditionalSpriteRulesCache.end()) {
+                    std::vector<const AdditionalSpriteRule*> resolvedRules;
+                    if(const auto exactIt = additionalSpriteRulesByExactKey.find(sourceRuleKey); exactIt != additionalSpriteRulesByExactKey.end()) {
+                        resolvedRules.insert(resolvedRules.end(), exactIt->second.begin(), exactIt->second.end());
+                    }
+                    if(const auto wildcardIt = additionalSpriteRulesByOriginalTile.find(resolvedTileIndex); wildcardIt != additionalSpriteRulesByOriginalTile.end()) {
+                        resolvedRules.insert(resolvedRules.end(), wildcardIt->second.begin(), wildcardIt->second.end());
+                    }
+                    const auto [insertedIt, inserted] = resolvedAdditionalSpriteRulesCache.emplace(sourceRuleKey, std::move(resolvedRules));
+                    (void)inserted;
+                    if(insertedIt->second.empty()) {
+                        continue;
+                    }
+                    for(const AdditionalSpriteRule* rulePtr : insertedIt->second) {
+                        if(rulePtr == nullptr) {
+                            continue;
+                        }
+                        const AdditionalSpriteRule& rule = *rulePtr;
+                        const int targetX = x + rule.offsetX;
+                        const int targetY = y + rule.offsetY;
+                        if(targetX < 0 || targetX >= PPU::SCREEN_WIDTH || targetY < 0 || targetY >= PPU::SCREEN_HEIGHT) {
+                            continue;
+                        }
 
-                const auto ruleIt = additionalSpriteRulesByOriginalTile.find(resolvedTileIndex);
-                if(ruleIt == additionalSpriteRulesByOriginalTile.end()) {
+                        PPU::DebugModSpritePixel& targetPixel = augmentedSpritePixels[static_cast<size_t>(targetY) * PPU::SCREEN_WIDTH + static_cast<size_t>(targetX)];
+                        if(targetPixel.count >= targetPixel.candidates.size()) {
+                            continue;
+                        }
+
+                        PPU::DebugModSpriteCandidate added = source;
+                        added.tileIndex = static_cast<uint16_t>(std::clamp(rule.additionalTile, 0, 0xFFFF));
+                        added.tileHash = tileHash(rule.additionalTile);
+                        decodeSpritePaletteKey(rule.additionalPaletteKey, added.palette);
+                        added.paletteSlot = source.paletteSlot;
+                        added.offsetX = static_cast<uint8_t>(std::clamp(targetX - originX, 0, 255));
+                        added.offsetY = static_cast<uint8_t>(std::clamp(targetY - originY, 0, 255));
+                        added.colorLowBits = 0;
+                        added.synthetic = true;
+                        added.valid = true;
+
+                        targetPixel.candidates[targetPixel.count++] = added;
+                        if(!targetPixel.valid) {
+                            targetPixel.tileIndex = added.tileIndex;
+                            targetPixel.tileHash = added.tileHash;
+                            targetPixel.palette[0] = added.palette[0];
+                            targetPixel.palette[1] = added.palette[1];
+                            targetPixel.palette[2] = added.palette[2];
+                            targetPixel.paletteSlot = added.paletteSlot;
+                            targetPixel.colorLowBits = added.colorLowBits;
+                            targetPixel.offsetX = added.offsetX;
+                            targetPixel.offsetY = added.offsetY;
+                            targetPixel.behindBackground = added.behindBackground;
+                            targetPixel.horizontalMirror = added.horizontalMirror;
+                            targetPixel.verticalMirror = added.verticalMirror;
+                            targetPixel.synthetic = added.synthetic;
+                            targetPixel.valid = true;
+                        }
+                    }
                     continue;
                 }
-                for(const AdditionalSpriteRule* rulePtr : ruleIt->second) {
+                for(const AdditionalSpriteRule* rulePtr : resolvedRuleIt->second) {
                     if(rulePtr == nullptr) {
                         continue;
                     }
                     const AdditionalSpriteRule& rule = *rulePtr;
-                    if(rule.originalTile != resolvedTileIndex) {
-                        continue;
-                    }
-                    if(!rule.ignorePalette && rule.originalPaletteKey != sourcePaletteKey) {
-                        continue;
-                    }
-
                     const int targetX = x + rule.offsetX;
                     const int targetY = y + rule.offsetY;
                     if(targetX < 0 || targetX >= PPU::SCREEN_WIDTH || targetY < 0 || targetY >= PPU::SCREEN_HEIGHT) {
