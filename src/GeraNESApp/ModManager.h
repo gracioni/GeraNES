@@ -42,7 +42,8 @@ public:
             TileAtPosition,
             TileNearby,
             SpriteAtPosition,
-            SpriteNearby
+            SpriteNearby,
+            SpritePaletteIndex
         };
 
         Kind kind = Kind::MemoryCheck;
@@ -304,6 +305,7 @@ private:
     std::vector<FallbackTileRule> m_fallbackTileRules;
     std::vector<uint32_t> m_chrRomTileHashes;
     std::unordered_map<uint32_t, int> m_chrRomCanonicalTileByHash;
+    std::unordered_set<int> m_originalFallbackTiles;
     std::vector<std::string> m_supportedRomHashes;
     std::string m_patchAssetPath;
     std::string m_patchExpectedRomHash;

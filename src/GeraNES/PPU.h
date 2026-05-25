@@ -233,12 +233,14 @@ public:
         uint16_t tileIndex = 0xFFFF;
         uint32_t tileHash = 0;
         uint8_t palette[3] = {};
+        uint8_t paletteSlot = 0;
         uint8_t colorLowBits = 0;
         uint8_t offsetX = 0;
         uint8_t offsetY = 0;
         bool behindBackground = false;
         bool horizontalMirror = false;
         bool verticalMirror = false;
+        bool synthetic = false;
         bool valid = false;
     };
 
@@ -246,12 +248,14 @@ public:
         uint16_t tileIndex = 0xFFFF;
         uint32_t tileHash = 0;
         uint8_t palette[3] = {};
+        uint8_t paletteSlot = 0;
         uint8_t colorLowBits = 0;
         uint8_t offsetX = 0;
         uint8_t offsetY = 0;
         bool behindBackground = false;
         bool horizontalMirror = false;
         bool verticalMirror = false;
+        bool synthetic = false;
         bool valid = false;
         uint8_t count = 0;
         std::array<DebugModSpriteCandidate, 8> candidates = {};
@@ -1733,6 +1737,7 @@ yyy NN YYYYY XXXXX
                     candidate.palette[0] = static_cast<uint8_t>(m_palette[0x11 + ((sprite.attr & 0x03) << 2)] & 0x3F);
                     candidate.palette[1] = static_cast<uint8_t>(m_palette[0x12 + ((sprite.attr & 0x03) << 2)] & 0x3F);
                     candidate.palette[2] = static_cast<uint8_t>(m_palette[0x13 + ((sprite.attr & 0x03) << 2)] & 0x3F);
+                    candidate.paletteSlot = static_cast<uint8_t>(sprite.attr & 0x03);
                     candidate.colorLowBits = static_cast<uint8_t>(color);
                     candidate.offsetX = static_cast<uint8_t>(rawOffsetX);
                     candidate.offsetY = sprite.row;
@@ -1746,6 +1751,7 @@ yyy NN YYYYY XXXXX
                         captured.palette[0] = candidate.palette[0];
                         captured.palette[1] = candidate.palette[1];
                         captured.palette[2] = candidate.palette[2];
+                        captured.paletteSlot = candidate.paletteSlot;
                         captured.colorLowBits = candidate.colorLowBits;
                         captured.offsetX = candidate.offsetX;
                         captured.offsetY = candidate.offsetY;
