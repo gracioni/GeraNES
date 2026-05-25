@@ -674,8 +674,28 @@ bool ModManager::composeFrameOnEmuThread(
     int activeBottom,
     bool captureDebugSnapshot)
 {
+    auto resetSnapshotForReuse = [&](bool releaseViews) {
+        snapshot.scrollX = 0;
+        snapshot.scrollY = 0;
+        snapshot.scrollXByLine.fill(0);
+        snapshot.scrollYByLine.fill(0);
+        snapshot.universalBgColor = 0;
+        snapshot.paletteColors.fill(0);
+        snapshot.tileHashes.fill(0);
+        if(releaseViews) {
+            snapshot.backgroundPixelsView = nullptr;
+            snapshot.backgroundPixelsViewCount = 0;
+            snapshot.spritePixelsView = nullptr;
+            snapshot.spritePixelsViewCount = 0;
+            snapshot.frameConditionStateView = nullptr;
+        }
+        snapshot.backgroundPixels.clear();
+        snapshot.spritePixels.clear();
+        snapshot.frameConditionState = {};
+    };
+
     if(!m_active || !emu.valid()) {
-        snapshot = {};
+        resetSnapshotForReuse(true);
         framebuffer.clear();
         return false;
     }
@@ -691,7 +711,7 @@ bool ModManager::composeFrameOnEmuThread(
     }
 
     PPU& ppu = emu.getConsole().ppu();
-    snapshot = {};
+    resetSnapshotForReuse(false);
     for(int y = 0; y < PPU::SCREEN_HEIGHT; ++y) {
         snapshot.scrollXByLine[static_cast<size_t>(y)] = ppu.debugPresentedScanlineScrollX(y);
         snapshot.scrollYByLine[static_cast<size_t>(y)] = ppu.debugPresentedScanlineScrollY(y);
