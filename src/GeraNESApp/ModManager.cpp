@@ -1782,6 +1782,30 @@ void ModManager::rebuildRenderComposeCache()
         m_renderComposeCache.additionalSpriteRulesByOriginalTile[rule.originalTile].push_back(&rule);
     }
 
+    m_renderComposeCache.onlyWholeChrOverrides = std::all_of(
+        m_renderComposeCache.activeOverrides.begin(),
+        m_renderComposeCache.activeOverrides.end(),
+        [](const ChrOverride* override) {
+            return override != nullptr &&
+                   override->wholeChr() &&
+                   !override->hasChrHash &&
+                   override->paletteIndices.empty() &&
+                   override->patternTable < 0 &&
+                   !override->defaultTile &&
+                   !override->absoluteTile;
+        });
+    if(m_renderComposeCache.onlyWholeChrOverrides) {
+        for(const RenderPreparedOverride& prepared : m_renderComposeCache.preparedOverrides) {
+            const ChrOverride* override = prepared.override;
+            if(override != nullptr &&
+               !prepared.hasDynamicConditions &&
+               (override->target == ChrOverride::Target::Both || override->target == ChrOverride::Target::Background)) {
+                m_renderComposeCache.fastBackgroundOverride = &prepared;
+                break;
+            }
+        }
+    }
+
     m_renderComposeCache.valid = true;
     m_renderComposeCacheDirty = false;
 }
@@ -3504,8 +3528,6 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
     std::array<bool, 256> hasDynamicOverridesByRelativeTileLocal = {};
     std::unordered_set<uint32_t> dynamicOverrideHashesLocal;
     std::vector<RenderPreparedBackground> preparedBackgroundsLocal;
-    const std::vector<const ChrOverride*>* activeOverridesPtr = nullptr;
-
     auto appendRuntimeConditions = [](const std::vector<MemoryCondition>& conditions, auto& runtimeConditions) {
         runtimeConditions.clear();
         runtimeConditions.reserve(conditions.size());
@@ -3545,12 +3567,13 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
     const std::vector<RenderPreparedBackground>* preparedBackgroundsPtr = nullptr;
     std::unordered_map<int, std::vector<const AdditionalSpriteRule*>> additionalSpriteRulesByOriginalTileLocal;
     const std::unordered_map<int, std::vector<const AdditionalSpriteRule*>>* additionalSpriteRulesByOriginalTilePtr = nullptr;
+    bool onlyWholeChrOverrides = false;
+    const RenderPreparedOverride* fastBackgroundOverride = nullptr;
 
     if(activeOverrideFilter == nullptr) {
         if(m_renderComposeCacheDirty || !m_renderComposeCache.valid || m_renderComposeCache.scale != std::max(1, m_resolutionMultiplier)) {
             rebuildRenderComposeCache();
         }
-        activeOverridesPtr = &m_renderComposeCache.activeOverrides;
         preparedOverridesPtr = &m_renderComposeCache.preparedOverrides;
         overridesByFullTilePtr = &m_renderComposeCache.overridesByFullTile;
         overridesByOverflowFullTilePtr = &m_renderComposeCache.overridesByOverflowFullTile;
@@ -3578,6 +3601,8 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
         dynamicOverrideHashesPtr = &m_renderComposeCache.dynamicOverrideHashes;
         preparedBackgroundsPtr = &m_renderComposeCache.preparedBackgrounds;
         additionalSpriteRulesByOriginalTilePtr = &m_renderComposeCache.additionalSpriteRulesByOriginalTile;
+        onlyWholeChrOverrides = m_renderComposeCache.onlyWholeChrOverrides;
+        fastBackgroundOverride = m_renderComposeCache.fastBackgroundOverride;
     } else {
         activeOverridesLocal = *activeOverrideFilter;
         if(!activeOverridesLocal.empty()) {
@@ -3725,7 +3750,26 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
             }
             additionalSpriteRulesByOriginalTileLocal[rule.originalTile].push_back(&rule);
         }
-        activeOverridesPtr = &activeOverridesLocal;
+        onlyWholeChrOverrides = std::all_of(activeOverridesLocal.begin(), activeOverridesLocal.end(), [](const ChrOverride* override) {
+            return override != nullptr &&
+                   override->wholeChr() &&
+                   !override->hasChrHash &&
+                   override->paletteIndices.empty() &&
+                   override->patternTable < 0 &&
+                   !override->defaultTile &&
+                   !override->absoluteTile;
+        });
+        if(onlyWholeChrOverrides) {
+            for(const RenderPreparedOverride& prepared : preparedOverridesLocal) {
+                const ChrOverride* override = prepared.override;
+                if(override != nullptr &&
+                   !prepared.hasDynamicConditions &&
+                   (override->target == ChrOverride::Target::Both || override->target == ChrOverride::Target::Background)) {
+                    fastBackgroundOverride = &prepared;
+                    break;
+                }
+            }
+        }
         preparedOverridesPtr = &preparedOverridesLocal;
         overridesByFullTilePtr = &overridesByFullTileLocal;
         overridesByOverflowFullTilePtr = &overridesByOverflowFullTileLocal;
@@ -3755,7 +3799,6 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
         additionalSpriteRulesByOriginalTilePtr = &additionalSpriteRulesByOriginalTileLocal;
     }
 
-    const auto& activeOverrides = *activeOverridesPtr;
     const auto& preparedOverrides = *preparedOverridesPtr;
     const auto& overridesByFullTile = *overridesByFullTilePtr;
     const auto& overridesByOverflowFullTile = *overridesByOverflowFullTilePtr;
@@ -3831,21 +3874,21 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
         return tileIndex;
     };
 
+    const PPU::DebugModBackgroundPixel* const backgroundPixelsData =
+        snapshot.backgroundPixelsView != nullptr ? snapshot.backgroundPixelsView : snapshot.backgroundPixels.data();
+    const size_t backgroundPixelsCount =
+        snapshot.backgroundPixelsView != nullptr ? snapshot.backgroundPixelsViewCount : snapshot.backgroundPixels.size();
+    const PPU::DebugModSpritePixel* const rawSpritePixelsData =
+        snapshot.spritePixelsView != nullptr ? snapshot.spritePixelsView : snapshot.spritePixels.data();
+    const size_t rawSpritePixelsCount =
+        snapshot.spritePixelsView != nullptr ? snapshot.spritePixelsViewCount : snapshot.spritePixels.size();
+
     auto backgroundPixelAt = [&](int x, int y) -> const PPU::DebugModBackgroundPixel* {
         if(x < 0 || x >= PPU::SCREEN_WIDTH || y < 0 || y >= PPU::SCREEN_HEIGHT) {
             return nullptr;
         }
         const size_t index = static_cast<size_t>(y) * PPU::SCREEN_WIDTH + static_cast<size_t>(x);
-        if(snapshot.backgroundPixelsView != nullptr) {
-            if(index >= snapshot.backgroundPixelsViewCount) {
-                return nullptr;
-            }
-            return &snapshot.backgroundPixelsView[index];
-        }
-        if(index >= snapshot.backgroundPixels.size()) {
-            return nullptr;
-        }
-        return &snapshot.backgroundPixels[index];
+        return index < backgroundPixelsCount ? &backgroundPixelsData[index] : nullptr;
     };
 
     auto rawSpritePixelAt = [&](int x, int y) -> const PPU::DebugModSpritePixel* {
@@ -3853,16 +3896,7 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
             return nullptr;
         }
         const size_t index = static_cast<size_t>(y) * PPU::SCREEN_WIDTH + static_cast<size_t>(x);
-        if(snapshot.spritePixelsView != nullptr) {
-            if(index >= snapshot.spritePixelsViewCount) {
-                return nullptr;
-            }
-            return &snapshot.spritePixelsView[index];
-        }
-        if(index >= snapshot.spritePixels.size()) {
-            return nullptr;
-        }
-        return &snapshot.spritePixels[index];
+        return index < rawSpritePixelsCount ? &rawSpritePixelsData[index] : nullptr;
     };
 
     auto candidatePaletteKey = [](const PPU::DebugModSpriteCandidate& candidate) -> uint32_t {
@@ -4698,12 +4732,6 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
         }
     }
 
-    struct ActiveBackgroundLayer {
-        const PreparedBackground* prepared = nullptr;
-        int bgScrollX = 0;
-        int bgScrollY = 0;
-    };
-
     struct ScanlineBackgroundLayer {
         const PreparedBackground* prepared = nullptr;
         int srcBaseX = 0;
@@ -4715,29 +4743,24 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
         int maxSub = 0;
     };
 
-    std::vector<ActiveBackgroundLayer> lowPriorityBackgrounds;
-    std::vector<ActiveBackgroundLayer> midBeforeTileBackgrounds;
-    std::vector<ActiveBackgroundLayer> midAfterTileBackgrounds;
-    std::vector<ActiveBackgroundLayer> highPriorityBackgrounds;
+    std::vector<const PreparedBackground*> lowPriorityBackgrounds;
+    std::vector<const PreparedBackground*> midBeforeTileBackgrounds;
+    std::vector<const PreparedBackground*> midAfterTileBackgrounds;
+    std::vector<const PreparedBackground*> highPriorityBackgrounds;
     lowPriorityBackgrounds.reserve(10);
     midBeforeTileBackgrounds.reserve(10);
     midAfterTileBackgrounds.reserve(10);
     highPriorityBackgrounds.reserve(10);
     for(int priority = 0; priority < 40; ++priority) {
         if(const PreparedBackground* preparedBackground = activeBackgroundsByPriority[static_cast<size_t>(priority)]; preparedBackground != nullptr) {
-            const BackgroundReplacement& replacement = *preparedBackground->replacement;
-            ActiveBackgroundLayer activeLayer;
-            activeLayer.prepared = preparedBackground;
-            activeLayer.bgScrollX = static_cast<int>(scrollXForLine(0) * replacement.parallaxX) + replacement.scrollX;
-            activeLayer.bgScrollY = static_cast<int>(scrollYForLine(0) * replacement.parallaxY) + replacement.scrollY;
             if(priority < 10) {
-                lowPriorityBackgrounds.push_back(activeLayer);
+                lowPriorityBackgrounds.push_back(preparedBackground);
             } else if(priority < 20) {
-                midBeforeTileBackgrounds.push_back(activeLayer);
+                midBeforeTileBackgrounds.push_back(preparedBackground);
             } else if(priority < 30) {
-                midAfterTileBackgrounds.push_back(activeLayer);
+                midAfterTileBackgrounds.push_back(preparedBackground);
             } else {
-                highPriorityBackgrounds.push_back(activeLayer);
+                highPriorityBackgrounds.push_back(preparedBackground);
             }
         }
     }
@@ -4806,30 +4829,6 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
         return color;
     };
 
-    const bool onlyWholeChrOverrides = std::all_of(activeOverrides.begin(), activeOverrides.end(), [](const ChrOverride* override) {
-        return override != nullptr &&
-               override->wholeChr() &&
-               !override->hasChrHash &&
-               override->paletteIndices.empty() &&
-               override->patternTable < 0 &&
-               !override->defaultTile &&
-               !override->absoluteTile;
-    });
-    const PreparedOverride* fastBackgroundOverride = nullptr;
-    if(onlyWholeChrOverrides) {
-        for(const PreparedOverride& prepared : preparedOverrides) {
-            const ChrOverride* override = prepared.override;
-            if(override == nullptr) {
-                continue;
-            }
-            if(!prepared.hasDynamicConditions &&
-               (override->target == ChrOverride::Target::Both || override->target == ChrOverride::Target::Background) &&
-               fastBackgroundOverride == nullptr) {
-                fastBackgroundOverride = &prepared;
-            }
-        }
-    }
-
     bool lastBackgroundOverrideCacheValid = false;
     int lastBackgroundOverrideOriginX = 0;
     int lastBackgroundOverrideOriginY = 0;
@@ -4870,13 +4869,13 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
         std::array<uint8_t, 3> noSpriteDirectRowCachePalette = {};
         std::array<std::array<uint32_t, 4>, 8> noSpriteDirectRowCacheBlocks = {};
 
-        auto buildScanlineLayers = [&](const std::vector<ActiveBackgroundLayer>& activeLayers, std::vector<ScanlineBackgroundLayer>& scanlineLayers) {
+        auto buildScanlineLayers = [&](const std::vector<const PreparedBackground*>& activeLayers, std::vector<ScanlineBackgroundLayer>& scanlineLayers) {
             scanlineLayers.clear();
-            for(const ActiveBackgroundLayer& activeLayer : activeLayers) {
-                if(activeLayer.prepared == nullptr || activeLayer.prepared->image == nullptr) {
+            for(const PreparedBackground* preparedPtr : activeLayers) {
+                if(preparedPtr == nullptr || preparedPtr->image == nullptr) {
                     continue;
                 }
-                const PreparedBackground& prepared = *activeLayer.prepared;
+                const PreparedBackground& prepared = *preparedPtr;
                 const BackgroundReplacement& replacement = *prepared.replacement;
                 const DecodedImage& image = *prepared.image;
                 const int bgScrollX = static_cast<int>(scrollXForLine(nesY) * replacement.parallaxX) + replacement.scrollX;
@@ -4911,13 +4910,9 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
             const uint32_t baseColor = srcRow[nesX];
             const size_t pixelIndex = static_cast<size_t>(nesY) * PPU::SCREEN_WIDTH + static_cast<size_t>(nesX);
             const PPU::DebugModBackgroundPixel* bgPixel =
-                snapshot.backgroundPixelsView != nullptr
-                    ? (pixelIndex < snapshot.backgroundPixelsViewCount ? &snapshot.backgroundPixelsView[pixelIndex] : nullptr)
-                    : (pixelIndex < snapshot.backgroundPixels.size() ? &snapshot.backgroundPixels[pixelIndex] : nullptr);
+                pixelIndex < backgroundPixelsCount ? &backgroundPixelsData[pixelIndex] : nullptr;
             const PPU::DebugModSpritePixel* spritePixel =
-                snapshot.spritePixelsView != nullptr
-                    ? (pixelIndex < snapshot.spritePixelsViewCount ? &snapshot.spritePixelsView[pixelIndex] : nullptr)
-                    : (pixelIndex < snapshot.spritePixels.size() ? &snapshot.spritePixels[pixelIndex] : nullptr);
+                pixelIndex < rawSpritePixelsCount ? &rawSpritePixelsData[pixelIndex] : nullptr;
             const bool hasSpriteCandidates = spritePixel != nullptr && spritePixel->count > 0;
 
             const PreparedOverride* backgroundOverride = nullptr;

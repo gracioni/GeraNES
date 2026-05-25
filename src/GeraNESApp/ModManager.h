@@ -391,6 +391,8 @@ private:
         std::unordered_set<uint32_t> dynamicOverrideHashes;
         std::vector<RenderPreparedBackground> preparedBackgrounds;
         std::unordered_map<int, std::vector<const AdditionalSpriteRule*>> additionalSpriteRulesByOriginalTile;
+        bool onlyWholeChrOverrides = false;
+        const RenderPreparedOverride* fastBackgroundOverride = nullptr;
     };
 
     std::unordered_map<std::string, ImageCacheEntry> m_imageCache;
