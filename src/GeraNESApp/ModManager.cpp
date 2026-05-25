@@ -5527,6 +5527,44 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
                 bgPixel->colorLowBits != 0;
             const bool hasMidAfterBackgrounds = resolvedMidAfterTileBackgroundCount > 0;
             const bool hasHighPriorityBackgrounds = resolvedHighPriorityBackgroundCount > 0;
+            auto applyResolvedLayerToScale2Block = [&](const ResolvedBackgroundLayer& resolved,
+                                                       uint32_t& block00,
+                                                       uint32_t& block01,
+                                                       uint32_t& block10,
+                                                       uint32_t& block11) {
+                if(!resolved.valid || resolved.prepared == nullptr) {
+                    return;
+                }
+
+                const PreparedBackground& prepared = *resolved.prepared;
+                if(resolved.uniformBlock) {
+                    if(prepared.opaqueCopy && ((resolved.uniformColor >> 24u) & 0xFFu) == 0xFFu) {
+                        block00 = resolved.uniformColor;
+                        block01 = resolved.uniformColor;
+                        block10 = resolved.uniformColor;
+                        block11 = resolved.uniformColor;
+                    } else {
+                        block00 = blendPixel(block00, resolved.uniformColor, prepared.alphaScale);
+                        block01 = blendPixel(block01, resolved.uniformColor, prepared.alphaScale);
+                        block10 = blendPixel(block10, resolved.uniformColor, prepared.alphaScale);
+                        block11 = blendPixel(block11, resolved.uniformColor, prepared.alphaScale);
+                    }
+                    return;
+                }
+                if(resolved.row0 == nullptr || resolved.row1 == nullptr) {
+                    return;
+                }
+                applyPreparedBackgroundBlockScale2(
+                    prepared,
+                    resolved.row0,
+                    resolved.row1,
+                    resolved.baseSrcX,
+                    resolved.maxSub,
+                    block00,
+                    block01,
+                    block10,
+                    block11);
+            };
             if(canFillUniformBlock) {
                 uint32_t color = precomposedBeforeBgColor;
                 if(applyBackgroundFallback) {
@@ -5563,39 +5601,6 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
                     const int srcX = backgroundOverrideTileSrcX + localOffsetX * sourceScale + sourceSubX;
                     const int srcY = backgroundOverrideTileSrcY + localOffsetY * sourceScale + sourceSubY;
                     return blendMappedBackgroundOverridePixel(color, mappedBackgroundOverridePixelAt(srcX, srcY));
-                };
-
-                auto applyResolvedLayerScale2 = [&](const ResolvedBackgroundLayer& resolved,
-                                                   uint32_t& block00,
-                                                   uint32_t& block01,
-                                                   uint32_t& block10,
-                                                   uint32_t& block11) {
-                    if(!resolved.valid || resolved.prepared == nullptr) {
-                        return;
-                    }
-
-                    const PreparedBackground& prepared = *resolved.prepared;
-                    if(resolved.uniformBlock) {
-                        if(prepared.opaqueCopy && ((resolved.uniformColor >> 24u) & 0xFFu) == 0xFFu) {
-                            block00 = resolved.uniformColor;
-                            block01 = resolved.uniformColor;
-                            block10 = resolved.uniformColor;
-                            block11 = resolved.uniformColor;
-                        } else {
-                            block00 = blendPixel(block00, resolved.uniformColor, prepared.alphaScale);
-                            block01 = blendPixel(block01, resolved.uniformColor, prepared.alphaScale);
-                            block10 = blendPixel(block10, resolved.uniformColor, prepared.alphaScale);
-                            block11 = blendPixel(block11, resolved.uniformColor, prepared.alphaScale);
-                        }
-                        return;
-                    }
-
-                    const DecodedImage& image = *prepared.image;
-                    const int srcY0 = resolved.baseSrcY;
-                    const int srcY1 = resolved.baseSrcY + std::clamp(1, 0, prepared.backgroundScale - 1);
-                    const uint32_t* row0 = image.rgba.data() + static_cast<size_t>(srcY0) * static_cast<size_t>(image.width);
-                    const uint32_t* row1 = image.rgba.data() + static_cast<size_t>(srcY1) * static_cast<size_t>(image.width);
-                    applyPreparedBackgroundBlockScale2(prepared, row0, row1, resolved.baseSrcX, prepared.backgroundScale - 1, block00, block01, block10, block11);
                 };
 
                 auto getOpaqueBackgroundOverrideColorScale2 = [&](int subX, int subY, uint32_t& outColor) {
@@ -5693,10 +5698,10 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
 
                 if(!opaqueOverrideBlock && !canPrecomposeBeforeBg) {
                     for(size_t i = 0; i < resolvedLowPriorityBackgroundCount; ++i) {
-                        applyResolvedLayerScale2(resolvedLowPriorityBackgrounds[i], block00, block01, block10, block11);
+                        applyResolvedLayerToScale2Block(resolvedLowPriorityBackgrounds[i], block00, block01, block10, block11);
                     }
                     for(size_t i = 0; i < resolvedMidBeforeTileBackgroundCount; ++i) {
-                        applyResolvedLayerScale2(resolvedMidBeforeTileBackgrounds[i], block00, block01, block10, block11);
+                        applyResolvedLayerToScale2Block(resolvedMidBeforeTileBackgrounds[i], block00, block01, block10, block11);
                     }
                 }
 
@@ -5728,14 +5733,14 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
 
                 if(hasMidAfterBackgrounds) {
                     for(size_t i = 0; i < resolvedMidAfterTileBackgroundCount; ++i) {
-                        applyResolvedLayerScale2(resolvedMidAfterTileBackgrounds[i], block00, block01, block10, block11);
+                        applyResolvedLayerToScale2Block(resolvedMidAfterTileBackgrounds[i], block00, block01, block10, block11);
                     }
                 }
 
 
                 if(hasHighPriorityBackgrounds) {
                     for(size_t i = 0; i < resolvedHighPriorityBackgroundCount; ++i) {
-                        applyResolvedLayerScale2(resolvedHighPriorityBackgrounds[i], block00, block01, block10, block11);
+                        applyResolvedLayerToScale2Block(resolvedHighPriorityBackgrounds[i], block00, block01, block10, block11);
                     }
                 }
 
@@ -5761,6 +5766,50 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
                 subYStart == 0 &&
                 subYEnd == 2;
 
+            auto applyResolvedLayerToBlock = [&](const ResolvedBackgroundLayer& resolved) {
+                if(!resolved.valid || resolved.prepared == nullptr) {
+                    return;
+                }
+
+                const PreparedBackground& prepared = *resolved.prepared;
+                if(resolved.uniformBlock) {
+                    if(prepared.opaqueCopy && ((resolved.uniformColor >> 24u) & 0xFFu) == 0xFFu) {
+                        for(int subY = subYStart; subY < subYEnd; ++subY) {
+                            uint32_t* blockRow = baseBlockColors.data() + static_cast<size_t>(subY) * 8u;
+                            for(int subX = 0; subX < blockWidth; ++subX) {
+                                blockRow[static_cast<size_t>(subX)] = resolved.uniformColor;
+                            }
+                        }
+                    } else {
+                        for(int subY = subYStart; subY < subYEnd; ++subY) {
+                            uint32_t* blockRow = baseBlockColors.data() + static_cast<size_t>(subY) * 8u;
+                            for(int subX = 0; subX < blockWidth; ++subX) {
+                                blockRow[static_cast<size_t>(subX)] =
+                                    blendPixel(blockRow[static_cast<size_t>(subX)], resolved.uniformColor, prepared.alphaScale);
+                            }
+                        }
+                    }
+                    return;
+                }
+                if(resolved.row0 == nullptr || resolved.row1 == nullptr) {
+                    return;
+                }
+
+                for(int subY = subYStart; subY < subYEnd; ++subY) {
+                    uint32_t* blockRow = baseBlockColors.data() + static_cast<size_t>(subY) * 8u;
+                    const uint32_t* srcRow = subY <= 0 ? resolved.row0 : resolved.row1;
+                    for(int subX = 0; subX < blockWidth; ++subX) {
+                        const uint32_t src = srcRow[static_cast<size_t>(resolved.baseSrcX + std::clamp(subX, 0, resolved.maxSub))];
+                        if(prepared.opaqueCopy && ((src >> 24u) & 0xFFu) == 0xFFu) {
+                            blockRow[static_cast<size_t>(subX)] = src;
+                        } else {
+                            blockRow[static_cast<size_t>(subX)] =
+                                blendPixel(blockRow[static_cast<size_t>(subX)], src, prepared.alphaScale);
+                        }
+                    }
+                }
+            };
+
             auto applyResolvedLayersToBlock = [&](const auto& resolvedLayers, size_t count) {
                 if(count == 0) {
                     return;
@@ -5771,10 +5820,7 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
                     uint32_t block10 = baseBlockColors[8];
                     uint32_t block11 = baseBlockColors[9];
                     for(size_t i = 0; i < count; ++i) {
-                        block00 = sampleResolvedBackgroundPixel(block00, resolvedLayers[i], 0, 0);
-                        block01 = sampleResolvedBackgroundPixel(block01, resolvedLayers[i], 1, 0);
-                        block10 = sampleResolvedBackgroundPixel(block10, resolvedLayers[i], 0, 1);
-                        block11 = sampleResolvedBackgroundPixel(block11, resolvedLayers[i], 1, 1);
+                        applyResolvedLayerToScale2Block(resolvedLayers[i], block00, block01, block10, block11);
                     }
                     baseBlockColors[0] = block00;
                     baseBlockColors[1] = block01;
@@ -5783,13 +5829,7 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
                     return;
                 }
                 for(size_t i = 0; i < count; ++i) {
-                    for(int subY = subYStart; subY < subYEnd; ++subY) {
-                        uint32_t* blockRow = baseBlockColors.data() + static_cast<size_t>(subY) * 8u;
-                        for(int subX = 0; subX < blockWidth; ++subX) {
-                            blockRow[static_cast<size_t>(subX)] =
-                                sampleResolvedBackgroundPixel(blockRow[static_cast<size_t>(subX)], resolvedLayers[i], subX, subY);
-                        }
-                    }
+                    applyResolvedLayerToBlock(resolvedLayers[i]);
                 }
             };
 
@@ -6072,16 +6112,7 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
 
             if(!hasAnyValidSpriteCandidate) {
                 if(hasHighPriorityBackgrounds) {
-                    for(int subY = subYStart; subY < subYEnd; ++subY) {
-                        uint32_t* blockRow = baseBlockColors.data() + static_cast<size_t>(subY) * 8u;
-                        for(int subX = 0; subX < scale; ++subX) {
-                            uint32_t color = blockRow[static_cast<size_t>(subX)];
-                            for(size_t i = 0; i < resolvedHighPriorityBackgroundCount; ++i) {
-                                color = sampleResolvedBackgroundPixel(color, resolvedHighPriorityBackgrounds[i], subX, subY);
-                            }
-                            blockRow[static_cast<size_t>(subX)] = color;
-                        }
-                    }
+                    applyResolvedLayersToBlock(resolvedHighPriorityBackgrounds, resolvedHighPriorityBackgroundCount);
                 }
 
                 for(int subY = subYStart; subY < subYEnd; ++subY) {
@@ -6092,84 +6123,6 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
                 }
                 continue;
             }
-
-            auto applyHighPriorityLayersToBlock = [&]() {
-                const bool canUseScale2HighBlockPath =
-                    scale == 2 &&
-                    blockWidth == 2 &&
-                    subYStart == 0 &&
-                    subYEnd == 2;
-                if(canUseScale2HighBlockPath) {
-                    uint32_t block00 = baseBlockColors[0];
-                    uint32_t block01 = baseBlockColors[1];
-                    uint32_t block10 = baseBlockColors[8];
-                    uint32_t block11 = baseBlockColors[9];
-                    for(size_t i = 0; i < resolvedHighPriorityBackgroundCount; ++i) {
-                        const ResolvedBackgroundLayer& resolved = resolvedHighPriorityBackgrounds[i];
-                        if(!resolved.valid || resolved.prepared == nullptr) {
-                            continue;
-                        }
-                        const PreparedBackground& prepared = *resolved.prepared;
-                        if(resolved.uniformBlock) {
-                            if(prepared.opaqueCopy && ((resolved.uniformColor >> 24u) & 0xFFu) == 0xFFu) {
-                                block00 = resolved.uniformColor;
-                                block01 = resolved.uniformColor;
-                                block10 = resolved.uniformColor;
-                                block11 = resolved.uniformColor;
-                            } else {
-                                block00 = blendPixel(block00, resolved.uniformColor, prepared.alphaScale);
-                                block01 = blendPixel(block01, resolved.uniformColor, prepared.alphaScale);
-                                block10 = blendPixel(block10, resolved.uniformColor, prepared.alphaScale);
-                                block11 = blendPixel(block11, resolved.uniformColor, prepared.alphaScale);
-                            }
-                            continue;
-                        }
-                        const DecodedImage& image = *prepared.image;
-                        const int maxSub = prepared.backgroundScale - 1;
-                        const int srcX0 = resolved.baseSrcX;
-                        const int srcX1 = resolved.baseSrcX + std::clamp(1, 0, maxSub);
-                        const int srcY0 = resolved.baseSrcY;
-                        const int srcY1 = resolved.baseSrcY + std::clamp(1, 0, maxSub);
-                        const size_t row0 = static_cast<size_t>(srcY0) * static_cast<size_t>(image.width);
-                        const size_t row1 = static_cast<size_t>(srcY1) * static_cast<size_t>(image.width);
-                        const uint32_t src00 = image.rgba[row0 + static_cast<size_t>(srcX0)];
-                        const uint32_t src01 = image.rgba[row0 + static_cast<size_t>(srcX1)];
-                        const uint32_t src10 = image.rgba[row1 + static_cast<size_t>(srcX0)];
-                        const uint32_t src11 = image.rgba[row1 + static_cast<size_t>(srcX1)];
-                        if(prepared.opaqueCopy &&
-                            ((src00 >> 24u) & 0xFFu) == 0xFFu &&
-                            ((src01 >> 24u) & 0xFFu) == 0xFFu &&
-                            ((src10 >> 24u) & 0xFFu) == 0xFFu &&
-                            ((src11 >> 24u) & 0xFFu) == 0xFFu) {
-                            block00 = src00;
-                            block01 = src01;
-                            block10 = src10;
-                            block11 = src11;
-                        } else {
-                            block00 = blendPixel(block00, src00, prepared.alphaScale);
-                            block01 = blendPixel(block01, src01, prepared.alphaScale);
-                            block10 = blendPixel(block10, src10, prepared.alphaScale);
-                            block11 = blendPixel(block11, src11, prepared.alphaScale);
-                        }
-                    }
-                    baseBlockColors[0] = block00;
-                    baseBlockColors[1] = block01;
-                    baseBlockColors[8] = block10;
-                    baseBlockColors[9] = block11;
-                    return;
-                }
-
-                for(int subY = subYStart; subY < subYEnd; ++subY) {
-                    uint32_t* blockRow = baseBlockColors.data() + static_cast<size_t>(subY) * 8u;
-                    for(int subX = 0; subX < scale; ++subX) {
-                        uint32_t color = blockRow[static_cast<size_t>(subX)];
-                        for(size_t i = 0; i < resolvedHighPriorityBackgroundCount; ++i) {
-                            color = sampleResolvedBackgroundPixel(color, resolvedHighPriorityBackgrounds[i], subX, subY);
-                        }
-                        blockRow[static_cast<size_t>(subX)] = color;
-                    }
-                }
-            };
 
             auto writeBlockRows = [&]() {
                 for(int subY = subYStart; subY < subYEnd; ++subY) {
@@ -6185,7 +6138,7 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
                 continue;
             }
 
-            applyHighPriorityLayersToBlock();
+            applyResolvedLayersToBlock(resolvedHighPriorityBackgrounds, resolvedHighPriorityBackgroundCount);
 
             writeBlockRows();
         }
