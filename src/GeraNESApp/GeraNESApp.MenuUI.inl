@@ -2496,7 +2496,10 @@ inline void GeraNESApp::drawModPixelInspectorWindow()
         std::fill(m_modPixelInspectorTextureUploadBuffer.begin(), m_modPixelInspectorTextureUploadBuffer.end(), 0u);
     }
 
-    std::vector<uint32_t> originalInspectorFramebuffer(static_cast<size_t>(PPU::SCREEN_WIDTH * PPU::SCREEN_HEIGHT), 0u);
+    constexpr int kInspectorFramebufferHeight = 256;
+    std::vector<uint32_t> originalInspectorFramebuffer(
+        static_cast<size_t>(PPU::SCREEN_WIDTH * kInspectorFramebufferHeight),
+        0u);
     const bool canUsePresentedFramebufferDirectly =
         showSprites &&
         showBackground &&
@@ -2526,12 +2529,12 @@ inline void GeraNESApp::drawModPixelInspectorWindow()
         baseSnapshot.frameConditionState.frameCount = snapshot.frameConditionState.frameCount;
         baseSnapshot.frameConditionState.memoryValues = snapshot.frameConditionState.memoryValues;
         std::vector<uint32_t> neutralInspectorFramebuffer(
-            static_cast<size_t>(PPU::SCREEN_WIDTH * PPU::SCREEN_HEIGHT),
+            static_cast<size_t>(PPU::SCREEN_WIDTH * kInspectorFramebufferHeight),
             snapshot.paletteColors[snapshot.universalBgColor & 0x3Fu]);
         m_modManager.composeChrFrame(
             originalInspectorFramebuffer,
             PPU::SCREEN_WIDTH,
-            PPU::SCREEN_HEIGHT,
+            kInspectorFramebufferHeight,
             0,
             PPU::SCREEN_HEIGHT,
             1,
