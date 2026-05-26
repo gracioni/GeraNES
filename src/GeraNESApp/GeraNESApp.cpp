@@ -1541,6 +1541,8 @@ void GeraNESApp::refreshModFrameCaptureHook()
         snapshot.scale = m_modManager.resolutionMultiplier();
         snapshot.scrollX = modSnapshot.scrollX;
         snapshot.scrollY = modSnapshot.scrollY;
+        snapshot.scrollXByLine = modSnapshot.scrollXByLine;
+        snapshot.scrollYByLine = modSnapshot.scrollYByLine;
         snapshot.universalBgColor = modSnapshot.universalBgColor;
         snapshot.paletteColors = modSnapshot.paletteColors;
         snapshot.tileHashes = modSnapshot.tileHashes;

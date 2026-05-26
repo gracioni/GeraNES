@@ -2347,6 +2347,12 @@ inline void GeraNESApp::drawModPixelInspectorWindow()
             snapshot.valid = true;
             snapshot.frameCount = emu.frameCount();
             snapshot.scale = 1;
+            for(int y = 0; y < PPU::SCREEN_HEIGHT; ++y) {
+                snapshot.scrollXByLine[static_cast<size_t>(y)] = ppu.debugPresentedScanlineScrollX(y);
+                snapshot.scrollYByLine[static_cast<size_t>(y)] = ppu.debugPresentedScanlineScrollY(y);
+            }
+            snapshot.scrollX = snapshot.scrollXByLine[0];
+            snapshot.scrollY = snapshot.scrollYByLine[0];
             snapshot.universalBgColor = static_cast<uint8_t>(ppu.debugPeekPpuMemory(0x3F00) & 0x3F);
             snapshot.backgroundPixels.resize(ppu.debugPresentedBackgroundPixelsCount());
             snapshot.spritePixels.resize(ppu.debugPresentedSpritePixelsCount());
@@ -2502,6 +2508,8 @@ inline void GeraNESApp::drawModPixelInspectorWindow()
         ModManager::ChrRenderSnapshot filteredSnapshot;
         filteredSnapshot.scrollX = snapshot.scrollX;
         filteredSnapshot.scrollY = snapshot.scrollY;
+        filteredSnapshot.scrollXByLine = snapshot.scrollXByLine;
+        filteredSnapshot.scrollYByLine = snapshot.scrollYByLine;
         filteredSnapshot.universalBgColor = snapshot.universalBgColor;
         filteredSnapshot.paletteColors = snapshot.paletteColors;
         filteredSnapshot.tileHashes = snapshot.tileHashes;
@@ -2657,10 +2665,12 @@ inline void GeraNESApp::drawModPixelInspectorWindow()
             static_cast<unsigned int>((finalColor >> 24) & 0xFFu));
 
         std::optional<ModManager::DebugComposePixel> composeDebug;
-        if(inspectMod && sourceFramebuffer != nullptr) {
+        if(inspectMod && !originalInspectorFramebuffer.empty()) {
             ModManager::ChrRenderSnapshot chrSnapshot;
             chrSnapshot.scrollX = snapshot.scrollX;
             chrSnapshot.scrollY = snapshot.scrollY;
+            chrSnapshot.scrollXByLine = snapshot.scrollXByLine;
+            chrSnapshot.scrollYByLine = snapshot.scrollYByLine;
             chrSnapshot.universalBgColor = snapshot.universalBgColor;
             chrSnapshot.paletteColors = snapshot.paletteColors;
             chrSnapshot.tileHashes = snapshot.tileHashes;
@@ -2668,7 +2678,7 @@ inline void GeraNESApp::drawModPixelInspectorWindow()
             chrSnapshot.spritePixels = snapshot.spritePixels;
             chrSnapshot.frameConditionState.frameCount = snapshot.frameConditionState.frameCount;
             chrSnapshot.frameConditionState.memoryValues = snapshot.frameConditionState.memoryValues;
-            composeDebug = m_modManager.debugComposePixel(sourceFramebuffer, chrSnapshot, modScale, hoveredX, hoveredY, m_modPixelInspectorFilter);
+            composeDebug = m_modManager.debugComposePixel(originalInspectorFramebuffer.data(), chrSnapshot, modScale, hoveredX, hoveredY, m_modPixelInspectorFilter);
         }
 
         if(inspectMod && composeDebug.has_value() && composeDebug->valid) {

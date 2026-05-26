@@ -909,6 +909,7 @@ bool ModManager::composeFrameOnEmuThread(
     bool captureDebugSnapshot)
 {
     MODMANAGER_PROFILE_SCOPE(ComposeFrameOnEmuThread);
+    std::scoped_lock runtimeLock(m_runtimeMutex);
     auto resetSnapshotForReuse = [&](bool releaseViews) {
         snapshot.scrollX = 0;
         snapshot.scrollY = 0;
@@ -2896,6 +2897,8 @@ std::optional<ModManager::DebugDecodedImage> ModManager::debugCopyDecodedImage(c
 
 std::optional<ModManager::DebugComposePixel> ModManager::debugComposePixel(const uint32_t* sourceFramebuffer, const ChrRenderSnapshot& snapshot, int scale, int nesX, int nesY, const std::string& filterText)
 {
+    std::scoped_lock runtimeLock(m_runtimeMutex);
+
     if(sourceFramebuffer == nullptr || scale <= 0 ||
        nesX < 0 || nesX >= PPU::SCREEN_WIDTH ||
        nesY < 0 || nesY >= PPU::SCREEN_HEIGHT) {
@@ -4122,6 +4125,7 @@ std::optional<ModManager::DecodedImage> ModManager::decodeImage(const std::vecto
 void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, int height, int activeTop, int activeBottom, int scale, const uint32_t* sourceFramebuffer, const ChrRenderSnapshot& snapshot, const std::vector<const ChrOverride*>* activeOverrideFilter, bool renderBackground, bool renderSprites)
 {
     MODMANAGER_PROFILE_SCOPE(ComposeChrFrame);
+    std::scoped_lock runtimeLock(m_runtimeMutex);
 
     if(sourceFramebuffer == nullptr || framebuffer.empty() || width <= 0 || height <= 0 || scale <= 0) {
         return;

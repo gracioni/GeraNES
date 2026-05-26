@@ -3,6 +3,7 @@
 #include <array>
 #include <cstdint>
 #include <filesystem>
+#include <mutex>
 #include <optional>
 #include <string>
 #include <unordered_map>
@@ -321,6 +322,7 @@ public:
     std::optional<uint8_t> handleHdAudioCpuRead(uint16_t addr) const;
 
 private:
+    mutable std::recursive_mutex m_runtimeMutex;
     std::filesystem::path m_originalRomPath;
     std::filesystem::path m_effectiveRomPath;
     std::filesystem::path m_modPath;
