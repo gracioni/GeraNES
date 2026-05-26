@@ -165,6 +165,8 @@ private:
     uint32_t m_ppuViewerCachedFrame = UINT32_MAX;
     int m_ppuViewerCachedScanline = -1;
     int m_ppuViewerCachedCycle = -1;
+    int m_ppuViewerChrPaletteMode = 0;
+    int m_ppuViewerCachedChrPaletteMode = -1;
     bool m_ppuViewerScanlineTraceActive = false;
     uint32_t m_eventViewerCachedFrame = UINT32_MAX;
     bool m_eventViewerCachedTraceEnabled = false;

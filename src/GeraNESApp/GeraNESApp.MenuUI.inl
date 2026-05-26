@@ -1577,13 +1577,32 @@ inline void GeraNESApp::drawPpuViewerWindow()
     const auto& paletteData = viewerSnapshot.paletteData;
     const auto& rgbPalette = viewerSnapshot.rgbPalette;
     const int backgroundPatternTableAddress = viewerSnapshot.backgroundPatternTableAddress;
+    static constexpr std::array<const char*, 9> kChrPaletteModeLabels = {
+        "None",
+        "BG 0",
+        "BG 1",
+        "BG 2",
+        "BG 3",
+        "SPR 0",
+        "SPR 1",
+        "SPR 2",
+        "SPR 3"
+    };
+    static constexpr std::array<uint32_t, 4> kChrGrayscaleColors = {
+        0xFF000000u,
+        0xFF555555u,
+        0xFFAAAAAAu,
+        0xFFFFFFFFu
+    };
     const bool refreshViewer =
         m_ppuViewerCachedFrame != viewerSnapshot.frameCount ||
         m_ppuViewerCachedScanline != viewerSnapshot.ppuScanline ||
-        m_ppuViewerCachedCycle != viewerSnapshot.ppuCycle;
+        m_ppuViewerCachedCycle != viewerSnapshot.ppuCycle ||
+        m_ppuViewerCachedChrPaletteMode != m_ppuViewerChrPaletteMode;
     m_ppuViewerCachedFrame = viewerSnapshot.frameCount;
     m_ppuViewerCachedScanline = viewerSnapshot.ppuScanline;
     m_ppuViewerCachedCycle = viewerSnapshot.ppuCycle;
+    m_ppuViewerCachedChrPaletteMode = m_ppuViewerChrPaletteMode;
 
     if(refreshViewer) {
         const auto traceData = m_emu.withExclusiveAccess([](const auto& emu) {
@@ -1595,6 +1614,22 @@ inline void GeraNESApp::drawPpuViewerWindow()
 
     const auto colorForPaletteEntry = [&](uint8_t paletteEntry) -> uint32_t {
         return rgbPalette[paletteEntry & 0x3F];
+    };
+    const auto chrPixelColorForMode = [&](uint8_t colorIndex, const std::array<uint8_t, 32>& activePaletteData) -> uint32_t {
+        if(m_ppuViewerChrPaletteMode == 0) {
+            return kChrGrayscaleColors[static_cast<size_t>(colorIndex & 0x03)];
+        }
+
+        int paletteBase = 0;
+        if(m_ppuViewerChrPaletteMode >= 1 && m_ppuViewerChrPaletteMode <= 4) {
+            paletteBase = (m_ppuViewerChrPaletteMode - 1) * 4;
+        } else {
+            paletteBase = 0x10 + (m_ppuViewerChrPaletteMode - 5) * 4;
+        }
+
+        const uint8_t paletteEntry =
+            static_cast<uint8_t>(activePaletteData[static_cast<size_t>(paletteBase + colorIndex)] & 0x3F);
+        return colorForPaletteEntry(paletteEntry);
     };
     const auto wrapCoord = [](int value, int range) {
         int wrapped = value % range;
@@ -1886,21 +1921,15 @@ inline void GeraNESApp::drawPpuViewerWindow()
                         const auto* chrLineSnapshot = findScanlineTraceSnapshot(chrLineState);
                         const auto& chrSource = chrLineSnapshot ? chrLineSnapshot->chrData : chrData;
                         const auto& chrPaletteData = chrLineSnapshot ? chrLineSnapshot->paletteData : paletteData;
-                        const uint8_t chrUniversalBackground = static_cast<uint8_t>(chrPaletteData[0] & 0x3F);
                         const uint8_t lowPlane = chrSource[static_cast<size_t>(tableBase + (tileIndex * 16) + fineY)];
                         const uint8_t highPlane = chrSource[static_cast<size_t>(tableBase + (tileIndex * 16) + fineY + 8)];
 
                         for(int fineX = 0; fineX < 8; ++fineX) {
                             const int bit = 7 - fineX;
                             const uint8_t colorIndex = static_cast<uint8_t>(((lowPlane >> bit) & 0x01) | (((highPlane >> bit) & 0x01) << 1));
-                            uint8_t paletteEntry = chrUniversalBackground;
-                            if(colorIndex != 0) {
-                                paletteEntry = static_cast<uint8_t>(chrPaletteData[static_cast<size_t>(colorIndex)] & 0x3F);
-                            }
-
                             const int dstX = xOffset + (tileX * 8) + fineX;
                             const size_t dstIndex = static_cast<size_t>((dstY * kChrWidth) + dstX);
-                            const uint32_t pixel = colorForPaletteEntry(paletteEntry);
+                            const uint32_t pixel = chrPixelColorForMode(colorIndex, chrPaletteData);
                             m_ppuChrBuffer[dstIndex] = pixel;
                             m_ppuChrExportBuffer[dstIndex] = (pixel & 0x00FFFFFFu) | (static_cast<uint32_t>(colorIndex) << 24);
                         }
@@ -2142,6 +2171,8 @@ inline void GeraNESApp::drawPpuViewerWindow()
         ImGui::BeginGroup();
         ImGui::TextUnformatted("CHR / Pattern Tables");
         ImGui::TextDisabled("Left: $0000   Right: $1000");
+        ImGui::SetNextItemWidth(160.0f);
+        ImGui::Combo("Display palette", &m_ppuViewerChrPaletteMode, kChrPaletteModeLabels.data(), static_cast<int>(kChrPaletteModeLabels.size()));
         ImGui::Image(
             static_cast<ImTextureID>(static_cast<uintptr_t>(m_ppuChrTexture)),
             ImVec2(static_cast<float>(kChrWidth * 2), static_cast<float>(kChrHeight * 2))
@@ -2294,8 +2325,6 @@ inline void GeraNESApp::drawModPixelInspectorWindow()
     ImGui::Checkbox("Show sprites", &m_modPixelInspectorShowSprites);
     ImGui::SameLine();
     ImGui::Checkbox("Show background", &m_modPixelInspectorShowBackground);
-    ImGui::SetNextItemWidth(180.0f);
-    ImGui::InputTextWithHint("##ModPixelInspectorFilter", "Filter stages, e.g. overworld2", &m_modPixelInspectorFilter);
     ImGui::TextDisabled("Click a pixel to pin its report below.");
 
     if(!hasRomLoaded) {
