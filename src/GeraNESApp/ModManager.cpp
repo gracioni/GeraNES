@@ -787,17 +787,14 @@ void ModManager::clear()
     m_scriptLoaded = false;
     m_resolutionMultiplier = 1;
     m_disableOriginalTiles = false;
-    m_disableContours = false;
     m_automaticFallbackTiles = false;
     m_overscanConfig = {};
-    m_customPalette.reset();
     m_chrOverrides.clear();
     m_backgroundReplacements.clear();
     m_additionalSpriteRules.clear();
     m_fallbackTileRules.clear();
     m_chrRomTileHashes.clear();
     m_chrRomCanonicalTileByHash.clear();
-    m_supportedRomHashes.clear();
     m_patchAssetPath.clear();
     m_patchExpectedRomHash.clear();
     m_hdAudioConfig = {};
@@ -1139,7 +1136,6 @@ bool ModManager::loadDefinitionForCurrentMod()
 {
     if(!m_active || m_modPath.empty()) return false;
     m_scriptLoaded = false;
-    m_customPalette.reset();
     m_chrOverrides.clear();
     m_backgroundReplacements.clear();
     m_frameConditionPlan = {};
@@ -1264,9 +1260,7 @@ bool ModManager::loadMesenHiresFile()
     int nextPriority = 1000000;
     int lineNumber = 0;
     m_disableOriginalTiles = false;
-    m_disableContours = false;
     m_overscanConfig = {};
-    m_supportedRomHashes.clear();
     m_patchAssetPath.clear();
     m_patchExpectedRomHash.clear();
     m_hdAudioConfig = {};
@@ -1341,8 +1335,6 @@ bool ModManager::loadMesenHiresFile()
                 const std::string option = toLower(trimMesenToken(rawOption));
                 if(option == "disableoriginaltiles") {
                     m_disableOriginalTiles = true;
-                } else if(option == "disablecontours") {
-                    m_disableContours = true;
                 } else if(option == "automaticfallbacktiles") {
                     m_automaticFallbackTiles = true;
                 } else if(option == "alternateregisterrange") {
@@ -1372,13 +1364,6 @@ bool ModManager::loadMesenHiresFile()
                 m_overscanConfig = overscan;
             } catch(...) {
                 logModMessage("Invalid Mesen <overscan> on line " + std::to_string(lineNumber), Logger::Type::ERROR);
-            }
-            continue;
-        }
-        if(line.rfind("<supportedrom>", 0) == 0) {
-            const std::string hash = toLower(trimMesenToken(line.substr(14)));
-            if(!hash.empty()) {
-                m_supportedRomHashes.push_back(hash);
             }
             continue;
         }
@@ -1717,9 +1702,6 @@ void ModManager::onFrame(GeraNESEmu& emu)
     const bool needsGraphicsCapture =
         (!m_chrOverrides.empty() || !m_backgroundReplacements.empty());
     emu.getConsole().ppu().debugSetModRenderCaptureEnabled(needsGraphicsCapture);
-    if(m_customPalette.has_value()) {
-        emu.getConsole().ppu().setColorPalette(*m_customPalette);
-    }
     updateFrameConditionsForFrame(emu);
 }
 
@@ -2831,73 +2813,6 @@ void ModManager::evictUnusedDynamicAssets(uint32_t frameCount)
             it = m_imageCache.erase(it);
         }
     }
-}
-
-std::optional<uint32_t> ModManager::debugReadDecodedImagePixel(const std::string& assetPath, int x, int y)
-{
-    const DecodedImage* image = decodedImage(assetPath);
-    if(image == nullptr || x < 0 || y < 0 || x >= image->width || y >= image->height) {
-        return std::nullopt;
-    }
-    return image->rgba[static_cast<size_t>(y) * static_cast<size_t>(image->width) + static_cast<size_t>(x)];
-}
-
-std::optional<uint32_t> ModManager::debugReadAssetPixelDirect(const std::string& assetPath, int x, int y)
-{
-    const std::string normalizedPath = normalizeZipPath(assetPath);
-    const auto data = readAsset(normalizedPath);
-    if(!data.has_value()) {
-        return std::nullopt;
-    }
-    const auto decoded = decodeImage(*data);
-    if(!decoded.has_value() || x < 0 || y < 0 || x >= decoded->width || y >= decoded->height) {
-        return std::nullopt;
-    }
-    return decoded->rgba[static_cast<size_t>(y) * static_cast<size_t>(decoded->width) + static_cast<size_t>(x)];
-}
-
-std::vector<std::string> ModManager::debugListImageAssets() const
-{
-    std::vector<std::string> assets;
-    assets.reserve(m_chrOverrides.size() + m_backgroundReplacements.size());
-
-    auto appendUnique = [&](const std::string& assetPath) {
-        if(assetPath.empty()) {
-            return;
-        }
-        const std::string normalizedPath = normalizeZipPath(assetPath);
-        if(std::find(assets.begin(), assets.end(), normalizedPath) == assets.end()) {
-            assets.push_back(normalizedPath);
-        }
-    };
-
-    for(const ChrOverride& override : m_chrOverrides) {
-        if(override.enabled) {
-            appendUnique(override.assetPath);
-        }
-    }
-    for(const BackgroundReplacement& replacement : m_backgroundReplacements) {
-        if(replacement.enabled) {
-            appendUnique(replacement.assetPath);
-        }
-    }
-
-    std::sort(assets.begin(), assets.end());
-    return assets;
-}
-
-std::optional<ModManager::DebugDecodedImage> ModManager::debugCopyDecodedImage(const std::string& assetPath)
-{
-    const DecodedImage* image = decodedImage(assetPath);
-    if(image == nullptr) {
-        return std::nullopt;
-    }
-
-    DebugDecodedImage copy;
-    copy.width = image->width;
-    copy.height = image->height;
-    copy.rgba = image->rgba;
-    return copy;
 }
 
 std::optional<ModManager::DebugComposePixel> ModManager::debugComposePixel(const uint32_t* sourceFramebuffer, const ChrRenderSnapshot& snapshot, int scale, int nesX, int nesY, const std::string& filterText)

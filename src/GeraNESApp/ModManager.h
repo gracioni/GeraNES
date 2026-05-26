@@ -312,10 +312,6 @@ public:
     const std::vector<ChrOverride>& chrOverrides() const { return m_chrOverrides; }
     const std::vector<BackgroundReplacement>& backgroundReplacements() const { return m_backgroundReplacements; }
     std::optional<std::vector<uint8_t>> readAsset(const std::string& assetPath) const;
-    std::optional<uint32_t> debugReadDecodedImagePixel(const std::string& assetPath, int x, int y);
-    std::optional<uint32_t> debugReadAssetPixelDirect(const std::string& assetPath, int x, int y);
-    std::vector<std::string> debugListImageAssets() const;
-    std::optional<DebugDecodedImage> debugCopyDecodedImage(const std::string& assetPath);
     std::optional<DebugComposePixel> debugComposePixel(const uint32_t* sourceFramebuffer, const ChrRenderSnapshot& snapshot, int scale, int nesX, int nesY, const std::string& filterText = "");
     std::shared_ptr<IAudioOutput::ExternalAudioMixer> externalAudioMixer() const;
     bool handleHdAudioCpuWrite(uint16_t addr, uint8_t value);
@@ -331,17 +327,14 @@ private:
     bool m_scriptLoaded = false;
     int m_resolutionMultiplier = 1;
     bool m_disableOriginalTiles = false;
-    bool m_disableContours = false;
     bool m_automaticFallbackTiles = false;
     OverscanConfig m_overscanConfig;
-    std::optional<std::array<uint32_t, 64>> m_customPalette;
     std::vector<ChrOverride> m_chrOverrides;
     std::vector<BackgroundReplacement> m_backgroundReplacements;
     std::vector<AdditionalSpriteRule> m_additionalSpriteRules;
     std::vector<FallbackTileRule> m_fallbackTileRules;
     std::vector<uint32_t> m_chrRomTileHashes;
     std::unordered_map<uint32_t, int> m_chrRomCanonicalTileByHash;
-    std::vector<std::string> m_supportedRomHashes;
     std::string m_patchAssetPath;
     std::string m_patchExpectedRomHash;
     HdPackAudioConfig m_hdAudioConfig;
