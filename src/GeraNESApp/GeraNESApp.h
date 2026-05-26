@@ -297,6 +297,8 @@ private:
     uint32_t m_selectedPpuEventFrame = 0;
 
     std::vector<uint8_t> m_embeddedUiFontData;
+    std::vector<uint8_t> m_embeddedIconFontData;
+    bool m_fontAwesomeIconsLoaded = false;
 #ifdef ENABLE_NSF_PLAYER
     ImFont* m_fontNsfTitle = nullptr;
     ImFont* m_fontNsfSubtitle = nullptr;

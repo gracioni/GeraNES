@@ -1,4 +1,5 @@
 #include "GeraNESApp/GeraNESApp.h"
+#include "GeraNESApp/FontAwesomeIcons.h"
 
 #include "GeraNESNetplay/NetplayWindowUI.h"
 
@@ -3346,15 +3347,46 @@ bool GeraNESApp::initGL()
     {
         auto fs = cmrc::resources::get_filesystem();
         const char* fontPath = nullptr;
+        const char* iconFontPath = nullptr;
         if(fs.exists("resources/fonts/DejaVuSans.ttf")) fontPath = "resources/fonts/DejaVuSans.ttf";
         else if(fs.exists("fonts/DejaVuSans.ttf")) fontPath = "fonts/DejaVuSans.ttf";
+        if(fs.exists("resources/fonts/fa-solid-900.ttf")) iconFontPath = "resources/fonts/fa-solid-900.ttf";
+        else if(fs.exists("fonts/fa-solid-900.ttf")) iconFontPath = "fonts/fa-solid-900.ttf";
+
+        io.Fonts->Clear();
+        io.FontDefault = io.Fonts->AddFontDefault();
+        m_fontAwesomeIconsLoaded = false;
+
+        if(iconFontPath != nullptr) {
+            auto iconFile = fs.open(iconFontPath);
+            m_embeddedIconFontData.assign(iconFile.begin(), iconFile.end());
+
+            ImFontConfig iconCfg{};
+            iconCfg.FontDataOwnedByAtlas = false;
+            iconCfg.MergeMode = true;
+            iconCfg.PixelSnapH = true;
+            iconCfg.GlyphMinAdvanceX = 13.0f;
+
+            m_fontAwesomeIconsLoaded = io.Fonts->AddFontFromMemoryTTF(
+                m_embeddedIconFontData.data(),
+                static_cast<int>(m_embeddedIconFontData.size()),
+                13.0f,
+                &iconCfg,
+                FontAwesomeIcons::glyphRanges()
+            ) != nullptr;
+
+            if(m_fontAwesomeIconsLoaded) {
+                Logger::instance().log(std::string("Font Awesome icons loaded from cmrc: ") + iconFontPath, Logger::Type::INFO);
+            } else {
+                Logger::instance().log("Font Awesome icon merge failed; menu labels will fall back to text only.", Logger::Type::WARNING);
+            }
+        } else {
+            Logger::instance().log("Font Awesome icon font not found in cmrc (tried resources/fonts/fa-solid-900.ttf and fonts/fa-solid-900.ttf).", Logger::Type::WARNING);
+        }
 
         if(fontPath != nullptr) {
             auto file = fs.open(fontPath);
             m_embeddedUiFontData.assign(file.begin(), file.end());
-
-            io.Fonts->Clear();
-            io.FontDefault = io.Fonts->AddFontDefault();
 
             ImFontConfig cfg{};
             cfg.FontDataOwnedByAtlas = false;
@@ -3374,8 +3406,7 @@ bool GeraNESApp::initGL()
                 m_fontNsfTitle == nullptr || m_fontNsfSubtitle == nullptr ||
 #endif
                 m_fontToast == nullptr || m_fontFps == nullptr) {
-                io.FontDefault = io.Fonts->AddFontDefault();
-                Logger::instance().log("Embedded overlay fonts failed to load completely; using ImGui default where needed.", Logger::Type::WARNING);
+                Logger::instance().log("Embedded overlay fonts failed to load completely; keeping the default ImGui UI font.", Logger::Type::WARNING);
             } else {
                 Logger::instance().log(std::string("Embedded UI font loaded from cmrc: ") + fontPath, Logger::Type::INFO);
             }

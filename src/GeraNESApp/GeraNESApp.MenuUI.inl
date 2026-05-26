@@ -43,6 +43,12 @@ inline void GeraNESApp::menuBar() {
 
     if(menuBarVisible) {
         ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(10.0f, 8.0f));
+        auto withMenuIcon = [this](const char* icon, const char* label) {
+            return m_fontAwesomeIconsLoaded ? std::string(icon) + " " + label : std::string(label);
+        };
+        auto withMenuIconText = [this](const char* icon, const std::string& label) {
+            return m_fontAwesomeIconsLoaded ? std::string(icon) + " " + label : label;
+        };
         auto beginTopMenu = [](const char* label, bool enabled = true) {
             ImGui::PushStyleColor(ImGuiCol_Text, ImGuiTheme::textOnAccent());
             const bool open = ImGui::BeginMenu(label, enabled);
@@ -50,31 +56,31 @@ inline void GeraNESApp::menuBar() {
             return open;
         };
 
-        if (beginTopMenu("File"))
+        if (beginTopMenu(withMenuIcon(FontAwesomeIcons::kFolderOpen, "File").c_str()))
         {
             const bool hasRomLoaded = m_emu.valid();
             auto sc = m_shortcuts.get("openRom");
             if( sc != nullptr) {
 
-                if (ImGui::MenuItem(sc->label.c_str(), sc->shortcut.c_str(), false, !netplayRomChangeRestricted))
+                if (ImGui::MenuItem(withMenuIconText(FontAwesomeIcons::kFolderOpen, sc->label).c_str(), sc->shortcut.c_str(), false, !netplayRomChangeRestricted))
                 {
                     sc->action();
                 }
             }
 
-            if(ImGui::MenuItem("Close ROM", nullptr, false, hasRomLoaded && !netplayRomChangeRestricted)) {
+            if(ImGui::MenuItem(withMenuIcon(FontAwesomeIcons::kXmark, "Close ROM").c_str(), nullptr, false, hasRomLoaded && !netplayRomChangeRestricted)) {
                 closeRomAction();
             }
 
             #ifdef __EMSCRIPTEN__
-            if (ImGui::BeginMenu("Session")) {
+            if (ImGui::BeginMenu(withMenuIcon(FontAwesomeIcons::kDatabase, "Session").c_str())) {
 
-                if(ImGui::MenuItem("Export")) {
+                if(ImGui::MenuItem(withMenuIcon(FontAwesomeIcons::kDownload, "Export").c_str())) {
                     AppSettings::instance().save();
                     emcriptenExportSession();
                 }
 
-                if(ImGui::MenuItem("Import", nullptr, false, !netplayRomChangeRestricted)) {
+                if(ImGui::MenuItem(withMenuIcon(FontAwesomeIcons::kFolderOpen, "Import").c_str(), nullptr, false, !netplayRomChangeRestricted)) {
                     emcriptenImportSession(reinterpret_cast<intptr_t>(this));
                 }
 
@@ -83,7 +89,7 @@ inline void GeraNESApp::menuBar() {
             #endif
 
             auto recentFiles = AppSettings::instance().data.getRecentFiles();
-            if (ImGui::BeginMenu("Recent Files", recentFiles.size() > 0 && !netplayRomChangeRestricted))
+            if (ImGui::BeginMenu(withMenuIcon(FontAwesomeIcons::kClockRotateLeft, "Recent Files").c_str(), recentFiles.size() > 0 && !netplayRomChangeRestricted))
             {
                 for(size_t i = 0; i < recentFiles.size(); ++i) {
 #ifdef __EMSCRIPTEN__
@@ -103,7 +109,7 @@ inline void GeraNESApp::menuBar() {
             if( sc != nullptr) {
                 ImGui::Separator();
 
-                if (ImGui::MenuItem(sc->label.c_str(), sc->shortcut.c_str()))
+                if (ImGui::MenuItem(withMenuIconText(FontAwesomeIcons::kRightFromBracket, sc->label).c_str(), sc->shortcut.c_str()))
                 {
                     sc->action();
                 }
@@ -112,14 +118,14 @@ inline void GeraNESApp::menuBar() {
             ImGui::EndMenu();
         }
 
-        if (beginTopMenu("Emulator", !netplayClientRestricted))
+        if (beginTopMenu(withMenuIcon(FontAwesomeIcons::kGamepad, "Emulator").c_str(), !netplayClientRestricted))
         {
             const bool hasRomLoaded = m_emu.valid();
             int& saveStateSlot = AppSettings::instance().data.saveStateSlot;
             auto sc = m_shortcuts.get("saveState");
             if( sc != nullptr) {
 
-                if (ImGui::MenuItem(sc->label.c_str(), sc->shortcut.c_str(), false, hasRomLoaded))
+                if (ImGui::MenuItem(withMenuIconText(FontAwesomeIcons::kFloppyDisk, sc->label).c_str(), sc->shortcut.c_str(), false, hasRomLoaded))
                 {
                     sc->action();
                 }
@@ -128,13 +134,13 @@ inline void GeraNESApp::menuBar() {
             sc = m_shortcuts.get("loadState");
             if( sc != nullptr) {
 
-                if (ImGui::MenuItem(sc->label.c_str(), sc->shortcut.c_str(), false, hasRomLoaded))
+                if (ImGui::MenuItem(withMenuIconText(FontAwesomeIcons::kFolderOpen, sc->label).c_str(), sc->shortcut.c_str(), false, hasRomLoaded))
                 {
                     sc->action();
                 }
             }
 
-            if(ImGui::BeginMenu("Slot")) {
+            if(ImGui::BeginMenu(withMenuIcon(FontAwesomeIcons::kFloppyDisk, "Slot").c_str())) {
                 for(int slot = 0; slot <= 9; ++slot) {
                     const std::string label = std::to_string(slot);
                     if(ImGui::MenuItem(label.c_str(), nullptr, saveStateSlot == slot)) {
@@ -150,13 +156,13 @@ inline void GeraNESApp::menuBar() {
 
             ImGui::Separator();
 
-            if (ImGui::MenuItem("Improvements")) {
+            if (ImGui::MenuItem(withMenuIcon(FontAwesomeIcons::kWandMagicSparkles, "Improvements").c_str())) {
                 m_showImprovementsWindow = true;
             }
 
             ImGui::Separator();
 
-            if (ImGui::BeginMenu("Region", hasRomLoaded)) {
+            if (ImGui::BeginMenu(withMenuIcon(FontAwesomeIcons::kGlobe, "Region").c_str(), hasRomLoaded)) {
 
                 if(ImGui::MenuItem("NTSC", nullptr, m_emu.region() == Settings::Region::NTSC)) {
                     m_emu.setRegion(Settings::Region::NTSC);
@@ -178,22 +184,22 @@ inline void GeraNESApp::menuBar() {
                 ? (m_netplayRuntime.uiSnapshot().room.state == ConsoleNetplay::SessionState::Paused)
                 : m_emu.paused();
             const bool debugOwnsFlowControl = AppSettings::instance().data.debug.cpuDebuggerEnabled;
-            if(ImGui::MenuItem("Pause", pauseKey, pauseSelected, hasRomLoaded && !isNetplayPauseRestricted() && !debugOwnsFlowControl)) {
+            if(ImGui::MenuItem(withMenuIcon(FontAwesomeIcons::kPause, "Pause").c_str(), pauseKey, pauseSelected, hasRomLoaded && !isNetplayPauseRestricted() && !debugOwnsFlowControl)) {
                 togglePauseAction();
             }
 
             ImGui::Separator();
 
-            if(ImGui::MenuItem("Reset", nullptr, false, hasRomLoaded && !netplayClientRestricted)) {
+            if(ImGui::MenuItem(withMenuIcon(FontAwesomeIcons::kRotateRight, "Reset").c_str(), nullptr, false, hasRomLoaded && !netplayClientRestricted)) {
                 resetAction();
             }
 
             ImGui::EndMenu();
         }
 
-        if (beginTopMenu("Options"))
+        if (beginTopMenu(withMenuIcon(FontAwesomeIcons::kSliders, "Options").c_str()))
         {
-            if (ImGui::BeginMenu("Video"))
+            if (ImGui::BeginMenu(withMenuIcon(FontAwesomeIcons::kTv, "Video").c_str()))
             {
                 if (ImGui::BeginMenu("VSync")) {
 
@@ -315,7 +321,7 @@ inline void GeraNESApp::menuBar() {
                 ImGui::EndMenu();
             }
 
-            if (ImGui::BeginMenu("Audio"))
+            if (ImGui::BeginMenu(withMenuIcon(FontAwesomeIcons::kVolumeHigh, "Audio").c_str()))
             {
                 if (ImGui::BeginMenu("Device")) {
 
@@ -388,7 +394,7 @@ inline void GeraNESApp::menuBar() {
                 ImGui::EndMenu();
             }
 
-            if (ImGui::BeginMenu("Input"))
+            if (ImGui::BeginMenu(withMenuIcon(FontAwesomeIcons::kKeyboard, "Input").c_str()))
             {
 #ifndef __EMSCRIPTEN__
             const auto netplaySnapshot = GeraNESNetplay::menuSnapshot(m_netplayRuntime);
@@ -699,7 +705,7 @@ inline void GeraNESApp::menuBar() {
             ImGui::EndMenu();
         }
 
-        if(ImGui::MenuItem("System")) {
+        if(ImGui::MenuItem(withMenuIcon(FontAwesomeIcons::kGear, "System").c_str())) {
             m_inputBindingConfigWindow.show("System", m_systemInput);
         }  
 
@@ -708,7 +714,7 @@ inline void GeraNESApp::menuBar() {
         const bool isVsRom = cartridgeSystem == GameDatabase::System::VsSystem;
         const bool hasHardwareActions = m_emu.valid() && (isFdsRom || isVsRom);
 
-            if (ImGui::BeginMenu("Hardware", hasHardwareActions && !netplayClientRestricted)) {
+            if (ImGui::BeginMenu(withMenuIcon(FontAwesomeIcons::kMicrochip, "Hardware").c_str(), hasHardwareActions && !netplayClientRestricted)) {
                 if (ImGui::MenuItem("FDS - Switch Disk Side", nullptr, false, isFdsRom && !netplayClientRestricted)) {
                     m_emu.fdsSwitchDiskSide();
                 }
@@ -744,7 +750,7 @@ inline void GeraNESApp::menuBar() {
 
             ImGui::Separator();
 
-            if (ImGui::BeginMenu("Touch controls")) {
+            if (ImGui::BeginMenu(withMenuIcon(FontAwesomeIcons::kGamepad, "Touch controls").c_str())) {
 
                 bool enabled = AppSettings::instance().data.input.touchControls.enabled;
                 if(ImGui::MenuItem("Enabled", nullptr, enabled)) {
@@ -823,7 +829,7 @@ inline void GeraNESApp::menuBar() {
         }
 
 #ifdef ENABLE_NSF_PLAYER
-        if (beginTopMenu("NSF", m_emu.isNsfLoaded()))
+        if (beginTopMenu(withMenuIcon(FontAwesomeIcons::kMusic, "NSF").c_str(), m_emu.isNsfLoaded()))
         {
             const bool isPlaying = m_emu.nsfIsPlaying();
             const bool isPaused = m_emu.nsfIsPaused();
@@ -834,13 +840,13 @@ inline void GeraNESApp::menuBar() {
             const bool canPause = isPlaying && !isPaused && !hasEnded;
             const bool canStop = (isPlaying || isPaused) && !hasEnded;
 
-            if(ImGui::MenuItem("Play", nullptr, false, canPlay)) {
+            if(ImGui::MenuItem(withMenuIcon(FontAwesomeIcons::kPlay, "Play").c_str(), nullptr, false, canPlay)) {
                 m_emu.nsfPlay();
             }
-            if(ImGui::MenuItem("Pause", nullptr, false, canPause)) {
+            if(ImGui::MenuItem(withMenuIcon(FontAwesomeIcons::kPause, "Pause").c_str(), nullptr, false, canPause)) {
                 m_emu.nsfPause();
             }
-            if(ImGui::MenuItem("Stop", nullptr, false, canStop)) {
+            if(ImGui::MenuItem(withMenuIcon(FontAwesomeIcons::kStop, "Stop").c_str(), nullptr, false, canStop)) {
                 m_emu.nsfStop();
             }
 
@@ -865,35 +871,35 @@ inline void GeraNESApp::menuBar() {
         }
 #endif
 
-        if (beginTopMenu("Tools"))
+        if (beginTopMenu(withMenuIcon(FontAwesomeIcons::kWrench, "Tools").c_str()))
         {
-            if (ImGui::MenuItem("Log"))
+            if (ImGui::MenuItem(withMenuIcon(FontAwesomeIcons::kClipboard, "Log").c_str()))
             {
                 m_showLogWindow = true;
             }
 
             ImGui::Separator();
 
-            if (ImGui::MenuItem("Netplay"))
+            if (ImGui::MenuItem(withMenuIcon(FontAwesomeIcons::kWifi, "Netplay").c_str()))
             {
                 m_showNetplayWindow = true;
             }
 
             ImGui::Separator();
 
-            if(ImGui::BeginMenu("Mod")) {
-                if(ImGui::BeginMenu("Load", !netplayRomChangeRestricted)) {
-                    if(ImGui::MenuItem("ZIP File")) {
+            if(ImGui::BeginMenu(withMenuIcon(FontAwesomeIcons::kPuzzlePiece, "Mod").c_str())) {
+                if(ImGui::BeginMenu(withMenuIcon(FontAwesomeIcons::kFolderOpen, "Load").c_str(), !netplayRomChangeRestricted)) {
+                    if(ImGui::MenuItem(withMenuIcon(FontAwesomeIcons::kFileZipper, "ZIP File").c_str())) {
                         loadModArchive();
                     }
-                    if(ImGui::MenuItem("Folder")) {
+                    if(ImGui::MenuItem(withMenuIcon(FontAwesomeIcons::kFolder, "Folder").c_str())) {
                         loadModFolder();
                     }
                     ImGui::EndMenu();
                 }
 
                 const bool hasSelectedMod = m_modManager.hasSelectedSource();
-                if(ImGui::MenuItem("Clear", nullptr, false, hasSelectedMod && !netplayRomChangeRestricted)) {
+                if(ImGui::MenuItem(withMenuIcon(FontAwesomeIcons::kXmark, "Clear").c_str(), nullptr, false, hasSelectedMod && !netplayRomChangeRestricted)) {
                     clearSelectedMod();
                 }
 
@@ -915,29 +921,29 @@ inline void GeraNESApp::menuBar() {
             ImGui::Separator();
 
             const bool hasLoadedRom = m_emu.valid();
-            if(ImGui::MenuItem("Memory Viewer", nullptr, m_showMemoryViewerWindow, hasLoadedRom)) {
+            if(ImGui::MenuItem(withMenuIcon(FontAwesomeIcons::kMemory, "Memory Viewer").c_str(), nullptr, m_showMemoryViewerWindow, hasLoadedRom)) {
                 m_showMemoryViewerWindow = !m_showMemoryViewerWindow;
             }
 
-            if(ImGui::MenuItem("Memory Compare", nullptr, m_showMemoryCompareWindow, hasLoadedRom)) {
+            if(ImGui::MenuItem(withMenuIcon(FontAwesomeIcons::kMemory, "Memory Compare").c_str(), nullptr, m_showMemoryCompareWindow, hasLoadedRom)) {
                 m_showMemoryCompareWindow = !m_showMemoryCompareWindow;
             }
 
-            if(ImGui::MenuItem("PPU Viewer", nullptr, m_showPpuViewerWindow, hasLoadedRom)) {
+            if(ImGui::MenuItem(withMenuIcon(FontAwesomeIcons::kMicrochip, "PPU Viewer").c_str(), nullptr, m_showPpuViewerWindow, hasLoadedRom)) {
                 m_showPpuViewerWindow = !m_showPpuViewerWindow;
             }
 
-            if(ImGui::MenuItem("Screen Pixel Inspector", nullptr, m_showModPixelInspectorWindow, hasLoadedRom)) {
+            if(ImGui::MenuItem(withMenuIcon(FontAwesomeIcons::kPalette, "Screen Pixel Inspector").c_str(), nullptr, m_showModPixelInspectorWindow, hasLoadedRom)) {
                 m_showModPixelInspectorWindow = !m_showModPixelInspectorWindow;
             }
 
-            if(ImGui::MenuItem("Event Viewer", nullptr, m_showEventViewerWindow, hasLoadedRom)) {
+            if(ImGui::MenuItem(withMenuIcon(FontAwesomeIcons::kClipboard, "Event Viewer").c_str(), nullptr, m_showEventViewerWindow, hasLoadedRom)) {
                 m_showEventViewerWindow = !m_showEventViewerWindow;
             }
 
             auto debugShortcut = m_shortcuts.get("cpuDebugger");
             const char* debugKey = (debugShortcut != nullptr) ? debugShortcut->shortcut.c_str() : nullptr;
-            if(ImGui::MenuItem("CPU Debugger", debugKey, m_showCpuDebuggerWindow, hasLoadedRom)) {
+            if(ImGui::MenuItem(withMenuIcon(FontAwesomeIcons::kBug, "CPU Debugger").c_str(), debugKey, m_showCpuDebuggerWindow, hasLoadedRom)) {
                 m_showCpuDebuggerWindow = !m_showCpuDebuggerWindow;
                 AppSettings::instance().data.debug.showCpuDebugger = m_showCpuDebuggerWindow;
                 if(m_showCpuDebuggerWindow) {
@@ -949,9 +955,9 @@ inline void GeraNESApp::menuBar() {
 
             ImGui::Separator();
 
-            if (ImGui::BeginMenu("Advanced"))
+            if (ImGui::BeginMenu(withMenuIcon(FontAwesomeIcons::kGear, "Advanced").c_str()))
             {
-                if (ImGui::MenuItem("Rom Database", nullptr, false, m_emu.valid()))
+                if (ImGui::MenuItem(withMenuIcon(FontAwesomeIcons::kDatabase, "Rom Database").c_str(), nullptr, false, m_emu.valid()))
                 {
                     loadRomDatabaseEditorFromCurrentRom();
                     m_showRomDatabaseWindow = true;
@@ -962,7 +968,7 @@ inline void GeraNESApp::menuBar() {
         }
 
         ImGui::PushStyleColor(ImGuiCol_Text, ImGuiTheme::textOnAccent());
-        if (ImGui::MenuItem("About"))
+        if (ImGui::MenuItem(withMenuIcon(FontAwesomeIcons::kCircleInfo, "About").c_str()))
         {
             m_showAboutWindow = true;
         }
