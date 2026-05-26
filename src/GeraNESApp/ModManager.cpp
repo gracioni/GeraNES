@@ -40,6 +40,9 @@ enum class ModManagerProfileSection : size_t {
     ComposeChrFrameBackgroundPrep,
     ComposeChrFrameMainLoop,
     ComposeChrFrameBackgroundOverride,
+    ComposeChrFrameBackgroundOverrideSetup,
+    ComposeChrFrameBackgroundOverrideCachedApply,
+    ComposeChrFrameBackgroundOverrideFallbackSample,
     ComposeChrFrameSpriteResolve,
     ComposeChrFrameSpriteLayers,
     ComposeChrFrameFinalWrite,
@@ -98,6 +101,9 @@ struct ModManagerProfileStats {
         case ModManagerProfileSection::ComposeChrFrameBackgroundPrep: return "background prep";
         case ModManagerProfileSection::ComposeChrFrameMainLoop: return "compose main loop";
         case ModManagerProfileSection::ComposeChrFrameBackgroundOverride: return "background override";
+        case ModManagerProfileSection::ComposeChrFrameBackgroundOverrideSetup: return "background override setup";
+        case ModManagerProfileSection::ComposeChrFrameBackgroundOverrideCachedApply: return "background override cached apply";
+        case ModManagerProfileSection::ComposeChrFrameBackgroundOverrideFallbackSample: return "background override fallback sample";
         case ModManagerProfileSection::ComposeChrFrameSpriteResolve: return "sprite resolve";
         case ModManagerProfileSection::ComposeChrFrameSpriteLayers: return "sprite layers";
         case ModManagerProfileSection::ComposeChrFrameFinalWrite: return "final block write";
@@ -157,6 +163,9 @@ struct ModManagerProfileStats {
         appendSection(ModManagerProfileSection::ComposeChrFrameBackgroundPrep, true);
         appendSection(ModManagerProfileSection::ComposeChrFrameMainLoop, true);
         appendSection(ModManagerProfileSection::ComposeChrFrameBackgroundOverride, true);
+        appendSection(ModManagerProfileSection::ComposeChrFrameBackgroundOverrideSetup, true);
+        appendSection(ModManagerProfileSection::ComposeChrFrameBackgroundOverrideCachedApply, true);
+        appendSection(ModManagerProfileSection::ComposeChrFrameBackgroundOverrideFallbackSample, true);
         appendSection(ModManagerProfileSection::ComposeChrFrameSpriteResolve, true);
         appendSection(ModManagerProfileSection::ComposeChrFrameSpriteLayers, true);
         appendSection(ModManagerProfileSection::ComposeChrFrameFinalWrite, true);
@@ -5418,55 +5427,57 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
 
             if(bgPixel != nullptr && bgPixel->valid) {
                 MODMANAGER_PROFILE_SCOPE(ComposeChrFrameBackgroundOverride);
-                const int bgFullTileIndex = bgPixel->tileIndex != 0xFFFF ? static_cast<int>(bgPixel->tileIndex) : -1;
-                backgroundPalette = { bgPixel->palette[0], bgPixel->palette[1], bgPixel->palette[2] };
-                backgroundFallbackColor = snapshot.paletteColors[bgPixel->paletteIndex & 0x3F];
-                backgroundMappedPalette[0] = snapshot.paletteColors[snapshot.universalBgColor & 0x3F];
-                backgroundMappedPalette[1] = snapshot.paletteColors[backgroundPalette[0] & 0x3F];
-                backgroundMappedPalette[2] = snapshot.paletteColors[backgroundPalette[1] & 0x3F];
-                backgroundMappedPalette[3] = snapshot.paletteColors[backgroundPalette[2] & 0x3F];
-                if(bgFullTileIndex >= 0) {
-                    const int tileOriginX = nesX - static_cast<int>(bgPixel->offsetX);
-                    const int tileOriginY = nesY - static_cast<int>(bgPixel->offsetY);
-                    if(lastBackgroundOverrideCacheValid &&
-                        lastBackgroundOverrideOriginX == tileOriginX &&
-                        lastBackgroundOverrideOriginY == tileOriginY &&
-                        lastBackgroundOverrideFullTileIndex == bgFullTileIndex &&
-                        lastBackgroundOverrideTileHash == bgPixel->tileHash &&
-                        lastBackgroundOverridePalette == backgroundPalette) {
-                        backgroundOverride = lastBackgroundOverrideState.override;
-                        backgroundFallbackColor = lastBackgroundOverrideState.fallbackColor;
-                        backgroundPalette = lastBackgroundOverrideState.palette;
-                        backgroundMappedPalette = lastBackgroundOverrideState.mappedPalette;
-                        backgroundOverrideImage = lastBackgroundOverrideState.image;
-                        backgroundOverrideRgbaData = lastBackgroundOverrideState.rgbaData;
-                        backgroundOverrideIndexedPixelsData = lastBackgroundOverrideState.indexedPixelsData;
-                        backgroundOverrideTileSrcX = lastBackgroundOverrideState.tileSrcX;
-                        backgroundOverrideTileSrcY = lastBackgroundOverrideState.tileSrcY;
-                        backgroundOverrideSourceScale = lastBackgroundOverrideState.sourceScale;
-                        backgroundOverrideImageWidth = lastBackgroundOverrideState.imageWidth;
-                        backgroundOverrideImageHeight = lastBackgroundOverrideState.imageHeight;
-                        backgroundOverrideIgnorePalette = lastBackgroundOverrideState.ignorePalette;
-                        backgroundOverrideUsesIndexedPalette = lastBackgroundOverrideState.usesIndexedPalette;
-                        backgroundOverrideTileSrcValid = lastBackgroundOverrideState.tileSrcValid;
-                    } else {
-                        const ConditionContext context = { nesX, nesY, bgPixel, nullptr };
-                        backgroundOverride =
-                            onlyWholeChrOverrides && fastBackgroundOverride != nullptr
-                                ? fastBackgroundOverride
-                                : findOverride(ChrOverride::Target::Background, bgFullTileIndex & 0xFF, bgFullTileIndex, bgFullTileIndex / 256, backgroundPalette, false, false, false, context);
-                        lastBackgroundOverrideCacheValid = true;
-                        lastBackgroundOverrideOriginX = tileOriginX;
-                        lastBackgroundOverrideOriginY = tileOriginY;
-                        lastBackgroundOverrideFullTileIndex = bgFullTileIndex;
-                        lastBackgroundOverrideTileHash = bgPixel->tileHash;
-                        lastBackgroundOverridePalette = backgroundPalette;
-                        lastBackgroundOverrideState = {};
-                        lastBackgroundOverrideState.override = backgroundOverride;
-                        lastBackgroundOverrideState.fallbackColor = backgroundFallbackColor;
-                        lastBackgroundOverrideState.palette = backgroundPalette;
-                        lastBackgroundOverrideState.mappedPalette = backgroundMappedPalette;
-                        if(backgroundOverride != nullptr) {
+                {
+                    MODMANAGER_PROFILE_SCOPE(ComposeChrFrameBackgroundOverrideSetup);
+                    const int bgFullTileIndex = bgPixel->tileIndex != 0xFFFF ? static_cast<int>(bgPixel->tileIndex) : -1;
+                    backgroundPalette = { bgPixel->palette[0], bgPixel->palette[1], bgPixel->palette[2] };
+                    backgroundFallbackColor = snapshot.paletteColors[bgPixel->paletteIndex & 0x3F];
+                    backgroundMappedPalette[0] = snapshot.paletteColors[snapshot.universalBgColor & 0x3F];
+                    backgroundMappedPalette[1] = snapshot.paletteColors[backgroundPalette[0] & 0x3F];
+                    backgroundMappedPalette[2] = snapshot.paletteColors[backgroundPalette[1] & 0x3F];
+                    backgroundMappedPalette[3] = snapshot.paletteColors[backgroundPalette[2] & 0x3F];
+                    if(bgFullTileIndex >= 0) {
+                        const int tileOriginX = nesX - static_cast<int>(bgPixel->offsetX);
+                        const int tileOriginY = nesY - static_cast<int>(bgPixel->offsetY);
+                        if(lastBackgroundOverrideCacheValid &&
+                            lastBackgroundOverrideOriginX == tileOriginX &&
+                            lastBackgroundOverrideOriginY == tileOriginY &&
+                            lastBackgroundOverrideFullTileIndex == bgFullTileIndex &&
+                            lastBackgroundOverrideTileHash == bgPixel->tileHash &&
+                            lastBackgroundOverridePalette == backgroundPalette) {
+                            backgroundOverride = lastBackgroundOverrideState.override;
+                            backgroundFallbackColor = lastBackgroundOverrideState.fallbackColor;
+                            backgroundPalette = lastBackgroundOverrideState.palette;
+                            backgroundMappedPalette = lastBackgroundOverrideState.mappedPalette;
+                            backgroundOverrideImage = lastBackgroundOverrideState.image;
+                            backgroundOverrideRgbaData = lastBackgroundOverrideState.rgbaData;
+                            backgroundOverrideIndexedPixelsData = lastBackgroundOverrideState.indexedPixelsData;
+                            backgroundOverrideTileSrcX = lastBackgroundOverrideState.tileSrcX;
+                            backgroundOverrideTileSrcY = lastBackgroundOverrideState.tileSrcY;
+                            backgroundOverrideSourceScale = lastBackgroundOverrideState.sourceScale;
+                            backgroundOverrideImageWidth = lastBackgroundOverrideState.imageWidth;
+                            backgroundOverrideImageHeight = lastBackgroundOverrideState.imageHeight;
+                            backgroundOverrideIgnorePalette = lastBackgroundOverrideState.ignorePalette;
+                            backgroundOverrideUsesIndexedPalette = lastBackgroundOverrideState.usesIndexedPalette;
+                            backgroundOverrideTileSrcValid = lastBackgroundOverrideState.tileSrcValid;
+                        } else {
+                            const ConditionContext context = { nesX, nesY, bgPixel, nullptr };
+                            backgroundOverride =
+                                onlyWholeChrOverrides && fastBackgroundOverride != nullptr
+                                    ? fastBackgroundOverride
+                                    : findOverride(ChrOverride::Target::Background, bgFullTileIndex & 0xFF, bgFullTileIndex, bgFullTileIndex / 256, backgroundPalette, false, false, false, context);
+                            lastBackgroundOverrideCacheValid = true;
+                            lastBackgroundOverrideOriginX = tileOriginX;
+                            lastBackgroundOverrideOriginY = tileOriginY;
+                            lastBackgroundOverrideFullTileIndex = bgFullTileIndex;
+                            lastBackgroundOverrideTileHash = bgPixel->tileHash;
+                            lastBackgroundOverridePalette = backgroundPalette;
+                            lastBackgroundOverrideState = {};
+                            lastBackgroundOverrideState.override = backgroundOverride;
+                            lastBackgroundOverrideState.fallbackColor = backgroundFallbackColor;
+                            lastBackgroundOverrideState.palette = backgroundPalette;
+                            lastBackgroundOverrideState.mappedPalette = backgroundMappedPalette;
+                            if(backgroundOverride != nullptr) {
                             const ChrOverride* override = backgroundOverride->override;
                             backgroundOverrideImage = backgroundOverride->image;
                             lastBackgroundOverrideState.image = backgroundOverrideImage;
@@ -5526,6 +5537,7 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
                                         backgroundOverrideTileSrcValid = true;
                                     }
                                 }
+                            }
                             }
                         }
                         lastBackgroundOverrideState.rgbaData = backgroundOverrideRgbaData;
@@ -6373,6 +6385,7 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
                 const int localOffsetY = bgPixel->offsetY & 0x07;
 
                 if(canUseScale2BlockPath) {
+                    MODMANAGER_PROFILE_SCOPE(ComposeChrFrameBackgroundOverrideCachedApply);
                     const int sourceScale = backgroundOverrideSourceScale;
                     const int tileBaseX = backgroundOverrideTileSrcX + localOffsetX * sourceScale;
                     const int tileBaseY = backgroundOverrideTileSrcY + localOffsetY * sourceScale;
@@ -6406,6 +6419,7 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
                     blockWidth <= 8 &&
                     ensureGeneralBackgroundOverrideRowCache();
                 if(canUseGeneralRowCache) {
+                    MODMANAGER_PROFILE_SCOPE(ComposeChrFrameBackgroundOverrideCachedApply);
                     const auto& overrideBlock =
                         bgOverrideRowCacheGeneralBlocks[static_cast<size_t>(localOffsetX)];
                     const bool opaqueBlock =
@@ -6429,6 +6443,7 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
                     return true;
                 }
 
+                MODMANAGER_PROFILE_SCOPE(ComposeChrFrameBackgroundOverrideFallbackSample);
                 const int sourceScale = backgroundOverrideSourceScale;
                 const int tileBaseX = backgroundOverrideTileSrcX + localOffsetX * sourceScale;
                 const int tileBaseY = backgroundOverrideTileSrcY + localOffsetY * sourceScale;
@@ -6463,6 +6478,7 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
                     if(applyCachedBackgroundOverrideToBlock()) {
                         return;
                     }
+                    MODMANAGER_PROFILE_SCOPE(ComposeChrFrameBackgroundOverrideFallbackSample);
                     if(canUseScale2BlockPath) {
                         baseBlockColors[0] = sampleOverridePixel(
                             baseBlockColors[0],
