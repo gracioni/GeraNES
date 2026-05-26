@@ -5324,6 +5324,18 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
     highPriorityScanlineLayers.reserve(highPriorityBackgrounds.size());
     std::unordered_map<uint64_t, const PreparedOverride*> spriteOverrideRowCache;
     spriteOverrideRowCache.reserve(256);
+    static constexpr int kVisibleTileColumns = PPU::SCREEN_WIDTH / 8;
+    static constexpr int kVisibleTileRows = (PPU::SCREEN_HEIGHT + 7) / 8;
+    struct CachedBackgroundTileStateEntry {
+        bool valid = false;
+        int originX = 0;
+        int originY = 0;
+        int fullTileIndex = -1;
+        uint32_t tileHash = 0;
+        std::array<uint8_t, 3> palette = {};
+        CachedBackgroundOverrideState state;
+    };
+    std::array<CachedBackgroundTileStateEntry, kVisibleTileColumns * kVisibleTileRows> backgroundTileStateCache = {};
     MODMANAGER_PROFILE_SCOPE(ComposeChrFrameMainLoop);
     for(int nesY = activeNesY0; nesY < activeNesY1; ++nesY) {
         spriteOverrideRowCache.clear();
@@ -5390,10 +5402,14 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
         std::array<CachedBackgroundOverrideState, PPU::SCREEN_WIDTH> resolvedBackgroundOverrideStates = {};
         std::array<const CachedBackgroundOverrideState*, PPU::SCREEN_WIDTH> resolvedBackgroundOverrideStatePtrs = {};
 
-        auto resolveBackgroundOverrideState = [&](int nesX, const PPU::DebugModBackgroundPixel& bgPixel, CachedBackgroundOverrideState& outState) {
+        auto resolveBackgroundOverrideState = [&](int nesX,
+                                                 const PPU::DebugModBackgroundPixel& bgPixel,
+                                                 CachedBackgroundOverrideState& outState,
+                                                 bool& outCacheableByOrigin) {
             MODMANAGER_PROFILE_SCOPE(ComposeChrFrameBackgroundOverride);
             MODMANAGER_PROFILE_SCOPE(ComposeChrFrameBackgroundOverrideSetup);
             outState = {};
+            outCacheableByOrigin = false;
             const int bgFullTileIndex = bgPixel.tileIndex != 0xFFFF ? static_cast<int>(bgPixel.tileIndex) : -1;
             outState.palette = { bgPixel.palette[0], bgPixel.palette[1], bgPixel.palette[2] };
             outState.fallbackColor = snapshot.paletteColors[bgPixel.paletteIndex & 0x3F];
@@ -5418,19 +5434,22 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
             }
 
             const ConditionContext context = { nesX, nesY, &bgPixel, nullptr };
-            outState.override =
-                onlyWholeChrOverrides && fastBackgroundOverride != nullptr
-                    ? fastBackgroundOverride
-                    : findOverride(
-                        ChrOverride::Target::Background,
-                        bgFullTileIndex & 0xFF,
-                        bgFullTileIndex,
-                        bgFullTileIndex / 256,
-                        outState.palette,
-                        false,
-                        false,
-                        false,
-                        context);
+            if(onlyWholeChrOverrides && fastBackgroundOverride != nullptr) {
+                outState.override = fastBackgroundOverride;
+                outCacheableByOrigin = true;
+            } else {
+                outState.override = findOverride(
+                    ChrOverride::Target::Background,
+                    bgFullTileIndex & 0xFF,
+                    bgFullTileIndex,
+                    bgFullTileIndex / 256,
+                    outState.palette,
+                    false,
+                    false,
+                    false,
+                    context,
+                    &outCacheableByOrigin);
+            }
             if(outState.override != nullptr) {
                 const ChrOverride* override = outState.override->override;
                 outState.image = outState.override->image;
@@ -5523,6 +5542,37 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
             const int tileOriginX = nesX - static_cast<int>(bgPixel->offsetX);
             const int tileOriginY = nesY - static_cast<int>(bgPixel->offsetY);
             const std::array<uint8_t, 3> palette = { bgPixel->palette[0], bgPixel->palette[1], bgPixel->palette[2] };
+            CachedBackgroundTileStateEntry* cachedTileStateEntry = nullptr;
+            if(tileOriginX >= 0 &&
+               tileOriginY >= 0 &&
+               (tileOriginX & 0x07) == 0 &&
+               (tileOriginY & 0x07) == 0) {
+                const int tileColumn = tileOriginX >> 3;
+                const int tileRow = tileOriginY >> 3;
+                if(tileColumn >= 0 && tileColumn < kVisibleTileColumns &&
+                   tileRow >= 0 && tileRow < kVisibleTileRows) {
+                    cachedTileStateEntry =
+                        &backgroundTileStateCache[static_cast<size_t>(tileRow) * kVisibleTileColumns +
+                                                  static_cast<size_t>(tileColumn)];
+                    if(cachedTileStateEntry->valid &&
+                       cachedTileStateEntry->originX == tileOriginX &&
+                       cachedTileStateEntry->originY == tileOriginY &&
+                       cachedTileStateEntry->fullTileIndex == bgFullTileIndex &&
+                       cachedTileStateEntry->tileHash == bgPixel->tileHash &&
+                       cachedTileStateEntry->palette == palette) {
+                        resolvedBackgroundOverrideStatePtrs[static_cast<size_t>(nesX)] =
+                            &cachedTileStateEntry->state;
+                        backgroundOverrideTileRowCacheValid = true;
+                        backgroundOverrideTileRowCacheOriginX = tileOriginX;
+                        backgroundOverrideTileRowCacheOriginY = tileOriginY;
+                        backgroundOverrideTileRowCacheFullTileIndex = bgFullTileIndex;
+                        backgroundOverrideTileRowCacheTileHash = bgPixel->tileHash;
+                        backgroundOverrideTileRowCachePalette = palette;
+                        backgroundOverrideTileRowCacheState = &cachedTileStateEntry->state;
+                        continue;
+                    }
+                }
+            }
             if(backgroundOverrideTileRowCacheValid &&
                backgroundOverrideTileRowCacheOriginX == tileOriginX &&
                backgroundOverrideTileRowCacheOriginY == tileOriginY &&
@@ -5535,15 +5585,28 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
 
             CachedBackgroundOverrideState& resolvedState =
                 resolvedBackgroundOverrideStates[static_cast<size_t>(nesX)];
-            resolveBackgroundOverrideState(nesX, *bgPixel, resolvedState);
+            bool cacheableByOrigin = false;
+            resolveBackgroundOverrideState(nesX, *bgPixel, resolvedState, cacheableByOrigin);
             resolvedBackgroundOverrideStatePtrs[static_cast<size_t>(nesX)] = &resolvedState;
+            if(cacheableByOrigin && cachedTileStateEntry != nullptr) {
+                cachedTileStateEntry->valid = true;
+                cachedTileStateEntry->originX = tileOriginX;
+                cachedTileStateEntry->originY = tileOriginY;
+                cachedTileStateEntry->fullTileIndex = bgFullTileIndex;
+                cachedTileStateEntry->tileHash = bgPixel->tileHash;
+                cachedTileStateEntry->palette = palette;
+                cachedTileStateEntry->state = resolvedState;
+                resolvedBackgroundOverrideStatePtrs[static_cast<size_t>(nesX)] =
+                    &cachedTileStateEntry->state;
+            }
             backgroundOverrideTileRowCacheValid = true;
             backgroundOverrideTileRowCacheOriginX = tileOriginX;
             backgroundOverrideTileRowCacheOriginY = tileOriginY;
             backgroundOverrideTileRowCacheFullTileIndex = bgFullTileIndex;
             backgroundOverrideTileRowCacheTileHash = bgPixel->tileHash;
             backgroundOverrideTileRowCachePalette = palette;
-            backgroundOverrideTileRowCacheState = &resolvedState;
+            backgroundOverrideTileRowCacheState =
+                resolvedBackgroundOverrideStatePtrs[static_cast<size_t>(nesX)];
         }
 
         auto initResolvedLayerStates = [&](const std::vector<ScanlineBackgroundLayer>& activeLayers, auto& resolvedLayers, size_t& resolvedCount, int nesX) {
