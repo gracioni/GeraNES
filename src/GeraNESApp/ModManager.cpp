@@ -946,6 +946,7 @@ bool ModManager::composeFrameOnEmuThread(
         rebuildRenderComposeCache();
     }
 
+    const bool needsTileHashesForCompose = m_renderComposeCache.needsTileHashes;
     PPU& ppu = emu.getConsole().ppu();
     {
         MODMANAGER_PROFILE_SCOPE(ComposeFrameSnapshotCapture);
@@ -976,8 +977,7 @@ bool ModManager::composeFrameOnEmuThread(
         for(size_t i = 0; i < snapshot.paletteColors.size(); ++i) {
             snapshot.paletteColors[i] = ppu.NESToRGBAColor(static_cast<uint8_t>(i));
         }
-        const bool needsTileHashes = captureDebugSnapshot || m_renderComposeCache.needsTileHashes;
-        if(needsTileHashes) {
+        if(needsTileHashesForCompose) {
             for(size_t i = 0; i < snapshot.tileHashes.size(); ++i) {
                 snapshot.tileHashes[i] = ppu.debugHashChrTile(static_cast<int>(i));
             }
@@ -1003,6 +1003,12 @@ bool ModManager::composeFrameOnEmuThread(
         snapshot
     );
     if(captureDebugSnapshot) {
+        if(!needsTileHashesForCompose) {
+            PPU& ppu = emu.getConsole().ppu();
+            for(size_t i = 0; i < snapshot.tileHashes.size(); ++i) {
+                snapshot.tileHashes[i] = ppu.debugHashChrTile(static_cast<int>(i));
+            }
+        }
         snapshot.frameConditionState = m_frameConditionState;
     }
 #if GERANES_MODMANAGER_PROFILE
