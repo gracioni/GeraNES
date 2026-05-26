@@ -2484,17 +2484,51 @@ inline void GeraNESApp::drawModPixelInspectorWindow()
     }
 
     std::vector<uint32_t> originalInspectorFramebuffer(static_cast<size_t>(PPU::SCREEN_WIDTH * PPU::SCREEN_HEIGHT), 0u);
-    if(hasSnapshot) {
-        for(int y = 0; y < PPU::SCREEN_HEIGHT; ++y) {
-            for(int x = 0; x < PPU::SCREEN_WIDTH; ++x) {
-                const size_t pixelIndex = static_cast<size_t>(y) * PPU::SCREEN_WIDTH + static_cast<size_t>(x);
-                const auto* bgPixel =
-                    pixelIndex < snapshot.backgroundPixels.size() ? &snapshot.backgroundPixels[pixelIndex] : nullptr;
-                const auto* spritePixel =
-                    pixelIndex < snapshot.spritePixels.size() ? &snapshot.spritePixels[pixelIndex] : nullptr;
-                originalInspectorFramebuffer[pixelIndex] = composeOriginalPixel(bgPixel, spritePixel);
-            }
-        }
+    const bool canUsePresentedFramebufferDirectly =
+        showSprites &&
+        showBackground &&
+        sourceFramebuffer != nullptr;
+    if(canUsePresentedFramebufferDirectly) {
+        std::memcpy(
+            originalInspectorFramebuffer.data(),
+            sourceFramebuffer,
+            static_cast<size_t>(PPU::SCREEN_WIDTH * PPU::SCREEN_HEIGHT) * sizeof(uint32_t)
+        );
+    } else if(hasSnapshot) {
+        ModManager::ChrRenderSnapshot baseSnapshot;
+        baseSnapshot.scrollX = snapshot.scrollX;
+        baseSnapshot.scrollY = snapshot.scrollY;
+        baseSnapshot.scrollXByLine = snapshot.scrollXByLine;
+        baseSnapshot.scrollYByLine = snapshot.scrollYByLine;
+        baseSnapshot.universalBgColor = snapshot.universalBgColor;
+        baseSnapshot.paletteColors = snapshot.paletteColors;
+        baseSnapshot.tileHashes = snapshot.tileHashes;
+        baseSnapshot.backgroundPixels = snapshot.backgroundPixels;
+        baseSnapshot.spritePixels = snapshot.spritePixels;
+        baseSnapshot.backgroundPixelsView = baseSnapshot.backgroundPixels.data();
+        baseSnapshot.backgroundPixelsViewCount = baseSnapshot.backgroundPixels.size();
+        baseSnapshot.spritePixelsView = baseSnapshot.spritePixels.data();
+        baseSnapshot.spritePixelsViewCount = baseSnapshot.spritePixels.size();
+        baseSnapshot.frameConditionStateView = nullptr;
+        baseSnapshot.frameConditionState.frameCount = snapshot.frameConditionState.frameCount;
+        baseSnapshot.frameConditionState.memoryValues = snapshot.frameConditionState.memoryValues;
+        std::vector<uint32_t> neutralInspectorFramebuffer(
+            static_cast<size_t>(PPU::SCREEN_WIDTH * PPU::SCREEN_HEIGHT),
+            snapshot.paletteColors[snapshot.universalBgColor & 0x3Fu]);
+        m_modManager.composeChrFrame(
+            originalInspectorFramebuffer,
+            PPU::SCREEN_WIDTH,
+            PPU::SCREEN_HEIGHT,
+            0,
+            PPU::SCREEN_HEIGHT,
+            1,
+            neutralInspectorFramebuffer.data(),
+            baseSnapshot,
+            nullptr,
+            showBackground,
+            showSprites,
+            false
+        );
     } else if(sourceFramebuffer != nullptr) {
         std::memcpy(
             originalInspectorFramebuffer.data(),
@@ -2505,46 +2539,55 @@ inline void GeraNESApp::drawModPixelInspectorWindow()
 
     if(inspectMod) {
         std::vector<uint32_t> modInspectorFramebuffer;
-        ModManager::ChrRenderSnapshot filteredSnapshot;
-        filteredSnapshot.scrollX = snapshot.scrollX;
-        filteredSnapshot.scrollY = snapshot.scrollY;
-        filteredSnapshot.scrollXByLine = snapshot.scrollXByLine;
-        filteredSnapshot.scrollYByLine = snapshot.scrollYByLine;
-        filteredSnapshot.universalBgColor = snapshot.universalBgColor;
-        filteredSnapshot.paletteColors = snapshot.paletteColors;
-        filteredSnapshot.tileHashes = snapshot.tileHashes;
-        filteredSnapshot.backgroundPixels =
-            showBackground
-                ? snapshot.backgroundPixels
-                : std::vector<PPU::DebugModBackgroundPixel>(
-                    static_cast<size_t>(PPU::SCREEN_WIDTH * PPU::SCREEN_HEIGHT));
-        filteredSnapshot.spritePixels =
-            showSprites
-                ? snapshot.spritePixels
-                : std::vector<PPU::DebugModSpritePixel>(
-                    static_cast<size_t>(PPU::SCREEN_WIDTH * PPU::SCREEN_HEIGHT));
-        filteredSnapshot.backgroundPixelsView = filteredSnapshot.backgroundPixels.data();
-        filteredSnapshot.backgroundPixelsViewCount = filteredSnapshot.backgroundPixels.size();
-        filteredSnapshot.spritePixelsView = filteredSnapshot.spritePixels.data();
-        filteredSnapshot.spritePixelsViewCount = filteredSnapshot.spritePixels.size();
-        filteredSnapshot.frameConditionStateView = nullptr;
-        filteredSnapshot.frameConditionState.frameCount = snapshot.frameConditionState.frameCount;
-        filteredSnapshot.frameConditionState.memoryValues = snapshot.frameConditionState.memoryValues;
-        modInspectorFramebuffer.assign(static_cast<size_t>(inspectorTextureWidth * inspectorTextureHeight), 0u);
+        const bool canUsePresentedModFramebufferDirectly =
+            showSprites &&
+            showBackground &&
+            presentedModFramebuffer.size() == static_cast<size_t>(inspectorTextureWidth * inspectorTextureHeight);
+        if(canUsePresentedModFramebufferDirectly) {
+            modInspectorFramebuffer = presentedModFramebuffer;
+        } else {
+            ModManager::ChrRenderSnapshot filteredSnapshot;
+            filteredSnapshot.scrollX = snapshot.scrollX;
+            filteredSnapshot.scrollY = snapshot.scrollY;
+            filteredSnapshot.scrollXByLine = snapshot.scrollXByLine;
+            filteredSnapshot.scrollYByLine = snapshot.scrollYByLine;
+            filteredSnapshot.universalBgColor = snapshot.universalBgColor;
+            filteredSnapshot.paletteColors = snapshot.paletteColors;
+            filteredSnapshot.tileHashes = snapshot.tileHashes;
+            filteredSnapshot.backgroundPixels =
+                showBackground
+                    ? snapshot.backgroundPixels
+                    : std::vector<PPU::DebugModBackgroundPixel>(
+                        static_cast<size_t>(PPU::SCREEN_WIDTH * PPU::SCREEN_HEIGHT));
+            filteredSnapshot.spritePixels =
+                showSprites
+                    ? snapshot.spritePixels
+                    : std::vector<PPU::DebugModSpritePixel>(
+                        static_cast<size_t>(PPU::SCREEN_WIDTH * PPU::SCREEN_HEIGHT));
+            filteredSnapshot.backgroundPixelsView = filteredSnapshot.backgroundPixels.data();
+            filteredSnapshot.backgroundPixelsViewCount = filteredSnapshot.backgroundPixels.size();
+            filteredSnapshot.spritePixelsView = filteredSnapshot.spritePixels.data();
+            filteredSnapshot.spritePixelsViewCount = filteredSnapshot.spritePixels.size();
+            filteredSnapshot.frameConditionStateView = nullptr;
+            filteredSnapshot.frameConditionState.frameCount = snapshot.frameConditionState.frameCount;
+            filteredSnapshot.frameConditionState.memoryValues = snapshot.frameConditionState.memoryValues;
+            modInspectorFramebuffer.assign(static_cast<size_t>(inspectorTextureWidth * inspectorTextureHeight), 0u);
 
-        m_modManager.composeChrFrame(
-            modInspectorFramebuffer,
-            inspectorTextureWidth,
-            inspectorTextureHeight,
-            activeTop * inspectorScale,
-            activeBottom * inspectorScale,
-            inspectorScale,
-            originalInspectorFramebuffer.data(),
-            filteredSnapshot,
-            nullptr,
-            showBackground,
-            showSprites
-        );
+            m_modManager.composeChrFrame(
+                modInspectorFramebuffer,
+                inspectorTextureWidth,
+                inspectorTextureHeight,
+                activeTop * inspectorScale,
+                activeBottom * inspectorScale,
+                inspectorScale,
+                canUsePresentedFramebufferDirectly ? sourceFramebuffer : originalInspectorFramebuffer.data(),
+                filteredSnapshot,
+                nullptr,
+                showBackground,
+                showSprites,
+                true
+            );
+        }
 
         auto blendRgba = [](uint32_t originalColor, uint32_t modColor, float blend) {
             const auto blendChannel = [blend](uint32_t originalChannel, uint32_t modChannel) -> uint32_t {

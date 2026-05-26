@@ -4128,7 +4128,7 @@ std::optional<ModManager::DecodedImage> ModManager::decodeImage(const std::vecto
     return image;
 }
 
-void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, int height, int activeTop, int activeBottom, int scale, const uint32_t* sourceFramebuffer, const ChrRenderSnapshot& snapshot, const std::vector<const ChrOverride*>* activeOverrideFilter, bool renderBackground, bool renderSprites)
+void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, int height, int activeTop, int activeBottom, int scale, const uint32_t* sourceFramebuffer, const ChrRenderSnapshot& snapshot, const std::vector<const ChrOverride*>* activeOverrideFilter, bool renderBackground, bool renderSprites, bool applyModLogic)
 {
     MODMANAGER_PROFILE_SCOPE(ComposeChrFrame);
     std::scoped_lock runtimeLock(m_runtimeMutex);
@@ -4173,7 +4173,7 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
         }
     };
 
-    if(m_chrOverrides.empty()) {
+    if(applyModLogic && m_chrOverrides.empty()) {
         blitSourceFramebuffer();
         return;
     }
@@ -4190,21 +4190,36 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
     const std::vector<const AdditionalSpriteRule*>* additionalSpriteRuleStoragePtr = nullptr;
     bool hasAdditionalSpriteRules = false;
 
-    if(m_renderComposeCacheDirty || !m_renderComposeCache.valid || m_renderComposeCache.scale != scale) {
-        rebuildRenderComposeCache();
-    }
+    RenderComposeCache emptyOverrideCache;
+    if(applyModLogic) {
+        if(m_renderComposeCacheDirty || !m_renderComposeCache.valid || m_renderComposeCache.scale != scale) {
+            rebuildRenderComposeCache();
+        }
 
-    preparedBackgroundsPtr = &m_renderComposeCache.preparedBackgrounds;
-    additionalSpriteRulesByExactKeyPtr = &m_renderComposeCache.additionalSpriteRulesByExactKey;
-    additionalSpriteRulesByOriginalTilePtr = &m_renderComposeCache.additionalSpriteRulesByOriginalTile;
-    additionalSpriteRuleStoragePtr = &m_renderComposeCache.additionalSpriteRuleStorage;
-    hasAdditionalSpriteRules = m_renderComposeCache.hasAdditionalSpriteRules;
+        preparedBackgroundsPtr = &m_renderComposeCache.preparedBackgrounds;
+        additionalSpriteRulesByExactKeyPtr = &m_renderComposeCache.additionalSpriteRulesByExactKey;
+        additionalSpriteRulesByOriginalTilePtr = &m_renderComposeCache.additionalSpriteRulesByOriginalTile;
+        additionalSpriteRuleStoragePtr = &m_renderComposeCache.additionalSpriteRuleStorage;
+        hasAdditionalSpriteRules = m_renderComposeCache.hasAdditionalSpriteRules;
 
-    if(activeOverrideFilter == nullptr) {
-        selectedOverrideCache = &m_renderComposeCache;
+        if(activeOverrideFilter == nullptr) {
+            selectedOverrideCache = &m_renderComposeCache;
+        } else {
+            filteredOverrideCache = buildFilteredRenderComposeCache(*activeOverrideFilter);
+            selectedOverrideCache = &filteredOverrideCache;
+        }
     } else {
-        filteredOverrideCache = buildFilteredRenderComposeCache(*activeOverrideFilter);
-        selectedOverrideCache = &filteredOverrideCache;
+        static const std::vector<RenderPreparedBackground> emptyPreparedBackgroundStorage;
+        static const std::unordered_map<uint64_t, RenderComposeCache::AdditionalSpriteRuleSpan> emptyAdditionalSpriteRulesByExactKey;
+        static const std::unordered_map<int, RenderComposeCache::AdditionalSpriteRuleSpan> emptyAdditionalSpriteRulesByOriginalTile;
+        static const std::vector<const AdditionalSpriteRule*> emptyAdditionalSpriteRuleStorage;
+        preparedBackgroundsPtr = &emptyPreparedBackgroundStorage;
+        additionalSpriteRulesByExactKeyPtr = &emptyAdditionalSpriteRulesByExactKey;
+        additionalSpriteRulesByOriginalTilePtr = &emptyAdditionalSpriteRulesByOriginalTile;
+        additionalSpriteRuleStoragePtr = &emptyAdditionalSpriteRuleStorage;
+        emptyOverrideCache.scale = scale;
+        emptyOverrideCache.valid = true;
+        selectedOverrideCache = &emptyOverrideCache;
     }
 
     const auto& preparedOverrides = selectedOverrideCache->preparedOverrides;
@@ -4233,7 +4248,7 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
     const auto& hasDynamicOverridesByRelativeTile = selectedOverrideCache->hasDynamicOverridesByRelativeTile;
     static const std::vector<RenderPreparedBackground> emptyPreparedBackgrounds;
     const auto& preparedBackgrounds = renderBackground ? *preparedBackgroundsPtr : emptyPreparedBackgrounds;
-    const bool disableOriginalBackgroundTiles = m_disableOriginalTiles && renderBackground;
+    const bool disableOriginalBackgroundTiles = applyModLogic && m_disableOriginalTiles && renderBackground;
     const uint32_t universalBackgroundColor = snapshot.paletteColors[snapshot.universalBgColor & 0x3Fu];
     const auto& additionalSpriteRulesByExactKey = *additionalSpriteRulesByExactKeyPtr;
     const auto& additionalSpriteRulesByOriginalTile = *additionalSpriteRulesByOriginalTilePtr;
@@ -4244,7 +4259,7 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
     using PreparedOverride = RenderPreparedOverride;
     using PreparedBackground = RenderPreparedBackground;
 
-    if(preparedOverrides.empty() && preparedBackgrounds.empty()) {
+    if(applyModLogic && preparedOverrides.empty() && preparedBackgrounds.empty()) {
         blitSourceFramebuffer();
         return;
     }
@@ -4280,7 +4295,7 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
         return tileIndex;
     };
 
-    const bool hasCanonicalTileRemap = !m_chrRomCanonicalTileByHash.empty();
+    const bool hasCanonicalTileRemap = applyModLogic && !m_chrRomCanonicalTileByHash.empty();
     std::array<int, 512> canonicalSnapshotTileIndices = {};
     if(hasCanonicalTileRemap) {
         for(size_t i = 0; i < canonicalSnapshotTileIndices.size(); ++i) {
