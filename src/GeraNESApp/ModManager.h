@@ -365,10 +365,22 @@ private:
     struct RenderPreparedOverride {
         const ChrOverride* override = nullptr;
         const DecodedImage* image = nullptr;
+        const uint32_t* rgbaData = nullptr;
+        const uint8_t* indexedPixelsData = nullptr;
         int sourceScale = 1;
+        int imageWidth = 0;
+        int imageHeight = 0;
+        int sourceTileOffset = 0;
+        int sourceColumns = 0;
+        int fixedTileSrcX = 0;
+        int fixedTileSrcY = 0;
         ChrOverride::SourceLayout wholeChrLayout = ChrOverride::SourceLayout::PatternTables;
         bool hasDynamicConditions = false;
         bool tileOriginCacheable = true;
+        bool ignorePalette = false;
+        bool usesIndexedPalette = false;
+        bool wholeChr = false;
+        bool fixedTileSourceValid = false;
         uint8_t targetMask = 0;
         uint8_t patternTableMask = 0;
         uint8_t requirementMask = 0;

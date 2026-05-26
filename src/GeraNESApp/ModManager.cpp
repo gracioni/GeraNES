@@ -2038,17 +2038,61 @@ void ModManager::populateOverrideLookupCache(RenderComposeCache& cache, const st
         if(prepared.image == nullptr || prepared.image->rgba.empty()) {
             continue;
         }
+        prepared.rgbaData = prepared.image->rgba.data();
+        prepared.indexedPixelsData = prepared.image->indexedPixels.data();
         prepared.sourceScale = std::max(1, m_resolutionMultiplier);
+        prepared.imageWidth = prepared.image->width;
+        prepared.imageHeight = prepared.image->height;
+        prepared.sourceTileOffset = override->sourceTileOffset;
+        prepared.sourceColumns = std::max(1, override->columns);
+        prepared.ignorePalette = override->ignorePalette;
         if(!override->wholeChr() && !override->hasSourcePosition() && override->sourceLayout != ChrOverride::SourceLayout::PatternTables) {
             const int scaleX = prepared.image->width / std::max(1, override->columns * 8);
             if(scaleX > 0) {
                 prepared.sourceScale = scaleX;
             }
         }
+        prepared.wholeChr = override->wholeChr();
         prepared.wholeChrLayout =
             override->sourceLayout == ChrOverride::SourceLayout::Auto
                 ? ChrOverride::SourceLayout::PatternTables
                 : override->sourceLayout;
+        prepared.usesIndexedPalette =
+            !prepared.ignorePalette &&
+            prepared.image->indexedFourColor &&
+            prepared.image->indexedPixels.size() == prepared.image->rgba.size();
+        if(override->hasSourcePosition()) {
+            prepared.fixedTileSrcX = override->sourceX;
+            prepared.fixedTileSrcY = override->sourceY;
+            prepared.fixedTileSourceValid = true;
+        } else if(!prepared.wholeChr) {
+            const int tilePixelSize = 8 * prepared.sourceScale;
+            const bool atlasImage =
+                override->sourceTileOffset > 0 ||
+                (prepared.imageWidth >= prepared.sourceColumns * tilePixelSize &&
+                 prepared.imageHeight > tilePixelSize);
+            if(atlasImage) {
+                int sourceColumn = 0;
+                int sourceRow = 0;
+                if(override->sourceLayout == ChrOverride::SourceLayout::PatternTables) {
+                    const int sourceTile = override->sourceTileOffset;
+                    const int table = sourceTile / 256;
+                    const int tileInTable = sourceTile & 0xFF;
+                    sourceColumn = (table * 16) + (tileInTable & 0x0F);
+                    sourceRow = tileInTable >> 4;
+                } else {
+                    const int sourceTile = override->sourceTileOffset;
+                    sourceColumn = sourceTile % prepared.sourceColumns;
+                    sourceRow = sourceTile / prepared.sourceColumns;
+                }
+                prepared.fixedTileSrcX = sourceColumn * tilePixelSize;
+                prepared.fixedTileSrcY = sourceRow * tilePixelSize;
+            } else {
+                prepared.fixedTileSrcX = 0;
+                prepared.fixedTileSrcY = 0;
+            }
+            prepared.fixedTileSourceValid = true;
+        }
         appendRuntimeConditions(override->conditions, prepared.runtimeConditions);
         if(trackTileHashNeeds && override->hasChrHash) {
             cache.needsTileHashes = true;
@@ -5451,63 +5495,38 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
                     &outCacheableByOrigin);
             }
             if(outState.override != nullptr) {
-                const ChrOverride* override = outState.override->override;
-                outState.image = outState.override->image;
+                const PreparedOverride* preparedOverride = outState.override;
+                const ChrOverride* override = preparedOverride->override;
+                outState.image = preparedOverride->image;
                 if(override != nullptr && outState.image != nullptr) {
-                    outState.rgbaData = outState.image->rgba.data();
-                    outState.indexedPixelsData = outState.image->indexedPixels.data();
-                    outState.sourceScale = outState.override->sourceScale;
-                    outState.imageWidth = outState.image->width;
-                    outState.imageHeight = outState.image->height;
-                    outState.ignorePalette = override->ignorePalette;
-                    outState.usesIndexedPalette =
-                        !override->ignorePalette &&
-                        outState.image->indexedFourColor &&
-                        outState.image->indexedPixels.size() == outState.image->rgba.size();
-                    if(override->hasSourcePosition()) {
-                        outState.tileSrcX = override->sourceX;
-                        outState.tileSrcY = override->sourceY;
+                    outState.rgbaData = preparedOverride->rgbaData;
+                    outState.indexedPixelsData = preparedOverride->indexedPixelsData;
+                    outState.sourceScale = preparedOverride->sourceScale;
+                    outState.imageWidth = preparedOverride->imageWidth;
+                    outState.imageHeight = preparedOverride->imageHeight;
+                    outState.ignorePalette = preparedOverride->ignorePalette;
+                    outState.usesIndexedPalette = preparedOverride->usesIndexedPalette;
+                    if(preparedOverride->fixedTileSourceValid) {
+                        outState.tileSrcX = preparedOverride->fixedTileSrcX;
+                        outState.tileSrcY = preparedOverride->fixedTileSrcY;
                         outState.tileSrcValid = true;
                     } else {
                         const int tilePixelSize = 8 * outState.sourceScale;
-                        const bool atlasImage =
-                            override->wholeChr() ||
-                            override->sourceTileOffset > 0 ||
-                            (outState.image->width >= override->columns * tilePixelSize &&
-                             outState.image->height > tilePixelSize);
-                        if(atlasImage) {
-                            int sourceColumn = 0;
-                            int sourceRow = 0;
-                            if(override->wholeChr()) {
-                                const int sourceTile = bgFullTileIndex + override->sourceTileOffset;
-                                if(outState.override->wholeChrLayout == ChrOverride::SourceLayout::PatternTables) {
-                                    const int table = sourceTile / 256;
-                                    const int tileInTable = sourceTile & 0xFF;
-                                    sourceColumn = (table * 16) + (tileInTable & 0x0F);
-                                    sourceRow = tileInTable >> 4;
-                                } else {
-                                    sourceColumn = sourceTile % override->columns;
-                                    sourceRow = sourceTile / override->columns;
-                                }
-                            } else if(override->sourceLayout == ChrOverride::SourceLayout::PatternTables) {
-                                const int sourceTile = override->sourceTileOffset;
-                                const int table = sourceTile / 256;
-                                const int tileInTable = sourceTile & 0xFF;
-                                sourceColumn = (table * 16) + (tileInTable & 0x0F);
-                                sourceRow = tileInTable >> 4;
-                            } else {
-                                const int sourceTile = override->sourceTileOffset;
-                                sourceColumn = sourceTile % override->columns;
-                                sourceRow = sourceTile / override->columns;
-                            }
-                            outState.tileSrcX = sourceColumn * tilePixelSize;
-                            outState.tileSrcY = sourceRow * tilePixelSize;
-                            outState.tileSrcValid = true;
+                        const int sourceTile = bgFullTileIndex + preparedOverride->sourceTileOffset;
+                        int sourceColumn = 0;
+                        int sourceRow = 0;
+                        if(preparedOverride->wholeChrLayout == ChrOverride::SourceLayout::PatternTables) {
+                            const int table = sourceTile / 256;
+                            const int tileInTable = sourceTile & 0xFF;
+                            sourceColumn = (table * 16) + (tileInTable & 0x0F);
+                            sourceRow = tileInTable >> 4;
                         } else {
-                            outState.tileSrcX = 0;
-                            outState.tileSrcY = 0;
-                            outState.tileSrcValid = true;
+                            sourceColumn = sourceTile % preparedOverride->sourceColumns;
+                            sourceRow = sourceTile / preparedOverride->sourceColumns;
                         }
+                        outState.tileSrcX = sourceColumn * tilePixelSize;
+                        outState.tileSrcY = sourceRow * tilePixelSize;
+                        outState.tileSrcValid = true;
                     }
                 }
             }
