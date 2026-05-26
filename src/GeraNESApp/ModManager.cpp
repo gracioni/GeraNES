@@ -4114,7 +4114,7 @@ std::optional<ModManager::DecodedImage> ModManager::decodeImage(const std::vecto
     return image;
 }
 
-void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, int height, int activeTop, int activeBottom, int scale, const uint32_t* sourceFramebuffer, const ChrRenderSnapshot& snapshot, const std::vector<const ChrOverride*>* activeOverrideFilter)
+void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, int height, int activeTop, int activeBottom, int scale, const uint32_t* sourceFramebuffer, const ChrRenderSnapshot& snapshot, const std::vector<const ChrOverride*>* activeOverrideFilter, bool renderBackground, bool renderSprites)
 {
     MODMANAGER_PROFILE_SCOPE(ComposeChrFrame);
 
@@ -4216,7 +4216,10 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
     const auto& hasDynamicOverridesByFullTile = selectedOverrideCache->hasDynamicOverridesByFullTile;
     const auto& dynamicOverflowFullTiles = selectedOverrideCache->dynamicOverflowFullTiles;
     const auto& hasDynamicOverridesByRelativeTile = selectedOverrideCache->hasDynamicOverridesByRelativeTile;
-    const auto& preparedBackgrounds = *preparedBackgroundsPtr;
+    static const std::vector<RenderPreparedBackground> emptyPreparedBackgrounds;
+    const auto& preparedBackgrounds = renderBackground ? *preparedBackgroundsPtr : emptyPreparedBackgrounds;
+    const bool disableOriginalBackgroundTiles = m_disableOriginalTiles && renderBackground;
+    const uint32_t universalBackgroundColor = snapshot.paletteColors[snapshot.universalBgColor & 0x3Fu];
     const auto& additionalSpriteRulesByExactKey = *additionalSpriteRulesByExactKeyPtr;
     const auto& additionalSpriteRulesByOriginalTile = *additionalSpriteRulesByOriginalTilePtr;
     const auto& additionalSpriteRuleStorage = *additionalSpriteRuleStoragePtr;
@@ -4296,13 +4299,21 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
                 .count()));
 #endif
     const PPU::DebugModBackgroundPixel* const backgroundPixelsData =
-        snapshot.backgroundPixelsView != nullptr ? snapshot.backgroundPixelsView : snapshot.backgroundPixels.data();
+        renderBackground
+            ? (snapshot.backgroundPixelsView != nullptr ? snapshot.backgroundPixelsView : snapshot.backgroundPixels.data())
+            : nullptr;
     const size_t backgroundPixelsCount =
-        snapshot.backgroundPixelsView != nullptr ? snapshot.backgroundPixelsViewCount : snapshot.backgroundPixels.size();
+        renderBackground
+            ? (snapshot.backgroundPixelsView != nullptr ? snapshot.backgroundPixelsViewCount : snapshot.backgroundPixels.size())
+            : 0;
     const PPU::DebugModSpritePixel* const rawSpritePixelsData =
-        snapshot.spritePixelsView != nullptr ? snapshot.spritePixelsView : snapshot.spritePixels.data();
+        renderSprites
+            ? (snapshot.spritePixelsView != nullptr ? snapshot.spritePixelsView : snapshot.spritePixels.data())
+            : nullptr;
     const size_t rawSpritePixelsCount =
-        snapshot.spritePixelsView != nullptr ? snapshot.spritePixelsViewCount : snapshot.spritePixels.size();
+        renderSprites
+            ? (snapshot.spritePixelsView != nullptr ? snapshot.spritePixelsViewCount : snapshot.spritePixels.size())
+            : 0;
 
     auto backgroundPixelAt = [&](int x, int y) -> const PPU::DebugModBackgroundPixel* {
         if(x < 0 || x >= PPU::SCREEN_WIDTH || y < 0 || y >= PPU::SCREEN_HEIGHT) {
@@ -6001,7 +6012,7 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
                             block = bgOverrideRowCacheBlocks[static_cast<size_t>(tileOffsetX)];
                             continue;
                         }
-                        const uint32_t base = m_disableOriginalTiles ? 0x00000000u : srcRow[pixelX];
+                        const uint32_t base = disableOriginalBackgroundTiles ? universalBackgroundColor : srcRow[pixelX];
                         block = {base, base, base, base};
                     }
 
@@ -6028,7 +6039,7 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
                                 block[3] = blendMappedBackgroundOverridePixel(block[3], overrideBlock[3]);
                             } else {
                                 const auto sampleBackgroundOverrideScale2AtOffsetX = [&](uint32_t color, int localOffsetX, int subX, int subY) {
-                                    if(backgroundOverride == nullptr || !backgroundOverrideTileSrcValid) {
+                                    if(backgroundOverride == nullptr || bgPixel == nullptr || !backgroundOverrideTileSrcValid) {
                                         return color;
                                     }
                                     const int localOffsetY = bgPixel->offsetY & 0x07;
@@ -6043,7 +6054,7 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
                                 block[2] = sampleBackgroundOverrideScale2AtOffsetX(block[2], tileOffsetX, 0, 1);
                                 block[3] = sampleBackgroundOverrideScale2AtOffsetX(block[3], tileOffsetX, 1, 1);
                             }
-                        } else if(!m_disableOriginalTiles) {
+                        } else if(!disableOriginalBackgroundTiles) {
                             block = {backgroundFallbackColor, backgroundFallbackColor, backgroundFallbackColor, backgroundFallbackColor};
                         }
                     }
@@ -6055,7 +6066,7 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
                     return true;
                 };
 
-                uint32_t block00 = m_disableOriginalTiles ? 0x00000000u : baseColor;
+                uint32_t block00 = disableOriginalBackgroundTiles ? universalBackgroundColor : baseColor;
                 uint32_t block01 = block00;
                 uint32_t block10 = block00;
                 uint32_t block11 = block00;
@@ -6111,7 +6122,7 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
                                 block10 = sampleBackgroundOverrideScale2(block10, 0, 1);
                                 block11 = sampleBackgroundOverrideScale2(block11, 1, 1);
                             }
-                        } else if(!m_disableOriginalTiles) {
+                        } else if(!disableOriginalBackgroundTiles) {
                             block00 = backgroundFallbackColor;
                             block01 = backgroundFallbackColor;
                             block10 = backgroundFallbackColor;
@@ -6149,9 +6160,9 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
                 midAfterUniform &&
                 highUniform;
             const uint32_t initialColor =
-                m_disableOriginalTiles
-                    ? 0x00000000u
-                    : (hasAnyValidSpriteCandidate ? snapshot.paletteColors[snapshot.universalBgColor & 0x3Fu] : baseColor);
+                disableOriginalBackgroundTiles
+                    ? universalBackgroundColor
+                    : (hasAnyValidSpriteCandidate ? universalBackgroundColor : baseColor);
             const bool canPrecomposeBeforeBg = lowUniform && midBeforeUniform;
             const uint32_t precomposedBeforeBgColor =
                 canPrecomposeBeforeBg
@@ -6163,7 +6174,7 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
             const bool bgValid = bgPixel != nullptr && bgPixel->valid;
             const bool applyBackgroundFallback =
                 bgValid &&
-                !m_disableOriginalTiles &&
+                !disableOriginalBackgroundTiles &&
                 bgPixel->colorLowBits != 0;
             const bool hasMidAfterBackgrounds = resolvedMidAfterTileBackgroundCount > 0;
             const bool hasHighPriorityBackgrounds = resolvedHighPriorityBackgroundCount > 0;
@@ -6784,60 +6795,62 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
 
             {
                 MODMANAGER_PROFILE_SCOPE(ComposeChrFrameSpriteResolve);
-                for(int i = static_cast<int>(spritePixel->count) - 1; i >= 0; --i) {
-                    const PPU::DebugModSpriteCandidate& candidate = spritePixel->candidates[static_cast<size_t>(i)];
-                    if(!candidate.valid) {
-                        continue;
-                    }
+                if(spritePixel != nullptr && spritePixel->count > 0) {
+                    for(int i = static_cast<int>(spritePixel->count) - 1; i >= 0; --i) {
+                        const PPU::DebugModSpriteCandidate& candidate = spritePixel->candidates[static_cast<size_t>(i)];
+                        if(!candidate.valid) {
+                            continue;
+                        }
 
-                    ResolvedSpriteCandidate resolvedCandidate;
-                    resolvedCandidate.candidate = &candidate;
-                    resolvedCandidate.spritePalette = { candidate.palette[0], candidate.palette[1], candidate.palette[2] };
-                    resolvedCandidate.candidateIndex = i;
-                    const bool allowOriginalSpriteFallback = allowOriginalSpriteFallbackFor(candidate);
-                    resolvedCandidate.fallbackUsesCurrentColor = !allowOriginalSpriteFallback;
-                    if(allowOriginalSpriteFallback) {
-                        resolvedCandidate.fixedFallbackColor = spriteFallbackColorFor(candidate);
-                    }
+                        ResolvedSpriteCandidate resolvedCandidate;
+                        resolvedCandidate.candidate = &candidate;
+                        resolvedCandidate.spritePalette = { candidate.palette[0], candidate.palette[1], candidate.palette[2] };
+                        resolvedCandidate.candidateIndex = i;
+                        const bool allowOriginalSpriteFallback = allowOriginalSpriteFallbackFor(candidate);
+                        resolvedCandidate.fallbackUsesCurrentColor = !allowOriginalSpriteFallback;
+                        if(allowOriginalSpriteFallback) {
+                            resolvedCandidate.fixedFallbackColor = spriteFallbackColorFor(candidate);
+                        }
 
-                    const int spriteFullTileIndex = candidate.tileIndex != 0xFFFF ? static_cast<int>(candidate.tileIndex) : -1;
-                    if(spriteFullTileIndex >= 0) {
-                        const ConditionContext context = { nesX, nesY, bgPixel, &candidate };
-                        const uint64_t spriteOverrideRowCacheKey =
-                            makeSpriteOverrideRowCacheKey(candidate, spriteFullTileIndex, resolvedCandidate.spritePalette);
-                        if(const auto it = spriteOverrideRowCache.find(spriteOverrideRowCacheKey); it != spriteOverrideRowCache.end()) {
-                            resolvedCandidate.spriteOverride = it->second;
-                        } else {
-                            bool cacheableByOrigin = false;
-                            resolvedCandidate.spriteOverride =
-                                findOverride(
-                                    ChrOverride::Target::Sprite,
-                                    spriteFullTileIndex & 0xFF,
-                                    spriteFullTileIndex,
-                                    spriteFullTileIndex / 256,
-                                    resolvedCandidate.spritePalette,
-                                    candidate.horizontalMirror,
-                                    candidate.verticalMirror,
-                                    candidate.behindBackground,
-                                    context,
-                                    &cacheableByOrigin);
-                            if(cacheableByOrigin) {
-                                spriteOverrideRowCache.emplace(spriteOverrideRowCacheKey, resolvedCandidate.spriteOverride);
+                        const int spriteFullTileIndex = candidate.tileIndex != 0xFFFF ? static_cast<int>(candidate.tileIndex) : -1;
+                        if(spriteFullTileIndex >= 0) {
+                            const ConditionContext context = { nesX, nesY, bgPixel, &candidate };
+                            const uint64_t spriteOverrideRowCacheKey =
+                                makeSpriteOverrideRowCacheKey(candidate, spriteFullTileIndex, resolvedCandidate.spritePalette);
+                            if(const auto it = spriteOverrideRowCache.find(spriteOverrideRowCacheKey); it != spriteOverrideRowCache.end()) {
+                                resolvedCandidate.spriteOverride = it->second;
+                            } else {
+                                bool cacheableByOrigin = false;
+                                resolvedCandidate.spriteOverride =
+                                    findOverride(
+                                        ChrOverride::Target::Sprite,
+                                        spriteFullTileIndex & 0xFF,
+                                        spriteFullTileIndex,
+                                        spriteFullTileIndex / 256,
+                                        resolvedCandidate.spritePalette,
+                                        candidate.horizontalMirror,
+                                        candidate.verticalMirror,
+                                        candidate.behindBackground,
+                                        context,
+                                        &cacheableByOrigin);
+                                if(cacheableByOrigin) {
+                                    spriteOverrideRowCache.emplace(spriteOverrideRowCacheKey, resolvedCandidate.spriteOverride);
+                                }
                             }
                         }
-                    }
-                    resolvedCandidate.participates = resolvedCandidate.spriteOverride != nullptr || candidate.colorLowBits != 0;
-                    if(!resolvedCandidate.participates) {
-                        continue;
-                    }
-
-                    if(candidate.behindBackground) {
-                        if(resolvedBehindSpriteCandidateCount < resolvedBehindSpriteCandidates.size()) {
-                            resolvedBehindSpriteCandidates[resolvedBehindSpriteCandidateCount++] = resolvedCandidate;
+                        resolvedCandidate.participates = resolvedCandidate.spriteOverride != nullptr || candidate.colorLowBits != 0;
+                        if(!resolvedCandidate.participates) {
+                            continue;
                         }
-                    } else {
-                        if(resolvedFrontSpriteCandidateCount < resolvedFrontSpriteCandidates.size()) {
-                            resolvedFrontSpriteCandidates[resolvedFrontSpriteCandidateCount++] = resolvedCandidate;
+
+                        if(candidate.behindBackground) {
+                            if(resolvedBehindSpriteCandidateCount < resolvedBehindSpriteCandidates.size()) {
+                                resolvedBehindSpriteCandidates[resolvedBehindSpriteCandidateCount++] = resolvedCandidate;
+                            }
+                        } else {
+                            if(resolvedFrontSpriteCandidateCount < resolvedFrontSpriteCandidates.size()) {
+                                resolvedFrontSpriteCandidates[resolvedFrontSpriteCandidateCount++] = resolvedCandidate;
+                            }
                         }
                     }
                 }

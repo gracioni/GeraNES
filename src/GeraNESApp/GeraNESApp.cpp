@@ -2567,6 +2567,10 @@ GeraNESApp::~GeraNESApp()
         glDeleteTextures(1, &m_texture);
         m_texture = 0;
     }
+    if(m_modPixelInspectorTexture != 0) {
+        glDeleteTextures(1, &m_modPixelInspectorTexture);
+        m_modPixelInspectorTexture = 0;
+    }
     if(m_ppuNametableTexture != 0) {
         glDeleteTextures(1, &m_ppuNametableTexture);
         m_ppuNametableTexture = 0;

@@ -2251,7 +2251,7 @@ inline void GeraNESApp::drawModPixelInspectorWindow()
         return !stage.returnedBaseColor || stage.stage == "bg override" || stage.stage == "sprite override";
     };
 
-    ImGui::SetNextWindowSize(ImVec2(340.0f, 320.0f), ImGuiCond_FirstUseEver);
+    ImGui::SetNextWindowSize(ImVec2(640.0f, 480.0f), ImGuiCond_FirstUseEver);
     if(!ImGui::Begin("Screen Pixel Inspector", &m_showModPixelInspectorWindow)) {
         ImGui::End();
         return;
@@ -2269,27 +2269,34 @@ inline void GeraNESApp::drawModPixelInspectorWindow()
     const int activeHeight = std::max(1, activeBottom - activeTop);
     m_modPixelInspectorZoom = std::clamp(m_modPixelInspectorZoom, 1.0f, 8.0f);
 
+    if(!modActive) {
+        m_modPixelInspectorInspectMod = false;
+    }
+
     ImGui::SetNextItemWidth(160.0f);
     ImGui::SliderFloat("Zoom", &m_modPixelInspectorZoom, 1.0f, 8.0f, "%.1fx");
     ImGui::SameLine();
-    ImGui::TextDisabled("Shows the current rendered screen with per-pixel mod debug data.");
+    ImGui::BeginDisabled(!modActive);
+    ImGui::Checkbox("Inspect mod", &m_modPixelInspectorInspectMod);
+    ImGui::EndDisabled();
+    ImGui::SameLine();
+    ImGui::TextDisabled("Shows the NES screen by default; enable mod inspection to inspect mod output.");
+    if(m_modPixelInspectorInspectMod) {
+        m_modPixelInspectorBlend = std::clamp(m_modPixelInspectorBlend, 0.0f, 1.0f);
+        ImGui::AlignTextToFramePadding();
+        ImGui::TextUnformatted("Original");
+        ImGui::SameLine();
+        ImGui::SetNextItemWidth(180.0f);
+        ImGui::SliderFloat("##ModPixelInspectorBlend", &m_modPixelInspectorBlend, 0.0f, 1.0f, "");
+        ImGui::SameLine();
+        ImGui::TextUnformatted("Mod");
+    }
+    ImGui::Checkbox("Show sprites", &m_modPixelInspectorShowSprites);
+    ImGui::SameLine();
+    ImGui::Checkbox("Show background", &m_modPixelInspectorShowBackground);
     ImGui::SetNextItemWidth(180.0f);
     ImGui::InputTextWithHint("##ModPixelInspectorFilter", "Filter stages, e.g. overworld2", &m_modPixelInspectorFilter);
-    ImGui::SameLine();
-    ImGui::Checkbox("Verbose candidates", &m_modPixelInspectorVerboseCandidates);
-    if(!m_modPixelInspectorLastDebugText.empty()) {
-        if(ImGui::Button("Copy Selected Debug")) {
-            ImGui::SetClipboardText(m_modPixelInspectorLastDebugText.c_str());
-        }
-        ImGui::SameLine();
-        if(ImGui::Button("Clear Selected Debug")) {
-            m_modPixelInspectorLastDebugText.clear();
-        }
-        ImGui::SameLine();
-        ImGui::TextDisabled("Click a pixel to pin its report below.");
-    } else {
-        ImGui::TextDisabled("Click a pixel to pin its report below.");
-    }
+    ImGui::TextDisabled("Click a pixel to pin its report below.");
 
     if(!hasRomLoaded) {
         ImGui::TextDisabled("No ROM loaded.");
@@ -2298,15 +2305,89 @@ inline void GeraNESApp::drawModPixelInspectorWindow()
     }
 
     IEmulationHost::ModRenderSnapshot snapshot;
-    std::vector<uint32_t> unusedPresentedModFramebuffer;
-    const bool hasSnapshot = m_emu.getModRenderFrame(snapshot, unusedPresentedModFramebuffer) && snapshot.valid;
+    std::vector<uint32_t> presentedModFramebuffer;
+    bool hasSnapshot = m_emu.getModRenderFrame(snapshot, presentedModFramebuffer) && snapshot.valid;
+    if(!hasSnapshot) {
+        hasSnapshot = m_emu.withExclusiveAccess([&snapshot](auto& emu) {
+            if(!emu.valid()) {
+                return false;
+            }
+
+            PPU& ppu = emu.getConsole().ppu();
+            snapshot = {};
+            snapshot.valid = true;
+            snapshot.frameCount = emu.frameCount();
+            snapshot.scale = 1;
+            snapshot.universalBgColor = static_cast<uint8_t>(ppu.debugPeekPpuMemory(0x3F00) & 0x3F);
+            snapshot.backgroundPixels.resize(ppu.debugPresentedBackgroundPixelsCount());
+            snapshot.spritePixels.resize(ppu.debugPresentedSpritePixelsCount());
+            ppu.debugCopyPresentedBackgroundPixels(snapshot.backgroundPixels);
+            ppu.debugCopyPresentedSpritePixels(snapshot.spritePixels);
+            for(size_t i = 0; i < snapshot.paletteColors.size(); ++i) {
+                snapshot.paletteColors[i] = ppu.NESToRGBAColor(static_cast<uint8_t>(i));
+            }
+            for(size_t i = 0; i < snapshot.tileHashes.size(); ++i) {
+                snapshot.tileHashes[i] = ppu.debugHashChrTile(static_cast<int>(i));
+            }
+            return !snapshot.backgroundPixels.empty() || !snapshot.spritePixels.empty();
+        });
+    }
     const uint32_t* sourceFramebuffer = m_emu.getFramebuffer();
+    const bool inspectMod = m_modPixelInspectorInspectMod && modActive && hasSnapshot && !presentedModFramebuffer.empty();
+    const int inspectorScale = inspectMod ? modScale : 1;
+    const float modBlend = inspectMod ? std::clamp(m_modPixelInspectorBlend, 0.0f, 1.0f) : 0.0f;
+    const bool showSprites = m_modPixelInspectorShowSprites;
+    const bool showBackground = m_modPixelInspectorShowBackground;
+
+    auto backgroundColorFor = [&](const PPU::DebugModBackgroundPixel* bgPixel) -> uint32_t {
+        const uint32_t universalColor = snapshot.paletteColors[snapshot.universalBgColor & 0x3Fu];
+        if(!showBackground || bgPixel == nullptr || !bgPixel->valid) {
+            return universalColor;
+        }
+        return snapshot.paletteColors[bgPixel->paletteIndex & 0x3Fu];
+    };
+    auto spriteColorFor = [&](const PPU::DebugModSpriteCandidate& candidate) -> uint32_t {
+        if(candidate.colorLowBits == 0) {
+            return 0u;
+        }
+        const int paletteIndex = std::clamp(static_cast<int>(candidate.colorLowBits), 1, 3) - 1;
+        return snapshot.paletteColors[candidate.palette[static_cast<size_t>(paletteIndex)] & 0x3Fu];
+    };
+    auto composeOriginalPixel = [&](const PPU::DebugModBackgroundPixel* bgPixel,
+                                    const PPU::DebugModSpritePixel* spritePixel) -> uint32_t {
+        const uint32_t universalColor = snapshot.paletteColors[snapshot.universalBgColor & 0x3Fu];
+        const bool bgOpaque =
+            showBackground &&
+            bgPixel != nullptr &&
+            bgPixel->valid &&
+            bgPixel->colorLowBits != 0;
+        const uint32_t bgColor = backgroundColorFor(bgPixel);
+
+        if(showSprites && spritePixel != nullptr) {
+            for(int i = 0; i < static_cast<int>(spritePixel->count); ++i) {
+                const auto& candidate = spritePixel->candidates[static_cast<size_t>(i)];
+                if(!candidate.valid || candidate.colorLowBits == 0) {
+                    continue;
+                }
+                if(showBackground && candidate.behindBackground && bgOpaque) {
+                    continue;
+                }
+                return spriteColorFor(candidate);
+            }
+        }
+
+        if(showBackground) {
+            return bgColor;
+        }
+        return universalColor;
+    };
 
     ImGui::Text(
-        "Frame %u | Mod %s | Scale %dx | Overscan T%d R%d B%d L%d",
+        "Frame %u | Mod %s | Inspect %s | Scale %dx | Overscan T%d R%d B%d L%d",
         hasSnapshot ? snapshot.frameCount : 0u,
         modActive ? "active" : "inactive",
-        modScale,
+        inspectMod ? "enabled" : "disabled",
+        inspectorScale,
         overscan.top,
         overscan.right,
         overscan.bottom,
@@ -2319,15 +2400,188 @@ inline void GeraNESApp::drawModPixelInspectorWindow()
         return;
     }
 
+    if(m_modPixelInspectorTexture == 0) {
+        glGenTextures(1, &m_modPixelInspectorTexture);
+        glBindTexture(GL_TEXTURE_2D, m_modPixelInspectorTexture);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+        glTexImage2D(
+            GL_TEXTURE_2D,
+            0,
+            GL_RGBA,
+            m_modPixelInspectorTextureWidth,
+            m_modPixelInspectorTextureHeight,
+            0,
+            GL_RGBA,
+            GL_UNSIGNED_BYTE,
+            nullptr
+        );
+    }
+
+    const int inspectorTextureWidth = 256 * inspectorScale;
+    const int inspectorTextureHeight = 256 * inspectorScale;
+    if(m_modPixelInspectorTextureWidth != inspectorTextureWidth ||
+       m_modPixelInspectorTextureHeight != inspectorTextureHeight) {
+        m_modPixelInspectorTextureWidth = inspectorTextureWidth;
+        m_modPixelInspectorTextureHeight = inspectorTextureHeight;
+        glBindTexture(GL_TEXTURE_2D, m_modPixelInspectorTexture);
+        glTexImage2D(
+            GL_TEXTURE_2D,
+            0,
+            GL_RGBA,
+            inspectorTextureWidth,
+            inspectorTextureHeight,
+            0,
+            GL_RGBA,
+            GL_UNSIGNED_BYTE,
+            nullptr
+        );
+    }
+
+    const size_t inspectorBufferSize =
+        static_cast<size_t>(inspectorTextureWidth) * static_cast<size_t>(inspectorTextureHeight);
+    if(m_modPixelInspectorTextureUploadBuffer.size() != inspectorBufferSize) {
+        m_modPixelInspectorTextureUploadBuffer.assign(inspectorBufferSize, 0u);
+    } else {
+        std::fill(m_modPixelInspectorTextureUploadBuffer.begin(), m_modPixelInspectorTextureUploadBuffer.end(), 0u);
+    }
+
+    std::vector<uint32_t> originalInspectorFramebuffer(static_cast<size_t>(PPU::SCREEN_WIDTH * PPU::SCREEN_HEIGHT), 0u);
+    if(hasSnapshot) {
+        for(int y = 0; y < PPU::SCREEN_HEIGHT; ++y) {
+            for(int x = 0; x < PPU::SCREEN_WIDTH; ++x) {
+                const size_t pixelIndex = static_cast<size_t>(y) * PPU::SCREEN_WIDTH + static_cast<size_t>(x);
+                const auto* bgPixel =
+                    pixelIndex < snapshot.backgroundPixels.size() ? &snapshot.backgroundPixels[pixelIndex] : nullptr;
+                const auto* spritePixel =
+                    pixelIndex < snapshot.spritePixels.size() ? &snapshot.spritePixels[pixelIndex] : nullptr;
+                originalInspectorFramebuffer[pixelIndex] = composeOriginalPixel(bgPixel, spritePixel);
+            }
+        }
+    } else if(sourceFramebuffer != nullptr) {
+        std::memcpy(
+            originalInspectorFramebuffer.data(),
+            sourceFramebuffer,
+            static_cast<size_t>(PPU::SCREEN_WIDTH * PPU::SCREEN_HEIGHT) * sizeof(uint32_t)
+        );
+    }
+
+    if(inspectMod) {
+        std::vector<uint32_t> modInspectorFramebuffer;
+        ModManager::ChrRenderSnapshot filteredSnapshot;
+        filteredSnapshot.scrollX = snapshot.scrollX;
+        filteredSnapshot.scrollY = snapshot.scrollY;
+        filteredSnapshot.universalBgColor = snapshot.universalBgColor;
+        filteredSnapshot.paletteColors = snapshot.paletteColors;
+        filteredSnapshot.tileHashes = snapshot.tileHashes;
+        filteredSnapshot.backgroundPixels =
+            showBackground
+                ? snapshot.backgroundPixels
+                : std::vector<PPU::DebugModBackgroundPixel>(
+                    static_cast<size_t>(PPU::SCREEN_WIDTH * PPU::SCREEN_HEIGHT));
+        filteredSnapshot.spritePixels =
+            showSprites
+                ? snapshot.spritePixels
+                : std::vector<PPU::DebugModSpritePixel>(
+                    static_cast<size_t>(PPU::SCREEN_WIDTH * PPU::SCREEN_HEIGHT));
+        filteredSnapshot.backgroundPixelsView = filteredSnapshot.backgroundPixels.data();
+        filteredSnapshot.backgroundPixelsViewCount = filteredSnapshot.backgroundPixels.size();
+        filteredSnapshot.spritePixelsView = filteredSnapshot.spritePixels.data();
+        filteredSnapshot.spritePixelsViewCount = filteredSnapshot.spritePixels.size();
+        filteredSnapshot.frameConditionStateView = nullptr;
+        filteredSnapshot.frameConditionState.frameCount = snapshot.frameConditionState.frameCount;
+        filteredSnapshot.frameConditionState.memoryValues = snapshot.frameConditionState.memoryValues;
+        modInspectorFramebuffer.assign(static_cast<size_t>(inspectorTextureWidth * inspectorTextureHeight), 0u);
+
+        m_modManager.composeChrFrame(
+            modInspectorFramebuffer,
+            inspectorTextureWidth,
+            inspectorTextureHeight,
+            activeTop * inspectorScale,
+            activeBottom * inspectorScale,
+            inspectorScale,
+            originalInspectorFramebuffer.data(),
+            filteredSnapshot,
+            nullptr,
+            showBackground,
+            showSprites
+        );
+
+        auto blendRgba = [](uint32_t originalColor, uint32_t modColor, float blend) {
+            const auto blendChannel = [blend](uint32_t originalChannel, uint32_t modChannel) -> uint32_t {
+                const float value =
+                    static_cast<float>(originalChannel) +
+                    (static_cast<float>(modChannel) - static_cast<float>(originalChannel)) * blend;
+                return static_cast<uint32_t>(std::clamp(static_cast<int>(std::lround(value)), 0, 255));
+            };
+
+            const uint32_t r = blendChannel(originalColor & 0xFFu, modColor & 0xFFu);
+            const uint32_t g = blendChannel((originalColor >> 8) & 0xFFu, (modColor >> 8) & 0xFFu);
+            const uint32_t b = blendChannel((originalColor >> 16) & 0xFFu, (modColor >> 16) & 0xFFu);
+            const uint32_t a = blendChannel((originalColor >> 24) & 0xFFu, (modColor >> 24) & 0xFFu);
+            return r | (g << 8) | (b << 16) | (a << 24);
+        };
+
+        if(!modInspectorFramebuffer.empty()) {
+            for(int y = 0; y < inspectorTextureHeight; ++y) {
+                const int nesY = y / inspectorScale;
+                const size_t originalRowOffset = static_cast<size_t>(nesY) * PPU::SCREEN_WIDTH;
+                const size_t modRowOffset = static_cast<size_t>(y) * static_cast<size_t>(inspectorTextureWidth);
+                for(int x = 0; x < inspectorTextureWidth; ++x) {
+                    const int nesX = x / inspectorScale;
+                    const uint32_t originalColor = originalInspectorFramebuffer[originalRowOffset + static_cast<size_t>(nesX)];
+                    const uint32_t modColor = modInspectorFramebuffer[modRowOffset + static_cast<size_t>(x)];
+                    m_modPixelInspectorTextureUploadBuffer[modRowOffset + static_cast<size_t>(x)] =
+                        blendRgba(originalColor, modColor, modBlend);
+                }
+            }
+        } else {
+            for(int y = 0; y < inspectorTextureHeight; ++y) {
+                const int nesY = y / inspectorScale;
+                uint32_t* dstRow =
+                    m_modPixelInspectorTextureUploadBuffer.data() +
+                    static_cast<size_t>(y) * static_cast<size_t>(inspectorTextureWidth);
+                const uint32_t* srcRow =
+                    originalInspectorFramebuffer.data() + static_cast<size_t>(nesY) * PPU::SCREEN_WIDTH;
+                for(int x = 0; x < inspectorTextureWidth; ++x) {
+                    dstRow[static_cast<size_t>(x)] = srcRow[static_cast<size_t>(x / inspectorScale)];
+                }
+            }
+        }
+    } else if(!originalInspectorFramebuffer.empty()) {
+        for(int y = activeTop; y < activeBottom; ++y) {
+            const uint32_t* srcRow = originalInspectorFramebuffer.data() + static_cast<size_t>(y) * PPU::SCREEN_WIDTH;
+            uint32_t* dstRow =
+                m_modPixelInspectorTextureUploadBuffer.data() +
+                static_cast<size_t>(y * inspectorScale) * static_cast<size_t>(inspectorTextureWidth);
+            std::memcpy(dstRow, srcRow, static_cast<size_t>(PPU::SCREEN_WIDTH) * sizeof(uint32_t));
+        }
+    }
+
+    glBindTexture(GL_TEXTURE_2D, m_modPixelInspectorTexture);
+    glTexSubImage2D(
+        GL_TEXTURE_2D,
+        0,
+        0,
+        0,
+        inspectorTextureWidth,
+        inspectorTextureHeight,
+        GL_RGBA,
+        GL_UNSIGNED_BYTE,
+        m_modPixelInspectorTextureUploadBuffer.data()
+    );
+
     const ImVec2 imageSize(static_cast<float>(activeWidth) * m_modPixelInspectorZoom, static_cast<float>(activeHeight) * m_modPixelInspectorZoom);
-    const float textureWidth = static_cast<float>(std::max(1, m_renderTextureWidth));
-    const float textureHeight = static_cast<float>(std::max(1, m_renderTextureHeight));
-    const float uvLeft = static_cast<float>(activeLeft * modScale) / textureWidth;
-    const float uvRight = static_cast<float>(activeRight * modScale) / textureWidth;
-    const float uvTop = static_cast<float>(activeTop * modScale) / textureHeight;
-    const float uvBottom = static_cast<float>(activeBottom * modScale) / textureHeight;
+    const float textureWidth = static_cast<float>(std::max(1, inspectorTextureWidth));
+    const float textureHeight = static_cast<float>(std::max(1, inspectorTextureHeight));
+    const float uvLeft = static_cast<float>(activeLeft * inspectorScale) / textureWidth;
+    const float uvRight = static_cast<float>(activeRight * inspectorScale) / textureWidth;
+    const float uvTop = static_cast<float>(activeTop * inspectorScale) / textureHeight;
+    const float uvBottom = static_cast<float>(activeBottom * inspectorScale) / textureHeight;
     ImGui::Image(
-        static_cast<ImTextureID>(static_cast<uintptr_t>(m_texture)),
+        static_cast<ImTextureID>(static_cast<uintptr_t>(m_modPixelInspectorTexture)),
         imageSize,
         ImVec2(uvLeft, uvTop),
         ImVec2(uvRight, uvBottom)
@@ -2351,12 +2605,12 @@ inline void GeraNESApp::drawModPixelInspectorWindow()
         drawList->AddRect(pixelMin, pixelMax, ImGuiTheme::toU32(ImGuiTheme::eventWrite()), 0.0f, 0, 2.0f);
 
         uint32_t finalColor = 0;
-        const size_t sampleX = static_cast<size_t>(hoveredX * modScale);
-        const size_t sampleY = static_cast<size_t>(hoveredY * modScale);
-        if(sampleY < static_cast<size_t>(m_renderTextureHeight) &&
-           sampleX < static_cast<size_t>(m_renderTextureWidth) &&
-           m_textureUploadBuffer.size() == static_cast<size_t>(m_renderTextureWidth * m_renderTextureHeight)) {
-            finalColor = m_textureUploadBuffer[sampleY * static_cast<size_t>(m_renderTextureWidth) + sampleX];
+        const size_t sampleX = static_cast<size_t>(hoveredX * inspectorScale);
+        const size_t sampleY = static_cast<size_t>(hoveredY * inspectorScale);
+        if(sampleY < static_cast<size_t>(inspectorTextureHeight) &&
+           sampleX < static_cast<size_t>(inspectorTextureWidth) &&
+           m_modPixelInspectorTextureUploadBuffer.size() == inspectorBufferSize) {
+            finalColor = m_modPixelInspectorTextureUploadBuffer[sampleY * static_cast<size_t>(inspectorTextureWidth) + sampleX];
         }
 
         std::ostringstream copyText;
@@ -2374,7 +2628,7 @@ inline void GeraNESApp::drawModPixelInspectorWindow()
             static_cast<unsigned int>((finalColor >> 24) & 0xFFu));
 
         std::optional<ModManager::DebugComposePixel> composeDebug;
-        if(modActive && hasSnapshot && sourceFramebuffer != nullptr) {
+        if(inspectMod && sourceFramebuffer != nullptr) {
             ModManager::ChrRenderSnapshot chrSnapshot;
             chrSnapshot.scrollX = snapshot.scrollX;
             chrSnapshot.scrollY = snapshot.scrollY;
@@ -2388,7 +2642,7 @@ inline void GeraNESApp::drawModPixelInspectorWindow()
             composeDebug = m_modManager.debugComposePixel(sourceFramebuffer, chrSnapshot, modScale, hoveredX, hoveredY, m_modPixelInspectorFilter);
         }
 
-        if(composeDebug.has_value() && composeDebug->valid) {
+        if(inspectMod && composeDebug.has_value() && composeDebug->valid) {
             ImGui::Text("Base RGBA: #%02X%02X%02X%02X",
                 static_cast<unsigned int>(composeDebug->baseColor & 0xFFu),
                 static_cast<unsigned int>((composeDebug->baseColor >> 8) & 0xFFu),
@@ -2403,15 +2657,15 @@ inline void GeraNESApp::drawModPixelInspectorWindow()
             appendColorLine(copyText, "Debug final", composeDebug->finalColor);
         }
 
+        ImGui::Separator();
+        ImGui::Text("Background");
+        copyText << "\nBackground\n";
         if(hasSnapshot &&
            pixelIndex < snapshot.backgroundPixels.size() &&
            pixelIndex < snapshot.spritePixels.size()) {
             const auto& bg = snapshot.backgroundPixels[pixelIndex];
             const auto& sprite = snapshot.spritePixels[pixelIndex];
 
-            ImGui::Separator();
-            ImGui::Text("Background");
-            copyText << "\nBackground\n";
             if(bg.valid) {
                 const uint32_t bgHash =
                     bg.tileHash != 0 ? bg.tileHash :
@@ -2445,9 +2699,34 @@ inline void GeraNESApp::drawModPixelInspectorWindow()
             ImGui::Separator();
             ImGui::Text("Sprites");
             copyText << "\nSprites\n";
-            if(sprite.count > 0) {
-                for(int i = 0; i < static_cast<int>(sprite.count); ++i) {
-                    const auto& candidate = sprite.candidates[static_cast<size_t>(i)];
+            std::vector<const PPU::DebugModSpriteCandidate*> orderedCandidates;
+            orderedCandidates.reserve(sprite.count);
+            const PPU::DebugModSpriteCandidate* renderedCandidate = nullptr;
+            const bool bgOpaqueForOrdering = showBackground && bg.valid && bg.colorLowBits != 0;
+            for(int i = 0; i < static_cast<int>(sprite.count); ++i) {
+                const auto& candidate = sprite.candidates[static_cast<size_t>(i)];
+                if(renderedCandidate == nullptr &&
+                   candidate.valid &&
+                   candidate.colorLowBits != 0 &&
+                   (!showBackground || !candidate.behindBackground || !bgOpaqueForOrdering)) {
+                    renderedCandidate = &candidate;
+                }
+            }
+            if(renderedCandidate != nullptr) {
+                orderedCandidates.push_back(renderedCandidate);
+            }
+            for(int i = 0; i < static_cast<int>(sprite.count); ++i) {
+                const auto& candidate = sprite.candidates[static_cast<size_t>(i)];
+                if(candidate.valid) {
+                    if(&candidate == renderedCandidate) {
+                        continue;
+                    }
+                    orderedCandidates.push_back(&candidate);
+                }
+            }
+            if(!orderedCandidates.empty()) {
+                for(size_t i = 0; i < orderedCandidates.size(); ++i) {
+                    const auto& candidate = *orderedCandidates[i];
                     if(!candidate.valid) {
                         continue;
                     }
@@ -2456,8 +2735,9 @@ inline void GeraNESApp::drawModPixelInspectorWindow()
                             ? snapshot.tileHashes[candidate.tileIndex]
                             : 0u;
                     ImGui::Text(
-                        "#%d tile $%03X hash %08X pal %02X %02X %02X bits %u off (%u,%u) %s%s%s",
-                        i,
+                        "#%d %s tile $%03X hash %08X pal %02X %02X %02X bits %u off (%u,%u) %s%s%s",
+                        static_cast<int>(i),
+                        i == 0 ? "[rendered]" : "",
                         static_cast<unsigned int>(candidate.tileIndex),
                         static_cast<unsigned int>(spriteHash),
                         static_cast<unsigned int>(candidate.palette[0]),
@@ -2470,7 +2750,7 @@ inline void GeraNESApp::drawModPixelInspectorWindow()
                         candidate.horizontalMirror ? "hflip " : "",
                         candidate.verticalMirror ? "vflip" : ""
                     );
-                    copyText << "#" << i
+                    copyText << "#" << i << " " << (i == 0 ? "[rendered] " : "")
                              << " tile $" << std::uppercase << std::hex << static_cast<unsigned int>(candidate.tileIndex)
                              << " hash " << static_cast<unsigned int>(spriteHash)
                              << std::dec
@@ -2492,7 +2772,7 @@ inline void GeraNESApp::drawModPixelInspectorWindow()
                 copyText << "No sprite candidates captured.\n";
             }
 
-            if(composeDebug.has_value() && composeDebug->valid) {
+            if(inspectMod && composeDebug.has_value() && composeDebug->valid) {
                 auto drawStage = [](const ModManager::DebugComposeStage& stage) {
                     if(!stage.valid) {
                         return;
@@ -2529,13 +2809,11 @@ inline void GeraNESApp::drawModPixelInspectorWindow()
                 int compactStageCount = 0;
                 constexpr int kCompactStageLimit = 24;
                 auto includeStage = [&](const ModManager::DebugComposeStage& stage) {
-                    const bool visible = m_modPixelInspectorVerboseCandidates
-                        ? (hasStageFilter ? stageMatchesFilter(stage) : true)
-                        : stageVisibleInCompactMode(stage);
+                    const bool visible = hasStageFilter ? stageMatchesFilter(stage) : stageVisibleInCompactMode(stage);
                     if(!visible) {
                         return false;
                     }
-                    if(m_modPixelInspectorVerboseCandidates || hasStageFilter) {
+                    if(hasStageFilter) {
                         return true;
                     }
                     if(compactStageCount >= kCompactStageLimit) {
@@ -2568,11 +2846,19 @@ inline void GeraNESApp::drawModPixelInspectorWindow()
                         appendStageText(copyText, stage);
                     }
                 }
+            } else if(m_modPixelInspectorInspectMod && modActive) {
+                ImGui::Separator();
+                ImGui::TextDisabled("Mod debug snapshot unavailable for this frame.");
+                copyText << "\nMod debug snapshot unavailable for this frame.\n";
             }
         } else {
+            ImGui::TextDisabled("Background debug unavailable.");
+            copyText << "Background debug unavailable.\n";
             ImGui::Separator();
-            ImGui::TextDisabled("Mod debug snapshot unavailable for this frame.");
-            copyText << "\nMod debug snapshot unavailable for this frame.\n";
+            ImGui::Text("Sprites");
+            ImGui::TextDisabled("Sprite debug unavailable.");
+            copyText << "\nSprites\n";
+            copyText << "Sprite debug unavailable.\n";
         }
         if(imageClicked) {
             m_modPixelInspectorLastDebugText = copyText.str();
@@ -2591,6 +2877,13 @@ inline void GeraNESApp::drawModPixelInspectorWindow()
             &m_modPixelInspectorLastDebugText,
             ImVec2(-FLT_MIN, 150.0f),
             ImGuiInputTextFlags_ReadOnly);
+        if(ImGui::Button("Copy Selected Debug")) {
+            ImGui::SetClipboardText(m_modPixelInspectorLastDebugText.c_str());
+        }
+        ImGui::SameLine();
+        if(ImGui::Button("Clear Selected Debug")) {
+            m_modPixelInspectorLastDebugText.clear();
+        }
     }
     ImGui::End();
 }

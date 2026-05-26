@@ -149,6 +149,10 @@ private:
     std::vector<uint32_t> m_textureUploadBuffer;
     int m_renderTextureWidth = 256;
     int m_renderTextureHeight = 256;
+    GLuint m_modPixelInspectorTexture = 0;
+    std::vector<uint32_t> m_modPixelInspectorTextureUploadBuffer;
+    int m_modPixelInspectorTextureWidth = 256;
+    int m_modPixelInspectorTextureHeight = 256;
     GLuint m_ppuNametableTexture = 0;
     GLuint m_ppuChrTexture = 0;
     GLuint m_ppuEventTexture = 0;
@@ -217,10 +221,14 @@ private:
     bool m_showMemoryCompareWindow = false;
     bool m_showPpuViewerWindow = false;
     bool m_showModPixelInspectorWindow = false;
+    bool m_modPixelInspectorPpuCaptureEnabled = false;
     float m_modPixelInspectorZoom = 1.0f;
+    float m_modPixelInspectorBlend = 1.0f;
+    bool m_modPixelInspectorShowSprites = true;
+    bool m_modPixelInspectorShowBackground = true;
     std::string m_modPixelInspectorLastDebugText;
     std::string m_modPixelInspectorFilter;
-    bool m_modPixelInspectorVerboseCandidates = false;
+    bool m_modPixelInspectorInspectMod = false;
     bool m_showEventViewerWindow = false;
     bool m_ppuEventViewerEnabled = false;
     bool m_showArkanoidNesConfigWindow = false;
