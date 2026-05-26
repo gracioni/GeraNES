@@ -1515,7 +1515,7 @@ void GeraNESApp::onEmuLoadForModAssets(uint32_t frame)
 void GeraNESApp::refreshModFrameCaptureHook()
 {
     m_emu.setModFrameCaptureHook([this](GeraNESEmu& emu, IEmulationHost::ModRenderSnapshot& snapshot, std::vector<uint32_t>& framebuffer) {
-        if(!m_modManager.active() || emu.isRewinding()) {
+        if(!m_modManager.active()) {
             snapshot = {};
             framebuffer.clear();
             return false;
