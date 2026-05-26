@@ -302,7 +302,7 @@ public:
     void onEmulatorReset();
     void onStateLoaded(uint32_t frameCount);
     bool composeFrameOnEmuThread(GeraNESEmu& emu, ChrRenderSnapshot& snapshot, std::vector<uint32_t>& framebuffer, int activeTop, int activeBottom, bool captureDebugSnapshot);
-    void composeChrFrame(std::vector<uint32_t>& framebuffer, int width, int height, int activeTop, int activeBottom, int scale, const uint32_t* sourceFramebuffer, const ChrRenderSnapshot& snapshot, const std::vector<const ChrOverride*>* activeOverrideFilter = nullptr, bool renderBackground = true, bool renderSprites = true, bool applyModLogic = true);
+    void composeChrFrame(std::vector<uint32_t>& framebuffer, int width, int height, int activeTop, int activeBottom, int scale, const uint32_t* sourceFramebuffer, const ChrRenderSnapshot& snapshot, const std::vector<const ChrOverride*>* activeOverrideFilter = nullptr, bool applyModLogic = true);
 
     bool active() const { return m_active; }
     bool hasSelectedSource() const { return !m_modPath.empty(); }

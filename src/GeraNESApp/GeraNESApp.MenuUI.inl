@@ -2544,8 +2544,6 @@ inline void GeraNESApp::drawModPixelInspectorWindow()
             neutralInspectorFramebuffer.data(),
             baseSnapshot,
             nullptr,
-            true,
-            true,
             false
         );
     } else if(sourceFramebuffer != nullptr) {
@@ -2602,8 +2600,12 @@ inline void GeraNESApp::drawModPixelInspectorWindow()
             inspectorSnapshot.universalBgColor = snapshot.universalBgColor;
             inspectorSnapshot.paletteColors = snapshot.paletteColors;
             inspectorSnapshot.tileHashes = snapshot.tileHashes;
-            inspectorSnapshot.backgroundPixels = snapshot.backgroundPixels;
-            inspectorSnapshot.spritePixels = snapshot.spritePixels;
+            if(showBackground) {
+                inspectorSnapshot.backgroundPixels = snapshot.backgroundPixels;
+            }
+            if(showSprites) {
+                inspectorSnapshot.spritePixels = snapshot.spritePixels;
+            }
             inspectorSnapshot.backgroundPixelsView = inspectorSnapshot.backgroundPixels.data();
             inspectorSnapshot.backgroundPixelsViewCount = inspectorSnapshot.backgroundPixels.size();
             inspectorSnapshot.spritePixelsView = inspectorSnapshot.spritePixels.data();
@@ -2623,8 +2625,6 @@ inline void GeraNESApp::drawModPixelInspectorWindow()
                 inspectorComposeSourceFramebuffer,
                 inspectorSnapshot,
                 nullptr,
-                showBackground,
-                showSprites,
                 true
             );
         }

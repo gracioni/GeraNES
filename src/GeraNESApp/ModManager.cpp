@@ -4127,7 +4127,7 @@ std::optional<ModManager::DecodedImage> ModManager::decodeImage(const std::vecto
     return image;
 }
 
-void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, int height, int activeTop, int activeBottom, int scale, const uint32_t* sourceFramebuffer, const ChrRenderSnapshot& snapshot, const std::vector<const ChrOverride*>* activeOverrideFilter, bool renderBackground, bool renderSprites, bool applyModLogic)
+void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, int height, int activeTop, int activeBottom, int scale, const uint32_t* sourceFramebuffer, const ChrRenderSnapshot& snapshot, const std::vector<const ChrOverride*>* activeOverrideFilter, bool applyModLogic)
 {
     MODMANAGER_PROFILE_SCOPE(ComposeChrFrame);
     std::scoped_lock runtimeLock(m_runtimeMutex);
@@ -4245,9 +4245,20 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
     const auto& hasDynamicOverridesByFullTile = selectedOverrideCache->hasDynamicOverridesByFullTile;
     const auto& dynamicOverflowFullTiles = selectedOverrideCache->dynamicOverflowFullTiles;
     const auto& hasDynamicOverridesByRelativeTile = selectedOverrideCache->hasDynamicOverridesByRelativeTile;
+    const PPU::DebugModBackgroundPixel* const backgroundPixelsData =
+        snapshot.backgroundPixelsView != nullptr ? snapshot.backgroundPixelsView : snapshot.backgroundPixels.data();
+    const size_t backgroundPixelsCount =
+        snapshot.backgroundPixelsView != nullptr ? snapshot.backgroundPixelsViewCount : snapshot.backgroundPixels.size();
+    const PPU::DebugModSpritePixel* const rawSpritePixelsData =
+        snapshot.spritePixelsView != nullptr ? snapshot.spritePixelsView : snapshot.spritePixels.data();
+    const size_t rawSpritePixelsCount =
+        snapshot.spritePixelsView != nullptr ? snapshot.spritePixelsViewCount : snapshot.spritePixels.size();
+    const bool hasBackgroundData = backgroundPixelsData != nullptr && backgroundPixelsCount != 0;
+    const bool hasSpriteData = rawSpritePixelsData != nullptr && rawSpritePixelsCount != 0;
+
     static const std::vector<RenderPreparedBackground> emptyPreparedBackgrounds;
-    const auto& preparedBackgrounds = renderBackground ? *preparedBackgroundsPtr : emptyPreparedBackgrounds;
-    const bool disableOriginalBackgroundTiles = applyModLogic && m_disableOriginalTiles && renderBackground;
+    const auto& preparedBackgrounds = hasBackgroundData ? *preparedBackgroundsPtr : emptyPreparedBackgrounds;
+    const bool disableOriginalBackgroundTiles = applyModLogic && m_disableOriginalTiles && hasBackgroundData;
     const uint32_t universalBackgroundColor = snapshot.paletteColors[snapshot.universalBgColor & 0x3Fu];
     const auto& additionalSpriteRulesByExactKey = *additionalSpriteRulesByExactKeyPtr;
     const auto& additionalSpriteRulesByOriginalTile = *additionalSpriteRulesByOriginalTilePtr;
@@ -4327,23 +4338,6 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
                 ModManagerProfileClock::now() - composeChrFrameSetupStartedAt)
                 .count()));
 #endif
-    const PPU::DebugModBackgroundPixel* const backgroundPixelsData =
-        renderBackground
-            ? (snapshot.backgroundPixelsView != nullptr ? snapshot.backgroundPixelsView : snapshot.backgroundPixels.data())
-            : nullptr;
-    const size_t backgroundPixelsCount =
-        renderBackground
-            ? (snapshot.backgroundPixelsView != nullptr ? snapshot.backgroundPixelsViewCount : snapshot.backgroundPixels.size())
-            : 0;
-    const PPU::DebugModSpritePixel* const rawSpritePixelsData =
-        renderSprites
-            ? (snapshot.spritePixelsView != nullptr ? snapshot.spritePixelsView : snapshot.spritePixels.data())
-            : nullptr;
-    const size_t rawSpritePixelsCount =
-        renderSprites
-            ? (snapshot.spritePixelsView != nullptr ? snapshot.spritePixelsViewCount : snapshot.spritePixels.size())
-            : 0;
-
     auto backgroundPixelAt = [&](int x, int y) -> const PPU::DebugModBackgroundPixel* {
         if(x < 0 || x >= PPU::SCREEN_WIDTH || y < 0 || y >= PPU::SCREEN_HEIGHT) {
             return nullptr;
