@@ -228,18 +228,33 @@ public:
         struct CachedMemoryRead {
             uint64_t key = 0;
             size_t readIndex = 0;
-            MemoryCondition condition;
+            MemoryCondition::MemorySource memorySource = MemoryCondition::MemorySource::Cpu;
+            uint32_t address = 0;
+            bool word = false;
+            uint32_t scaleDivisor = 1;
         };
 
         struct CompiledMemoryCondition {
-            const MemoryCondition* condition = nullptr;
             size_t readIndex = 0;
             size_t rhsReadIndex = 0;
+            MemoryCondition::CompareOp compareOp = MemoryCondition::CompareOp::Equal;
+            uint32_t value = 0;
+            uint32_t mask = 0;
+            bool hasMask = false;
+            bool inverted = false;
+            bool compareAgainstMemory = false;
+            std::vector<uint32_t> anyOfValues;
+        };
+
+        struct CompiledFrameRangeCondition {
+            uint32_t range = 1;
+            uint32_t start = 0;
+            bool inverted = false;
         };
 
         struct CompiledRuleConditions {
             std::vector<CompiledMemoryCondition> memoryConditions;
-            std::vector<const MemoryCondition*> frameRangeConditions;
+            std::vector<CompiledFrameRangeCondition> frameRangeConditions;
         };
 
         std::vector<CachedMemoryRead> uniqueMemoryReads;

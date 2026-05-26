@@ -1733,21 +1733,67 @@ void ModManager::updateFrameConditionsForFrame(GeraNESEmu& emu)
     MODMANAGER_PROFILE_COUNT(frameConditionMemoryReads, m_frameConditionPlan.uniqueMemoryReads.size());
 
     auto memoryConditionMatchesCached = [&](const FrameConditionPlan::CompiledMemoryCondition& compiledCondition) {
-        const MemoryCondition& condition = *compiledCondition.condition;
         const uint32_t actual =
             compiledCondition.readIndex < m_frameConditionState.memoryValues.size()
                 ? m_frameConditionState.memoryValues[compiledCondition.readIndex]
                 : 0u;
         const uint32_t expected =
-            condition.compareAgainstMemory && compiledCondition.rhsReadIndex < m_frameConditionState.memoryValues.size()
+            compiledCondition.compareAgainstMemory && compiledCondition.rhsReadIndex < m_frameConditionState.memoryValues.size()
                 ? m_frameConditionState.memoryValues[compiledCondition.rhsReadIndex]
-                : condition.value;
-        return evaluateMemoryCondition(condition, actual, expected);
+                : compiledCondition.value;
+
+        uint32_t maskedActual = actual;
+        uint32_t maskedExpected = expected;
+        if(compiledCondition.hasMask) {
+            maskedActual &= compiledCondition.mask;
+            maskedExpected &= compiledCondition.mask;
+        }
+
+        bool match = false;
+        switch(compiledCondition.compareOp) {
+        case MemoryCondition::CompareOp::AnyOf:
+            for(uint32_t value : compiledCondition.anyOfValues) {
+                if(compiledCondition.hasMask) {
+                    value &= compiledCondition.mask;
+                }
+                if(maskedActual == value) {
+                    match = true;
+                    break;
+                }
+            }
+            break;
+        case MemoryCondition::CompareOp::NotEqual:
+            match = maskedActual != maskedExpected;
+            break;
+        case MemoryCondition::CompareOp::Greater:
+            match = maskedActual > maskedExpected;
+            break;
+        case MemoryCondition::CompareOp::GreaterOrEqual:
+            match = maskedActual >= maskedExpected;
+            break;
+        case MemoryCondition::CompareOp::Less:
+            match = maskedActual < maskedExpected;
+            break;
+        case MemoryCondition::CompareOp::LessOrEqual:
+            match = maskedActual <= maskedExpected;
+            break;
+        case MemoryCondition::CompareOp::BitSet:
+            match = (maskedActual & maskedExpected) == maskedExpected;
+            break;
+        case MemoryCondition::CompareOp::BitClear:
+            match = (maskedActual & maskedExpected) == 0;
+            break;
+        case MemoryCondition::CompareOp::Equal:
+        default:
+            match = maskedActual == maskedExpected;
+            break;
+        }
+        return compiledCondition.inverted ? !match : match;
     };
 
-    auto frameRangeConditionMatches = [&](const MemoryCondition& condition) {
-        const uint32_t range = std::max(1u, condition.value);
-        const bool match = (m_frameConditionState.frameCount % range) >= condition.address;
+    auto frameRangeConditionMatches = [&](const FrameConditionPlan::CompiledFrameRangeCondition& condition) {
+        const uint32_t range = std::max(1u, condition.range);
+        const bool match = (m_frameConditionState.frameCount % range) >= condition.start;
         return condition.inverted ? !match : match;
     };
 
@@ -1757,8 +1803,8 @@ void ModManager::updateFrameConditionsForFrame(GeraNESEmu& emu)
                 return false;
             }
         }
-        for(const MemoryCondition* condition : conditions.frameRangeConditions) {
-            if(condition == nullptr || !frameRangeConditionMatches(*condition)) {
+        for(const FrameConditionPlan::CompiledFrameRangeCondition& condition : conditions.frameRangeConditions) {
+            if(!frameRangeConditionMatches(condition)) {
                 return false;
             }
         }
@@ -1767,7 +1813,13 @@ void ModManager::updateFrameConditionsForFrame(GeraNESEmu& emu)
 
     for(const FrameConditionPlan::CachedMemoryRead& cachedRead : m_frameConditionPlan.uniqueMemoryReads) {
         if(cachedRead.readIndex < m_frameConditionState.memoryValues.size()) {
-            m_frameConditionState.memoryValues[cachedRead.readIndex] = readMemoryValue(cachedRead.condition, emu);
+            uint32_t low = readMemory(&emu, cachedRead.memorySource, cachedRead.address);
+            if(cachedRead.word) {
+                const uint32_t high = readMemory(&emu, cachedRead.memorySource, cachedRead.address + 1u);
+                low |= high << 8u;
+            }
+            m_frameConditionState.memoryValues[cachedRead.readIndex] =
+                low / std::max(1u, cachedRead.scaleDivisor);
         }
     }
 
@@ -1820,10 +1872,10 @@ void ModManager::rebuildFrameConditionPlan()
         FrameConditionPlan::CachedMemoryRead cachedRead;
         cachedRead.key = cacheKey;
         cachedRead.readIndex = m_frameConditionPlan.uniqueMemoryReads.size();
-        cachedRead.condition.memorySource = source;
-        cachedRead.condition.address = address;
-        cachedRead.condition.word = word;
-        cachedRead.condition.scale = scale;
+        cachedRead.memorySource = source;
+        cachedRead.address = address;
+        cachedRead.word = word;
+        cachedRead.scaleDivisor = static_cast<uint32_t>(std::max(1, scale));
 
         const size_t readIndex = cachedRead.readIndex;
         m_frameConditionPlan.uniqueMemoryReads.push_back(std::move(cachedRead));
@@ -1837,7 +1889,11 @@ void ModManager::rebuildFrameConditionPlan()
         globals.frameRangeConditions.reserve(source.size());
         for(const MemoryCondition& condition : source) {
             if(condition.kind == MemoryCondition::Kind::FrameRange) {
-                globals.frameRangeConditions.push_back(&condition);
+                globals.frameRangeConditions.push_back(FrameConditionPlan::CompiledFrameRangeCondition {
+                    std::max(1u, condition.value),
+                    condition.address,
+                    condition.inverted
+                });
                 continue;
             }
             if(condition.kind != MemoryCondition::Kind::MemoryCheck) {
@@ -1861,9 +1917,16 @@ void ModManager::rebuildFrameConditionPlan()
                     rhsCacheKey);
             }
             globals.memoryConditions.push_back(FrameConditionPlan::CompiledMemoryCondition {
-                &condition,
                 readIndex,
                 rhsReadIndex
+                ,
+                condition.compareOp,
+                condition.value,
+                condition.mask,
+                condition.hasMask,
+                condition.inverted,
+                condition.compareAgainstMemory,
+                condition.values
             });
         }
         return globals;
@@ -1874,28 +1937,20 @@ void ModManager::rebuildFrameConditionPlan()
         if(lhs.readIndex != rhs.readIndex || lhs.rhsReadIndex != rhs.rhsReadIndex) {
             return false;
         }
-        if(lhs.condition == nullptr || rhs.condition == nullptr) {
-            return lhs.condition == rhs.condition;
-        }
-
-        const MemoryCondition& lhsCondition = *lhs.condition;
-        const MemoryCondition& rhsCondition = *rhs.condition;
-        return lhsCondition.kind == rhsCondition.kind &&
-               lhsCondition.op == rhsCondition.op &&
-               lhsCondition.value == rhsCondition.value &&
-               lhsCondition.mask == rhsCondition.mask &&
-               lhsCondition.inverted == rhsCondition.inverted &&
-               lhsCondition.compareAgainstMemory == rhsCondition.compareAgainstMemory;
+        return lhs.compareOp == rhs.compareOp &&
+               lhs.value == rhs.value &&
+               lhs.mask == rhs.mask &&
+               lhs.hasMask == rhs.hasMask &&
+               lhs.inverted == rhs.inverted &&
+               lhs.compareAgainstMemory == rhs.compareAgainstMemory &&
+               lhs.anyOfValues == rhs.anyOfValues;
     };
 
-    auto frameRangeConditionsEqual = [](const MemoryCondition* lhs, const MemoryCondition* rhs) {
-        if(lhs == nullptr || rhs == nullptr) {
-            return lhs == rhs;
-        }
-        return lhs->kind == rhs->kind &&
-               lhs->address == rhs->address &&
-               lhs->value == rhs->value &&
-               lhs->inverted == rhs->inverted;
+    auto frameRangeConditionsEqual = [](const FrameConditionPlan::CompiledFrameRangeCondition& lhs,
+                                        const FrameConditionPlan::CompiledFrameRangeCondition& rhs) {
+        return lhs.range == rhs.range &&
+               lhs.start == rhs.start &&
+               lhs.inverted == rhs.inverted;
     };
 
     auto compiledGlobalConditionsEqual = [&](const FrameConditionPlan::CompiledRuleConditions& lhs,
