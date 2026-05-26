@@ -2079,6 +2079,9 @@ inline void GeraNESApp::drawPpuViewerWindow()
         }
 
         const ImVec2 mousePos = ImGui::GetIO().MousePos;
+        bool hasHoveredNametableChrTile = false;
+        int hoveredNametableChrTileX = 0;
+        int hoveredNametableChrTileY = 0;
         if(ImGui::IsItemHovered()) {
             const int hoveredX = std::clamp(static_cast<int>(mousePos.x - imageMin.x), 0, kNametableWidth - 1);
             const int hoveredY = std::clamp(static_cast<int>(mousePos.y - imageMin.y), 0, kNametableHeight - 1);
@@ -2089,9 +2092,19 @@ inline void GeraNESApp::drawPpuViewerWindow()
             const int localTileY = tileY % 30;
             const uint16_t tileAddress = static_cast<uint16_t>(0x2000 + nameTableIndex * 0x400 + localTileY * 32 + localTileX);
             const int nameTableBase = nameTableIndex * 0x400;
+            const uint8_t tileIndexValue = nametableData[static_cast<size_t>(tileAddress - 0x2000)];
             const uint8_t attrByte = nametableData[static_cast<size_t>(nameTableBase + 0x3C0 + ((localTileY >> 2) * 8) + (localTileX >> 2))];
             const int attrShift = ((localTileY & 0x02) << 1) | (localTileX & 0x02);
             const uint8_t paletteIndex = static_cast<uint8_t>((attrByte >> attrShift) & 0x03);
+            const auto* hoveredLineState = findTraceStateForNametableRow(hoveredY);
+            const int hoveredPatternTableAddress = hoveredLineState != nullptr
+                ? static_cast<int>(hoveredLineState->backgroundPatternTableAddress)
+                : backgroundPatternTableAddress;
+
+            hasHoveredNametableChrTile = true;
+            hoveredNametableChrTileX =
+                ((hoveredPatternTableAddress >= 0x1000) ? 16 : 0) + (static_cast<int>(tileIndexValue) & 0x0F);
+            hoveredNametableChrTileY = static_cast<int>(tileIndexValue) >> 4;
 
             const ImVec2 tileMin(imageMin.x + tileX * 8.0f, imageMin.y + tileY * 8.0f);
             const ImVec2 tileMax(tileMin.x + 8.0f, tileMin.y + 8.0f);
@@ -2101,7 +2114,8 @@ inline void GeraNESApp::drawPpuViewerWindow()
             ImGui::Text("Nametable tile");
             ImGui::Text("Tile: (%d, %d)", tileX, tileY);
             ImGui::Text("Nametable addr: $%04X", static_cast<unsigned int>(tileAddress));
-            ImGui::Text("Tile index: $%02X", static_cast<unsigned int>(nametableData[static_cast<size_t>(tileAddress - 0x2000)]));
+            ImGui::Text("Tile index: $%02X", static_cast<unsigned int>(tileIndexValue));
+            ImGui::Text("Pattern addr: $%04X", static_cast<unsigned int>(hoveredPatternTableAddress + tileIndexValue * 16));
             ImGui::Text("BG palette: %u ($3F%02X-$3F%02X)",
                         static_cast<unsigned int>(paletteIndex),
                         static_cast<unsigned int>(paletteIndex * 4),
@@ -2134,6 +2148,14 @@ inline void GeraNESApp::drawPpuViewerWindow()
         );
 
         const ImVec2 chrImageMin = ImGui::GetItemRectMin();
+        if(hasHoveredNametableChrTile) {
+            const ImVec2 tileMin(
+                chrImageMin.x + hoveredNametableChrTileX * 16.0f,
+                chrImageMin.y + hoveredNametableChrTileY * 16.0f
+            );
+            const ImVec2 tileMax(tileMin.x + 16.0f, tileMin.y + 16.0f);
+            drawList->AddRect(tileMin, tileMax, ImGuiTheme::toU32(ImGuiTheme::eventWrite()), 0.0f, 0, 2.0f);
+        }
         if(ImGui::IsItemHovered()) {
             const int hoveredX = std::clamp(static_cast<int>((ImGui::GetIO().MousePos.x - chrImageMin.x) / 2.0f), 0, kChrWidth - 1);
             const int hoveredY = std::clamp(static_cast<int>((ImGui::GetIO().MousePos.y - chrImageMin.y) / 2.0f), 0, kChrHeight - 1);
@@ -2153,6 +2175,11 @@ inline void GeraNESApp::drawPpuViewerWindow()
             ImGui::Text("Tile: (%d, %d)", tileX, tileY);
             ImGui::Text("Tile index: $%02X", static_cast<unsigned int>(tileIndex));
             ImGui::Text("Pattern addr: $%04X", static_cast<unsigned int>(tileAddress));
+            if(hasHoveredNametableChrTile &&
+               tileX == hoveredNametableChrTileX &&
+               tileY == hoveredNametableChrTileY) {
+                ImGui::Text("Hovered nametable tile: yes");
+            }
             ImGui::EndTooltip();
         }
         ImGui::EndGroup();
