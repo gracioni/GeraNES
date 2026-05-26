@@ -2506,10 +2506,7 @@ inline void GeraNESApp::drawModPixelInspectorWindow()
     std::vector<uint32_t> originalInspectorFramebuffer(
         static_cast<size_t>(PPU::SCREEN_WIDTH * kInspectorFramebufferHeight),
         0u);
-    const bool canUsePresentedFramebufferDirectly =
-        showSprites &&
-        showBackground &&
-        sourceFramebuffer != nullptr;
+    const bool canUsePresentedFramebufferDirectly = sourceFramebuffer != nullptr;
     if(canUsePresentedFramebufferDirectly) {
         std::memcpy(
             originalInspectorFramebuffer.data(),
@@ -2547,8 +2544,8 @@ inline void GeraNESApp::drawModPixelInspectorWindow()
             neutralInspectorFramebuffer.data(),
             baseSnapshot,
             nullptr,
-            showBackground,
-            showSprites,
+            true,
+            true,
             false
         );
     } else if(sourceFramebuffer != nullptr) {
@@ -2559,6 +2556,35 @@ inline void GeraNESApp::drawModPixelInspectorWindow()
         );
     }
 
+    const bool applyLayerFilter =
+        hasSnapshot &&
+        (!showBackground || !showSprites) &&
+        snapshot.backgroundPixels.size() >= static_cast<size_t>(PPU::SCREEN_WIDTH * PPU::SCREEN_HEIGHT) &&
+        snapshot.spritePixels.size() >= static_cast<size_t>(PPU::SCREEN_WIDTH * PPU::SCREEN_HEIGHT);
+    std::vector<uint32_t> filteredOriginalInspectorFramebuffer;
+    if(applyLayerFilter) {
+        filteredOriginalInspectorFramebuffer.assign(
+            static_cast<size_t>(PPU::SCREEN_WIDTH * kInspectorFramebufferHeight),
+            snapshot.paletteColors[snapshot.universalBgColor & 0x3Fu]);
+        for(int y = 0; y < PPU::SCREEN_HEIGHT; ++y) {
+            uint32_t* dstRow =
+                filteredOriginalInspectorFramebuffer.data() +
+                static_cast<size_t>(y) * PPU::SCREEN_WIDTH;
+            for(int x = 0; x < PPU::SCREEN_WIDTH; ++x) {
+                const size_t pixelIndex = static_cast<size_t>(y) * PPU::SCREEN_WIDTH + static_cast<size_t>(x);
+                dstRow[static_cast<size_t>(x)] = composeOriginalPixel(
+                    &snapshot.backgroundPixels[pixelIndex],
+                    &snapshot.spritePixels[pixelIndex]);
+            }
+        }
+    }
+    const uint32_t* inspectorComposeSourceFramebuffer =
+        applyLayerFilter
+            ? filteredOriginalInspectorFramebuffer.data()
+            : (sourceFramebuffer != nullptr ? sourceFramebuffer : originalInspectorFramebuffer.data());
+    const std::vector<uint32_t>& displayOriginalInspectorFramebuffer =
+        applyLayerFilter ? filteredOriginalInspectorFramebuffer : originalInspectorFramebuffer;
+
     if(inspectMod) {
         std::vector<uint32_t> modInspectorFramebuffer;
         const bool canUsePresentedModFramebufferDirectly =
@@ -2568,31 +2594,23 @@ inline void GeraNESApp::drawModPixelInspectorWindow()
         if(canUsePresentedModFramebufferDirectly) {
             modInspectorFramebuffer = presentedModFramebuffer;
         } else {
-            ModManager::ChrRenderSnapshot filteredSnapshot;
-            filteredSnapshot.scrollX = snapshot.scrollX;
-            filteredSnapshot.scrollY = snapshot.scrollY;
-            filteredSnapshot.scrollXByLine = snapshot.scrollXByLine;
-            filteredSnapshot.scrollYByLine = snapshot.scrollYByLine;
-            filteredSnapshot.universalBgColor = snapshot.universalBgColor;
-            filteredSnapshot.paletteColors = snapshot.paletteColors;
-            filteredSnapshot.tileHashes = snapshot.tileHashes;
-            filteredSnapshot.backgroundPixels =
-                showBackground
-                    ? snapshot.backgroundPixels
-                    : std::vector<PPU::DebugModBackgroundPixel>(
-                        static_cast<size_t>(PPU::SCREEN_WIDTH * PPU::SCREEN_HEIGHT));
-            filteredSnapshot.spritePixels =
-                showSprites
-                    ? snapshot.spritePixels
-                    : std::vector<PPU::DebugModSpritePixel>(
-                        static_cast<size_t>(PPU::SCREEN_WIDTH * PPU::SCREEN_HEIGHT));
-            filteredSnapshot.backgroundPixelsView = filteredSnapshot.backgroundPixels.data();
-            filteredSnapshot.backgroundPixelsViewCount = filteredSnapshot.backgroundPixels.size();
-            filteredSnapshot.spritePixelsView = filteredSnapshot.spritePixels.data();
-            filteredSnapshot.spritePixelsViewCount = filteredSnapshot.spritePixels.size();
-            filteredSnapshot.frameConditionStateView = nullptr;
-            filteredSnapshot.frameConditionState.frameCount = snapshot.frameConditionState.frameCount;
-            filteredSnapshot.frameConditionState.memoryValues = snapshot.frameConditionState.memoryValues;
+            ModManager::ChrRenderSnapshot inspectorSnapshot;
+            inspectorSnapshot.scrollX = snapshot.scrollX;
+            inspectorSnapshot.scrollY = snapshot.scrollY;
+            inspectorSnapshot.scrollXByLine = snapshot.scrollXByLine;
+            inspectorSnapshot.scrollYByLine = snapshot.scrollYByLine;
+            inspectorSnapshot.universalBgColor = snapshot.universalBgColor;
+            inspectorSnapshot.paletteColors = snapshot.paletteColors;
+            inspectorSnapshot.tileHashes = snapshot.tileHashes;
+            inspectorSnapshot.backgroundPixels = snapshot.backgroundPixels;
+            inspectorSnapshot.spritePixels = snapshot.spritePixels;
+            inspectorSnapshot.backgroundPixelsView = inspectorSnapshot.backgroundPixels.data();
+            inspectorSnapshot.backgroundPixelsViewCount = inspectorSnapshot.backgroundPixels.size();
+            inspectorSnapshot.spritePixelsView = inspectorSnapshot.spritePixels.data();
+            inspectorSnapshot.spritePixelsViewCount = inspectorSnapshot.spritePixels.size();
+            inspectorSnapshot.frameConditionStateView = nullptr;
+            inspectorSnapshot.frameConditionState.frameCount = snapshot.frameConditionState.frameCount;
+            inspectorSnapshot.frameConditionState.memoryValues = snapshot.frameConditionState.memoryValues;
             modInspectorFramebuffer.assign(static_cast<size_t>(inspectorTextureWidth * inspectorTextureHeight), 0u);
 
             m_modManager.composeChrFrame(
@@ -2602,8 +2620,8 @@ inline void GeraNESApp::drawModPixelInspectorWindow()
                 activeTop * inspectorScale,
                 activeBottom * inspectorScale,
                 inspectorScale,
-                canUsePresentedFramebufferDirectly ? sourceFramebuffer : originalInspectorFramebuffer.data(),
-                filteredSnapshot,
+                inspectorComposeSourceFramebuffer,
+                inspectorSnapshot,
                 nullptr,
                 showBackground,
                 showSprites,
@@ -2633,7 +2651,7 @@ inline void GeraNESApp::drawModPixelInspectorWindow()
                 const size_t modRowOffset = static_cast<size_t>(y) * static_cast<size_t>(inspectorTextureWidth);
                 for(int x = 0; x < inspectorTextureWidth; ++x) {
                     const int nesX = x / inspectorScale;
-                    const uint32_t originalColor = originalInspectorFramebuffer[originalRowOffset + static_cast<size_t>(nesX)];
+                    const uint32_t originalColor = displayOriginalInspectorFramebuffer[originalRowOffset + static_cast<size_t>(nesX)];
                     const uint32_t modColor = modInspectorFramebuffer[modRowOffset + static_cast<size_t>(x)];
                     m_modPixelInspectorTextureUploadBuffer[modRowOffset + static_cast<size_t>(x)] =
                         blendRgba(originalColor, modColor, modBlend);
@@ -2654,10 +2672,17 @@ inline void GeraNESApp::drawModPixelInspectorWindow()
         }
     } else if(!originalInspectorFramebuffer.empty()) {
         for(int y = activeTop; y < activeBottom; ++y) {
-            const uint32_t* srcRow = originalInspectorFramebuffer.data() + static_cast<size_t>(y) * PPU::SCREEN_WIDTH;
             uint32_t* dstRow =
                 m_modPixelInspectorTextureUploadBuffer.data() +
                 static_cast<size_t>(y * inspectorScale) * static_cast<size_t>(inspectorTextureWidth);
+            if(!applyLayerFilter) {
+                const uint32_t* srcRow = originalInspectorFramebuffer.data() + static_cast<size_t>(y) * PPU::SCREEN_WIDTH;
+                std::memcpy(dstRow, srcRow, static_cast<size_t>(PPU::SCREEN_WIDTH) * sizeof(uint32_t));
+                continue;
+            }
+
+            const uint32_t* srcRow =
+                filteredOriginalInspectorFramebuffer.data() + static_cast<size_t>(y) * PPU::SCREEN_WIDTH;
             std::memcpy(dstRow, srcRow, static_cast<size_t>(PPU::SCREEN_WIDTH) * sizeof(uint32_t));
         }
     }
