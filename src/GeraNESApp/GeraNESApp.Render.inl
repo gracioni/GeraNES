@@ -231,7 +231,8 @@ inline bool GeraNESApp::paintGL()
 
                 auto drawPass = [&](ShaderPass& pass,
                                     GLuint sourceTexture,
-                                    const glm::vec2& sourceSize,
+                                    const glm::vec2& textureSize,
+                                    const glm::vec2& inputSize,
                                     bool finalPass,
                                     GLuint targetFbo) {
                     if(finalPass) m_vao.bind();
@@ -250,8 +251,8 @@ inline bool GeraNESApp::paintGL()
                         pass.program.setUniformValue("FrameDirection", m_emu.isRewinding() ? -1 : 1);
                         pass.program.setUniformValue("FrameCount", m_emu.frameCount());
                         pass.program.setUniformValue("OutputSize", glm::vec2(static_cast<float>(drawableW), static_cast<float>(drawableH)));
-                        pass.program.setUniformValue("TextureSize", sourceSize);
-                        pass.program.setUniformValue("InputSize", sourceSize);
+                        pass.program.setUniformValue("TextureSize", textureSize);
+                        pass.program.setUniformValue("InputSize", inputSize);
                         for(const ShaderPass::Parameter& parameter : pass.parameters) {
                             pass.program.setUniformValue(parameter.name.c_str(), parameter.value);
                         }
@@ -264,20 +265,30 @@ inline bool GeraNESApp::paintGL()
                     else m_postProcessVao.release();
                 };
 
+                const ModManager::OverscanConfig overscan = effectiveOverscan();
+                const glm::vec2 firstPassTextureSize(
+                    static_cast<float>(m_renderTextureWidth),
+                    static_cast<float>(m_renderTextureHeight));
+                const glm::vec2 firstPassInputSize(
+                    static_cast<float>((PPU::SCREEN_WIDTH - overscan.left - overscan.right) * std::max(1, m_renderTextureWidth / PPU::SCREEN_WIDTH)),
+                    static_cast<float>((PPU::SCREEN_HEIGHT - overscan.top - overscan.bottom) * std::max(1, m_renderTextureHeight / 256)));
+
                 if(passCount == 1) {
-                    drawPass(m_shaderPasses.front(), m_texture, glm::vec2(static_cast<float>(m_renderTextureWidth), static_cast<float>(m_renderTextureHeight)), true, 0);
+                    drawPass(m_shaderPasses.front(), m_texture, firstPassTextureSize, firstPassInputSize, true, 0);
                 } else {
                     GLuint sourceTexture = m_texture;
-                    glm::vec2 sourceSize(static_cast<float>(m_renderTextureWidth), static_cast<float>(m_renderTextureHeight));
+                    glm::vec2 textureSize = firstPassTextureSize;
+                    glm::vec2 inputSize = firstPassInputSize;
 
                     for(size_t i = 0; i < passCount; ++i) {
                         const bool finalPass = i + 1 == passCount;
                         const GLuint targetFbo = finalPass ? 0 : m_postProcessTargets[i % m_postProcessTargets.size()].fbo;
-                        drawPass(m_shaderPasses[i], sourceTexture, sourceSize, finalPass, targetFbo);
+                        drawPass(m_shaderPasses[i], sourceTexture, textureSize, inputSize, finalPass, targetFbo);
 
                         if(!finalPass) {
                             sourceTexture = m_postProcessTargets[i % m_postProcessTargets.size()].texture;
-                            sourceSize = glm::vec2(static_cast<float>(drawableW), static_cast<float>(drawableH));
+                            textureSize = glm::vec2(static_cast<float>(drawableW), static_cast<float>(drawableH));
+                            inputSize = textureSize;
                         }
                     }
                 }

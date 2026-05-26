@@ -2411,16 +2411,16 @@ inline void GeraNESApp::drawModPixelInspectorWindow()
         return universalColor;
     };
 
+    const int statusScale = hasSnapshot ? std::clamp(snapshot.scale, 1, 8) : inspectorScale;
+    const ModManager::OverscanConfig statusOverscan = effectiveOverscan();
     ImGui::Text(
-        "Frame %u | Mod %s | Inspect %s | Scale %dx | Overscan T%d R%d B%d L%d",
+        "Frame %u | Scale %dx | Overscan T%d R%d B%d L%d",
         hasSnapshot ? snapshot.frameCount : 0u,
-        modActive ? "active" : "inactive",
-        inspectMod ? "enabled" : "disabled",
-        inspectorScale,
-        overscan.top,
-        overscan.right,
-        overscan.bottom,
-        overscan.left
+        statusScale,
+        statusOverscan.top,
+        statusOverscan.right,
+        statusOverscan.bottom,
+        statusOverscan.left
     );
 
     if(!ImGui::BeginChild("ModPixelInspectorScroll", ImVec2(0.0f, -180.0f), false, ImGuiWindowFlags_HorizontalScrollbar)) {
