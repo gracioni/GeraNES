@@ -118,6 +118,7 @@ inline void GeraNESApp::render()
     const bool useModRenderPath =
         m_emu.valid() &&
         m_modManager.active() &&
+        !m_showOriginalGraphicsInsteadOfModFramebuffer &&
         m_emu.getModRenderFrame(modSnapshot, modFramebuffer) &&
         !modFramebuffer.empty();
 

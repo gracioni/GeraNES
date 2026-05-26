@@ -224,6 +224,7 @@ private:
     bool m_showPpuViewerWindow = false;
     bool m_showModPixelInspectorWindow = false;
     bool m_modPixelInspectorPpuCaptureEnabled = false;
+    bool m_showOriginalGraphicsInsteadOfModFramebuffer = false;
     float m_modPixelInspectorZoom = 1.0f;
     float m_modPixelInspectorBlend = 1.0f;
     bool m_modPixelInspectorShowSprites = true;
@@ -456,6 +457,7 @@ private:
     void loadModArchive();
     void loadModFolder();
     void clearSelectedMod();
+    void resetShowOriginalGraphicsInsteadOfModFramebuffer();
     bool shouldSuppressRewindForNetplay() const;
     void applyEffectiveRewindSettings();
     static bool isTouchCompatibleControllerDevice(const std::optional<Settings::Device>& device);

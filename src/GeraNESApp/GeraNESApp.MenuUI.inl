@@ -896,6 +896,19 @@ inline void GeraNESApp::menuBar() {
                 if(ImGui::MenuItem("Clear", nullptr, false, hasSelectedMod && !netplayRomChangeRestricted)) {
                     clearSelectedMod();
                 }
+
+                ImGui::Separator();
+
+                auto originalGraphicsShortcut = m_shortcuts.get("showOriginalModGraphics");
+                const char* originalGraphicsKey =
+                    (originalGraphicsShortcut != nullptr) ? originalGraphicsShortcut->shortcut.c_str() : nullptr;
+                if(ImGui::MenuItem(
+                        "Show original graphics",
+                        originalGraphicsKey,
+                        m_showOriginalGraphicsInsteadOfModFramebuffer,
+                        m_modManager.active())) {
+                    m_showOriginalGraphicsInsteadOfModFramebuffer = !m_showOriginalGraphicsInsteadOfModFramebuffer;
+                }
                 ImGui::EndMenu();
             }
 

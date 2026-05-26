@@ -1588,6 +1588,11 @@ uint32_t GeraNESApp::overscanKey(const ModManager::OverscanConfig& overscan)
            static_cast<uint32_t>(overscan.left & 0xFF);
 }
 
+void GeraNESApp::resetShowOriginalGraphicsInsteadOfModFramebuffer()
+{
+    m_showOriginalGraphicsInsteadOfModFramebuffer = false;
+}
+
 bool GeraNESApp::openRomPath(const fs::path& path, bool updateRecentFiles, bool clearSelectedMod)
 {
     if(isNetplayRomChangeRestricted()) {
@@ -1605,6 +1610,7 @@ bool GeraNESApp::openRomPath(const fs::path& path, bool updateRecentFiles, bool 
     m_emu.setModFrameCaptureHook({});
     if(clearSelectedMod) {
         const bool hadSelectedMod = m_modManager.hasSelectedSource();
+        resetShowOriginalGraphicsInsteadOfModFramebuffer();
         m_modManager.clearModSource();
         refreshModFrameCaptureHook();
         updateBuffers();
@@ -1629,6 +1635,7 @@ bool GeraNESApp::openRomPath(const fs::path& path, bool updateRecentFiles, bool 
     m_hasLastModObservedFrame = false;
     bool modDefinitionLoaded = true;
     if(modLoad.modLoaded) {
+        resetShowOriginalGraphicsInsteadOfModFramebuffer();
         modDefinitionLoaded = m_modManager.loadDefinitionForCurrentMod();
     }
 
@@ -1897,6 +1904,14 @@ void GeraNESApp::createShortcuts()
         AppSettings::instance().data.video.scaleMode = static_cast<int>(m_videoScaleMode);
         AppSettings::instance().data.video.horizontalStretch = m_videoScaleMode == STRETCH_TO_FILL;
         m_updateObjectsFlag = true;
+    }});
+
+    m_shortcuts.add(ShortcutManager::Data{"showOriginalModGraphics", "Show original graphics", "Alt+M", [this]() {
+        if(!m_modManager.active()) {
+            m_showOriginalGraphicsInsteadOfModFramebuffer = false;
+            return;
+        }
+        m_showOriginalGraphicsInsteadOfModFramebuffer = !m_showOriginalGraphicsInsteadOfModFramebuffer;
     }});
 
     m_shortcuts.add(ShortcutManager::Data{"saveState", "Save State", "Alt+S", [this]() {
@@ -2711,6 +2726,7 @@ void GeraNESApp::loadModArchive()
         std::string error;
         const fs::path selectedPath(outPath);
         if(m_modManager.selectModSource(selectedPath, error)) {
+            resetShowOriginalGraphicsInsteadOfModFramebuffer();
             Logger::instance().log("Mod selected: " + selectedPath.string(), Logger::Type::USER);
             AppSettings::instance().data.setLastFolder(selectedPath.string());
             if(!m_loadedRomPath.empty() && m_emu.valid()) {
@@ -2772,6 +2788,7 @@ void GeraNESApp::loadModFolder()
         std::string error;
         const fs::path selectedPath(outPath);
         if(m_modManager.selectModSource(selectedPath, error)) {
+            resetShowOriginalGraphicsInsteadOfModFramebuffer();
             Logger::instance().log("Mod selected: " + selectedPath.string(), Logger::Type::USER);
             AppSettings::instance().data.setLastFolder(selectedPath.string());
             if(!m_loadedRomPath.empty() && m_emu.valid()) {
@@ -2801,6 +2818,7 @@ void GeraNESApp::clearSelectedMod()
 {
     const bool hadSelectedMod = m_modManager.hasSelectedSource();
     m_emu.setModFrameCaptureHook({});
+    resetShowOriginalGraphicsInsteadOfModFramebuffer();
     m_modManager.clearModSource();
     refreshModFrameCaptureHook();
     updateBuffers();
@@ -3772,9 +3790,13 @@ bool GeraNESApp::onEvent(SDL_Event& event)
     switch(event.type) {
         case SDL_KEYDOWN: {
             std::string keyName = SDL_GetKeyName(event.key.keysym.sym);
+            const bool hasCtrlModifier = (event.key.keysym.mod & KMOD_CTRL) != 0;
+            const bool hasShiftModifier = (event.key.keysym.mod & KMOD_SHIFT) != 0;
             const bool hasAltModifier = (event.key.keysym.mod & KMOD_ALT) != 0;
+            if(hasCtrlModifier) keyName = "Ctrl+" + keyName;
+            if(hasShiftModifier) keyName = "Shift+" + keyName;
             if(hasAltModifier) keyName = "Alt+" + keyName;
-            const bool allowGlobalShortcutWhileImGuiFocused = hasAltModifier || keyName == "Escape";
+            const bool allowGlobalShortcutWhileImGuiFocused = hasAltModifier || hasCtrlModifier || keyName == "Escape";
 
             if(m_imGuiWantsKeyboard && !allowGlobalShortcutWhileImGuiFocused) break;
 
