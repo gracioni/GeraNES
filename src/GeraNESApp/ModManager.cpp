@@ -28,6 +28,11 @@ extern "C" int mz_uncompress(unsigned char* pDest, mz_ulong* pDest_len, const un
 constexpr int MZ_OK = 0;
 constexpr uint8_t kPngSignature[8] = { 0x89u, 'P', 'N', 'G', '\r', '\n', 0x1Au, '\n' };
 
+void logModMessage(const std::string& message, Logger::Type type)
+{
+    Logger::instance().log("[MOD] " + message, type);
+}
+
 #if GERANES_MODMANAGER_PROFILE
 enum class ModManagerProfileSection : size_t {
     ComposeFrameOnEmuThread,
@@ -203,7 +208,7 @@ struct ModManagerProfileStats {
                << ", prepared-backgrounds=" << preparedBackgroundCount
                << ", compiled-additional-sprite-rules=" << compiledAdditionalSpriteRuleCount;
 
-        Logger::instance().log(report.str(), Logger::Type::INFO);
+        logModMessage(report.str(), Logger::Type::INFO);
     }
 
     void onFrameComplete()
@@ -1079,14 +1084,14 @@ ModManager::LoadRequest ModManager::prepareRomLoad(const std::filesystem::path& 
     const auto ipsData = readSourceEntry(m_patchAssetPath);
     if(!ipsData.has_value()) {
         request.message = "Mod selected, but patch file is missing: " + m_patchAssetPath;
-        Logger::instance().log(request.message, Logger::Type::ERROR);
+        logModMessage(request.message, Logger::Type::ERROR);
         return request;
     }
 
     RomFile baseRom;
     if(!baseRom.open(romPath.string()) || !baseRom.error().empty()) {
         request.message = "Mod selected, but base ROM could not be read for Mesen patch.";
-        Logger::instance().log(request.message, Logger::Type::ERROR);
+        logModMessage(request.message, Logger::Type::ERROR);
         return request;
     }
 
@@ -1094,7 +1099,7 @@ ModManager::LoadRequest ModManager::prepareRomLoad(const std::filesystem::path& 
         const std::string actualHash = toLower(sha1Hex(baseRom.dataBytes()));
         if(actualHash != m_patchExpectedRomHash) {
             request.message = "Mod selected, but ROM hash does not match hires.txt patch.";
-            Logger::instance().log(request.message, Logger::Type::ERROR);
+            logModMessage(request.message, Logger::Type::ERROR);
             return request;
         }
     }
@@ -1103,7 +1108,7 @@ ModManager::LoadRequest ModManager::prepareRomLoad(const std::filesystem::path& 
     auto patchedRom = applyIpsPatch(baseRom.dataBytes(), *ipsData, patchError);
     if(!patchedRom.has_value()) {
         request.message = "Mod selected, but hires.txt patch failed: " + patchError;
-        Logger::instance().log(request.message, Logger::Type::ERROR);
+        logModMessage(request.message, Logger::Type::ERROR);
         return request;
     }
 
@@ -1112,7 +1117,7 @@ ModManager::LoadRequest ModManager::prepareRomLoad(const std::filesystem::path& 
     std::string writeError;
     if(!writeBinaryFile(patchedPath, *patchedRom, writeError)) {
         request.message = "Mod found, but patched ROM could not be cached: " + writeError;
-        Logger::instance().log(request.message, Logger::Type::ERROR);
+        logModMessage(request.message, Logger::Type::ERROR);
         return request;
     }
 
@@ -1146,7 +1151,7 @@ bool ModManager::loadDefinitionForCurrentMod()
         }
         if(override.ignorePalette) {
             if(decodedImage(override.assetPath) == nullptr) {
-                Logger::instance().log(
+                logModMessage(
                     "Failed to load CHR image asset: " + override.assetPath,
                     Logger::Type::WARNING);
                 override.assetAvailable = false;
@@ -1159,7 +1164,7 @@ bool ModManager::loadDefinitionForCurrentMod()
             const DecodedImage* image = decodedImage(normalizedPath);
             const bool valid = image != nullptr && image->indexedFourColor;
             if(!valid) {
-                Logger::instance().log(
+                logModMessage(
                     "CHR sheet must be an indexed PNG with exactly 4 colors: " + normalizedPath,
                     Logger::Type::WARNING);
             }
@@ -1173,7 +1178,7 @@ bool ModManager::loadDefinitionForCurrentMod()
     rebuildFrameConditionPlan();
     preloadStartupAssets();
     m_scriptLoaded = true;
-    Logger::instance().log("Mesen hires.txt loaded.", Logger::Type::INFO);
+    logModMessage("Mesen hires.txt loaded.", Logger::Type::INFO);
     return true;
 }
 
@@ -1242,7 +1247,7 @@ bool ModManager::loadMesenHiresFile()
 {
     const auto hiresData = readSourceEntry("hires.txt");
     if(!hiresData.has_value()) {
-        Logger::instance().log("Selected mod does not contain hires.txt.", Logger::Type::ERROR);
+        logModMessage("Selected mod does not contain hires.txt.", Logger::Type::ERROR);
         return false;
     }
 
@@ -1308,7 +1313,7 @@ bool ModManager::loadMesenHiresFile()
         if(line.front() == '[') {
             const size_t end = line.find(']');
             if(end == std::string::npos) {
-                Logger::instance().log("Invalid Mesen condition prefix on line " + std::to_string(lineNumber), Logger::Type::ERROR);
+                logModMessage("Invalid Mesen condition prefix on line " + std::to_string(lineNumber), Logger::Type::ERROR);
                 continue;
             }
             std::stringstream conditionNames(line.substr(1, end - 1));
@@ -1342,7 +1347,7 @@ bool ModManager::loadMesenHiresFile()
         if(line.rfind("<overscan>", 0) == 0) {
             const std::vector<std::string> tokens = splitComma(line.substr(10));
             if(tokens.size() != 4) {
-                Logger::instance().log("Invalid Mesen <overscan> on line " + std::to_string(lineNumber), Logger::Type::ERROR);
+                logModMessage("Invalid Mesen <overscan> on line " + std::to_string(lineNumber), Logger::Type::ERROR);
                 continue;
             }
             try {
@@ -1354,12 +1359,12 @@ bool ModManager::loadMesenHiresFile()
                 overscan.left = std::clamp(std::stoi(trimMesenToken(tokens[3])), 0, PPU::SCREEN_WIDTH);
                 if(overscan.top + overscan.bottom >= PPU::SCREEN_HEIGHT ||
                    overscan.left + overscan.right >= PPU::SCREEN_WIDTH) {
-                    Logger::instance().log("Invalid Mesen <overscan> dimensions on line " + std::to_string(lineNumber), Logger::Type::ERROR);
+                    logModMessage("Invalid Mesen <overscan> dimensions on line " + std::to_string(lineNumber), Logger::Type::ERROR);
                     continue;
                 }
                 m_overscanConfig = overscan;
             } catch(...) {
-                Logger::instance().log("Invalid Mesen <overscan> on line " + std::to_string(lineNumber), Logger::Type::ERROR);
+                logModMessage("Invalid Mesen <overscan> on line " + std::to_string(lineNumber), Logger::Type::ERROR);
             }
             continue;
         }
@@ -1384,14 +1389,14 @@ bool ModManager::loadMesenHiresFile()
             try {
                 m_resolutionMultiplier = std::clamp(std::stoi(trimMesenToken(line.substr(7))), 1, 8);
             } catch(...) {
-                Logger::instance().log("Invalid Mesen <scale> on line " + std::to_string(lineNumber), Logger::Type::ERROR);
+                logModMessage("Invalid Mesen <scale> on line " + std::to_string(lineNumber), Logger::Type::ERROR);
             }
             continue;
         }
         if(line.rfind("<img>", 0) == 0) {
             const std::string imagePath = normalizeZipPath(trimMesenToken(line.substr(5)));
             if(!sourceHasEntry(imagePath)) {
-                Logger::instance().log("Mesen image not found: " + imagePath, Logger::Type::WARNING);
+                logModMessage("Mesen image not found: " + imagePath, Logger::Type::WARNING);
             }
             images.push_back(imagePath);
             continue;
@@ -1404,7 +1409,7 @@ bool ModManager::loadMesenHiresFile()
                 HdPackAudioBgmTrack bgmTrack;
                 bgmTrack.assetPath = normalizeZipPath(tokens[2]);
                 if(!sourceHasEntry(bgmTrack.assetPath)) {
-                    Logger::instance().log("Mesen BGM not found: " + bgmTrack.assetPath, Logger::Type::WARNING);
+                    logModMessage("Mesen BGM not found: " + bgmTrack.assetPath, Logger::Type::WARNING);
                 }
                 if(tokens.size() >= 4) {
                     bgmTrack.loopPosition = parseDecOrHexValue(tokens[3], 0);
@@ -1420,7 +1425,7 @@ bool ModManager::loadMesenHiresFile()
                 const int track = static_cast<int>(parseDecOrHexValue(tokens[1], 0) & 0xFFu);
                 const std::string assetPath = normalizeZipPath(tokens[2]);
                 if(!sourceHasEntry(assetPath)) {
-                    Logger::instance().log("Mesen SFX not found: " + assetPath, Logger::Type::WARNING);
+                    logModMessage("Mesen SFX not found: " + assetPath, Logger::Type::WARNING);
                 }
                 m_hdAudioConfig.sfxFilesById[album * 256 + track] = assetPath;
             }
@@ -1501,7 +1506,7 @@ bool ModManager::loadMesenHiresFile()
         if(line.rfind("<tile>", 0) == 0) {
             const std::vector<std::string> tokens = splitComma(line.substr(6));
             if(tokens.size() < 7) {
-                Logger::instance().log("Invalid Mesen <tile> on line " + std::to_string(lineNumber), Logger::Type::ERROR);
+                logModMessage("Invalid Mesen <tile> on line " + std::to_string(lineNumber), Logger::Type::ERROR);
                 continue;
             }
 
@@ -1586,7 +1591,7 @@ bool ModManager::loadMesenHiresFile()
             }
 
             if(!parsed) {
-                Logger::instance().log("Mesen <tile> references invalid image index on line " + std::to_string(lineNumber), Logger::Type::ERROR);
+                logModMessage("Mesen <tile> references invalid image index on line " + std::to_string(lineNumber), Logger::Type::ERROR);
                 continue;
             }
             m_chrOverrides.push_back(std::move(override));
@@ -1595,7 +1600,7 @@ bool ModManager::loadMesenHiresFile()
         if(line.rfind("<addition>", 0) == 0) {
             const std::vector<std::string> tokens = splitComma(line.substr(10));
             if(tokens.size() < 6) {
-                Logger::instance().log("Invalid Mesen <addition> on line " + std::to_string(lineNumber), Logger::Type::ERROR);
+                logModMessage("Invalid Mesen <addition> on line " + std::to_string(lineNumber), Logger::Type::ERROR);
                 continue;
             }
 
@@ -1615,7 +1620,7 @@ bool ModManager::loadMesenHiresFile()
         if(line.rfind("<fallback>", 0) == 0) {
             const std::vector<std::string> tokens = splitComma(line.substr(10));
             if(tokens.size() < 2) {
-                Logger::instance().log("Invalid Mesen <fallback> on line " + std::to_string(lineNumber), Logger::Type::ERROR);
+                logModMessage("Invalid Mesen <fallback> on line " + std::to_string(lineNumber), Logger::Type::ERROR);
                 continue;
             }
 
@@ -1647,7 +1652,7 @@ bool ModManager::loadMesenHiresFile()
 
     const bool hasAudioEntries = !m_hdAudioConfig.bgmFilesById.empty() || !m_hdAudioConfig.sfxFilesById.empty();
     if(m_chrOverrides.empty() && m_backgroundReplacements.empty() && !hasAudioEntries) {
-        Logger::instance().log("Mesen hires.txt did not define any supported graphics replacements.", Logger::Type::ERROR);
+        logModMessage("Mesen hires.txt did not define any supported graphics replacements.", Logger::Type::ERROR);
         return false;
     }
     if(m_hdAudioRuntime) {
@@ -2784,7 +2789,7 @@ const ModManager::DecodedImage* ModManager::decodedImage(const std::string& asse
         entry.lastUsedFrame = m_lastFrameConditionUpdate == UINT32_MAX ? 0u : m_lastFrameConditionUpdate;
         cacheIt = m_imageCache.emplace(normalizedPath, std::move(entry)).first;
         if(!cacheIt->second.image.has_value()) {
-            Logger::instance().log("Failed to load mod image asset: " + normalizedPath, Logger::Type::WARNING);
+            logModMessage("Failed to load mod image asset: " + normalizedPath, Logger::Type::WARNING);
         }
     }
     cacheIt->second.lastUsedFrame = m_lastFrameConditionUpdate == UINT32_MAX ? 0u : m_lastFrameConditionUpdate;
