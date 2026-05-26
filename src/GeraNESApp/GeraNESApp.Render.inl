@@ -266,13 +266,13 @@ inline bool GeraNESApp::paintGL()
                     else m_postProcessVao.release();
                 };
 
-                const ModManager::OverscanConfig overscan = effectiveOverscan();
                 const glm::vec2 firstPassTextureSize(
                     static_cast<float>(m_renderTextureWidth),
                     static_cast<float>(m_renderTextureHeight));
-                const glm::vec2 firstPassInputSize(
-                    static_cast<float>((PPU::SCREEN_WIDTH - overscan.left - overscan.right) * std::max(1, m_renderTextureWidth / PPU::SCREEN_WIDTH)),
-                    static_cast<float>((PPU::SCREEN_HEIGHT - overscan.top - overscan.bottom) * std::max(1, m_renderTextureHeight / 256)));
+                // Overscan is already applied by the presentation quad's UVs.
+                // Feeding a reduced InputSize into the first pass makes shaders
+                // like CRTGeom apply the crop a second time via TextureSize/InputSize.
+                const glm::vec2 firstPassInputSize = firstPassTextureSize;
 
                 if(passCount == 1) {
                     drawPass(m_shaderPasses.front(), m_texture, firstPassTextureSize, firstPassInputSize, true, 0);
