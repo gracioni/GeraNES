@@ -124,8 +124,9 @@ inline void GeraNESApp::render()
     const int modScale = useModRenderPath ? std::clamp(modSnapshot.scale, 1, 8) : 1;
     const int textureWidth = 256 * modScale;
     const int textureHeight = 256 * modScale;
-    const int activeTop = m_overscanConfig.top;
-    const int activeBottom = PPU::SCREEN_HEIGHT - m_overscanConfig.bottom;
+    const ModManager::OverscanConfig overscan = effectiveOverscan();
+    const int activeTop = overscan.top;
+    const int activeBottom = PPU::SCREEN_HEIGHT - overscan.bottom;
     const uint32_t* framebuffer = nullptr;
 
     if(!m_emu.valid()) {
@@ -146,10 +147,10 @@ inline void GeraNESApp::render()
     }
 
     if(m_textureUploadBuffer.size() != static_cast<size_t>(textureWidth * textureHeight) ||
-       m_lastTextureUploadOverscanKey != overscanKey(m_overscanConfig) ||
+       m_lastTextureUploadOverscanKey != overscanKey(overscan) ||
        m_lastTextureUploadModScale != modScale) {
         m_textureUploadBuffer.assign(static_cast<size_t>(textureWidth * textureHeight), 0u);
-        m_lastTextureUploadOverscanKey = overscanKey(m_overscanConfig);
+        m_lastTextureUploadOverscanKey = overscanKey(overscan);
         m_lastTextureUploadModScale = modScale;
     }
 
