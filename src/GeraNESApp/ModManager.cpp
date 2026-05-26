@@ -20,7 +20,7 @@
 #include "stb_image.h"
 #include "zip/zip.h"
 
-#define GERANES_MODMANAGER_PROFILE 1
+#define GERANES_MODMANAGER_PROFILE 0
 
 namespace {
 using mz_ulong = unsigned long;
@@ -6985,13 +6985,23 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
                 return false;
             };
 
-            auto applySpriteLayersToBlock = [&](const std::array<ResolvedSpriteCandidate, 8>& candidates, size_t count, bool blockByBehindSprites) {
+            auto applySpriteLayersToBlock = [&](const std::array<ResolvedSpriteCandidate, 8>& candidates,
+                                               size_t count,
+                                               bool blockByBehindSprites,
+                                               bool requireTransparentOriginalBackground) {
+                if(requireTransparentOriginalBackground &&
+                   bgPixel != nullptr &&
+                   bgPixel->valid &&
+                   bgPixel->colorLowBits != 0) {
+                    return;
+                }
                 const bool canUseScale2SpriteBlockPath =
                     scale == 2 &&
                     blockWidth == 2 &&
                     subYStart == 0 &&
                     subYEnd == 2 &&
-                    !blockByBehindSprites;
+                    !blockByBehindSprites &&
+                    !requireTransparentOriginalBackground;
                 if(canUseScale2SpriteBlockPath) {
                     uint32_t block00 = baseBlockColors[0];
                     uint32_t block01 = baseBlockColors[1];
@@ -7068,24 +7078,32 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
 
             {
                 MODMANAGER_PROFILE_SCOPE(ComposeChrFrameSpriteLayers);
-                if(applyBehindSprites) {
-                    applySpriteLayersToBlock(resolvedBehindSpriteCandidates, resolvedBehindSpriteCandidateCount, false);
+                if(!canPrecomposeBeforeBg) {
+                    applyResolvedLayersToBlock(resolvedMidBeforeTileBackgrounds, resolvedMidBeforeTileBackgroundCount);
                 }
-            }
-            if(!canPrecomposeBeforeBg) {
-                applyResolvedLayersToBlock(resolvedMidBeforeTileBackgrounds, resolvedMidBeforeTileBackgroundCount);
-            }
-            {
-                MODMANAGER_PROFILE_SCOPE(ComposeChrFrameBackgroundOverride);
-                applyBackgroundOverrideToBlock();
-            }
-            if(hasMidAfterBackgrounds) {
-                applyResolvedLayersToBlock(resolvedMidAfterTileBackgrounds, resolvedMidAfterTileBackgroundCount);
+                {
+                    MODMANAGER_PROFILE_SCOPE(ComposeChrFrameBackgroundOverride);
+                    applyBackgroundOverrideToBlock();
+                }
+                if(hasMidAfterBackgrounds) {
+                    applyResolvedLayersToBlock(resolvedMidAfterTileBackgrounds, resolvedMidAfterTileBackgroundCount);
+                }
+                if(applyBehindSprites) {
+                    applySpriteLayersToBlock(
+                        resolvedBehindSpriteCandidates,
+                        resolvedBehindSpriteCandidateCount,
+                        false,
+                        true);
+                }
             }
             {
                 MODMANAGER_PROFILE_SCOPE(ComposeChrFrameSpriteLayers);
                 if(applyFrontSprites) {
-                    applySpriteLayersToBlock(resolvedFrontSpriteCandidates, resolvedFrontSpriteCandidateCount, applyBehindSprites);
+                    applySpriteLayersToBlock(
+                        resolvedFrontSpriteCandidates,
+                        resolvedFrontSpriteCandidateCount,
+                        applyBehindSprites,
+                        false);
                 }
             }
 
