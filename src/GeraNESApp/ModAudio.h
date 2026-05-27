@@ -11,27 +11,27 @@
 
 #include "GeraNES/IAudioOutput.h"
 
-struct HdPackAudioBgmTrack
+struct ModAudioBgmTrack
 {
     std::string assetPath;
     uint32_t loopPosition = 0;
 };
 
-struct HdPackAudioConfig
+struct ModAudioConfig
 {
     bool alternateRegisterRange = false;
-    std::unordered_map<int, HdPackAudioBgmTrack> bgmFilesById;
+    std::unordered_map<int, ModAudioBgmTrack> bgmFilesById;
     std::unordered_map<int, std::string> sfxFilesById;
 };
 
-class HdPackAudioRuntime : public IAudioOutput::ExternalAudioMixer
+class ModAudioRuntime : public IAudioOutput::ExternalAudioMixer
 {
 public:
     using AssetReader = std::function<std::optional<std::vector<uint8_t>>(const std::string&)>;
 
-    explicit HdPackAudioRuntime(AssetReader assetReader);
+    explicit ModAudioRuntime(AssetReader assetReader);
 
-    void setConfig(const HdPackAudioConfig& config);
+    void setConfig(const ModAudioConfig& config);
     void clearConfig();
     bool hasConfig() const;
 
@@ -73,7 +73,7 @@ private:
     };
 
     AssetReader m_assetReader;
-    HdPackAudioConfig m_config;
+    ModAudioConfig m_config;
     std::unordered_map<std::string, ClipCacheEntry> m_clipCache;
 
     std::unique_ptr<ActiveClip> m_bgm;

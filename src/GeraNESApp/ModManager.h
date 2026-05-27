@@ -11,7 +11,7 @@
 #include <vector>
 
 #include "GeraNES/GeraNESEmu.h"
-#include "GeraNESApp/HdPackAudio.h"
+#include "GeraNESApp/ModAudio.h"
 
 class ModManager {
 public:
@@ -337,8 +337,8 @@ private:
     std::unordered_map<uint32_t, int> m_chrRomCanonicalTileByHash;
     std::string m_patchAssetPath;
     std::string m_patchExpectedRomHash;
-    HdPackAudioConfig m_hdAudioConfig;
-    std::shared_ptr<HdPackAudioRuntime> m_hdAudioRuntime;
+    ModAudioConfig m_hdAudioConfig;
+    std::shared_ptr<ModAudioRuntime> m_hdAudioRuntime;
     FrameConditionState m_frameConditionState;
     FrameConditionPlan m_frameConditionPlan;
     std::vector<uint8_t> m_frameConditionGroupMatchesScratch;

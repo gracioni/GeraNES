@@ -623,7 +623,7 @@ void sha1ProcessBlock(Sha1State& state, const uint8_t* block)
 void ModManager::clear()
 {
     if(!m_hdAudioRuntime) {
-        m_hdAudioRuntime = std::make_shared<HdPackAudioRuntime>(
+        m_hdAudioRuntime = std::make_shared<ModAudioRuntime>(
             [this](const std::string& assetPath) { return readSourceEntry(assetPath); });
     }
 
@@ -867,7 +867,7 @@ std::shared_ptr<IAudioOutput::ExternalAudioMixer> ModManager::externalAudioMixer
 {
     if(!m_hdAudioRuntime) {
         auto* self = const_cast<ModManager*>(this);
-        self->m_hdAudioRuntime = std::make_shared<HdPackAudioRuntime>(
+        self->m_hdAudioRuntime = std::make_shared<ModAudioRuntime>(
             [self](const std::string& assetPath) { return self->readSourceEntry(assetPath); });
     }
     return m_hdAudioRuntime;
@@ -1066,7 +1066,7 @@ void ModManager::preloadStartupAssets()
     }
 
     if(!m_hdAudioRuntime) {
-        m_hdAudioRuntime = std::make_shared<HdPackAudioRuntime>(
+        m_hdAudioRuntime = std::make_shared<ModAudioRuntime>(
             [this](const std::string& assetPath) { return readSourceEntry(assetPath); });
     }
     m_hdAudioRuntime->setConfig(m_hdAudioConfig);
@@ -1253,7 +1253,7 @@ bool ModManager::loadMesenHiresFile()
             if(tokens.size() >= 3) {
                 const int album = static_cast<int>(parseDecOrHexValue(tokens[0], 0) & 0xFFu);
                 const int track = static_cast<int>(parseDecOrHexValue(tokens[1], 0) & 0xFFu);
-                HdPackAudioBgmTrack bgmTrack;
+                ModAudioBgmTrack bgmTrack;
                 bgmTrack.assetPath = normalizeZipPath(tokens[2]);
                 if(!sourceHasEntry(bgmTrack.assetPath)) {
                     logModMessage("Mesen BGM not found: " + bgmTrack.assetPath, Logger::Type::WARNING);

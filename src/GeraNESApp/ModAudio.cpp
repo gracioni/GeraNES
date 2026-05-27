@@ -1,4 +1,4 @@
-#include "GeraNESApp/HdPackAudio.h"
+#include "GeraNESApp/ModAudio.h"
 
 #include <algorithm>
 #include <cmath>
@@ -28,12 +28,12 @@ void rescaleClipPhase(TClip& clip, uint32_t newDenominator)
 }
 }
 
-HdPackAudioRuntime::HdPackAudioRuntime(AssetReader assetReader)
+ModAudioRuntime::ModAudioRuntime(AssetReader assetReader)
     : m_assetReader(std::move(assetReader))
 {
 }
 
-void HdPackAudioRuntime::setConfig(const HdPackAudioConfig& config)
+void ModAudioRuntime::setConfig(const ModAudioConfig& config)
 {
     std::scoped_lock lock(m_mutex);
     m_config = config;
@@ -41,7 +41,7 @@ void HdPackAudioRuntime::setConfig(const HdPackAudioConfig& config)
     resetRuntimeUnlocked();
 }
 
-void HdPackAudioRuntime::clearConfig()
+void ModAudioRuntime::clearConfig()
 {
     std::scoped_lock lock(m_mutex);
     m_config = {};
@@ -49,18 +49,18 @@ void HdPackAudioRuntime::clearConfig()
     resetRuntimeUnlocked();
 }
 
-bool HdPackAudioRuntime::hasConfig() const
+bool ModAudioRuntime::hasConfig() const
 {
     std::scoped_lock lock(m_mutex);
     return !m_config.bgmFilesById.empty() || !m_config.sfxFilesById.empty();
 }
 
-bool HdPackAudioRuntime::handlesCpuWrite(uint16_t addr) const
+bool ModAudioRuntime::handlesCpuWrite(uint16_t addr) const
 {
     return registerIndexForWrite(addr) >= 0;
 }
 
-bool HdPackAudioRuntime::handleCpuWrite(uint16_t addr, uint8_t value)
+bool ModAudioRuntime::handleCpuWrite(uint16_t addr, uint8_t value)
 {
     const int regNumber = registerIndexForWrite(addr);
     if(regNumber < 0) {
@@ -108,7 +108,7 @@ bool HdPackAudioRuntime::handleCpuWrite(uint16_t addr, uint8_t value)
     return true;
 }
 
-std::optional<uint8_t> HdPackAudioRuntime::handleCpuRead(uint16_t addr) const
+std::optional<uint8_t> ModAudioRuntime::handleCpuRead(uint16_t addr) const
 {
     std::scoped_lock lock(m_mutex);
     if(m_config.bgmFilesById.empty() && m_config.sfxFilesById.empty()) {
@@ -148,20 +148,20 @@ std::optional<uint8_t> HdPackAudioRuntime::handleCpuRead(uint16_t addr) const
     }
 }
 
-bool HdPackAudioRuntime::preloadClip(const std::string& assetPath)
+bool ModAudioRuntime::preloadClip(const std::string& assetPath)
 {
     std::scoped_lock lock(m_mutex);
     const auto clip = loadClip(assetPath);
     return clip && !clip->monoSamples.empty();
 }
 
-void HdPackAudioRuntime::setCacheFrame(uint32_t frameCount)
+void ModAudioRuntime::setCacheFrame(uint32_t frameCount)
 {
     std::scoped_lock lock(m_mutex);
     m_cacheFrame = frameCount;
 }
 
-void HdPackAudioRuntime::rebaseCacheFrame(uint32_t frameCount)
+void ModAudioRuntime::rebaseCacheFrame(uint32_t frameCount)
 {
     std::scoped_lock lock(m_mutex);
     m_cacheFrame = frameCount;
@@ -170,7 +170,7 @@ void HdPackAudioRuntime::rebaseCacheFrame(uint32_t frameCount)
     }
 }
 
-void HdPackAudioRuntime::evictUnusedDynamicClips(uint32_t maxUnusedFrames)
+void ModAudioRuntime::evictUnusedDynamicClips(uint32_t maxUnusedFrames)
 {
     std::scoped_lock lock(m_mutex);
 
@@ -199,13 +199,13 @@ void HdPackAudioRuntime::evictUnusedDynamicClips(uint32_t maxUnusedFrames)
     }
 }
 
-void HdPackAudioRuntime::resetRuntime()
+void ModAudioRuntime::resetRuntime()
 {
     std::scoped_lock lock(m_mutex);
     resetRuntimeUnlocked();
 }
 
-void HdPackAudioRuntime::resetRuntimeUnlocked()
+void ModAudioRuntime::resetRuntimeUnlocked()
 {
     m_album = 0;
     m_playbackOptions = 0;
@@ -218,7 +218,7 @@ void HdPackAudioRuntime::resetRuntimeUnlocked()
     m_currentBgmTrackId = -1;
 }
 
-void HdPackAudioRuntime::onOutputSampleRateChanged(int sampleRate)
+void ModAudioRuntime::onOutputSampleRateChanged(int sampleRate)
 {
     std::scoped_lock lock(m_mutex);
     const uint32_t newSampleRate = static_cast<uint32_t>(std::max(1, sampleRate));
@@ -235,7 +235,7 @@ void HdPackAudioRuntime::onOutputSampleRateChanged(int sampleRate)
     }
 }
 
-float HdPackAudioRuntime::mixAudioSample(int sampleRate)
+float ModAudioRuntime::mixAudioSample(int sampleRate)
 {
     std::scoped_lock lock(m_mutex);
     const uint32_t newSampleRate = static_cast<uint32_t>(std::max(1, sampleRate));
@@ -268,7 +268,7 @@ float HdPackAudioRuntime::mixAudioSample(int sampleRate)
     return std::clamp(mixed, -1.0f, 1.0f);
 }
 
-std::shared_ptr<const HdPackAudioRuntime::DecodedClip> HdPackAudioRuntime::loadClip(const std::string& assetPath)
+std::shared_ptr<const ModAudioRuntime::DecodedClip> ModAudioRuntime::loadClip(const std::string& assetPath)
 {
     const auto cached = m_clipCache.find(assetPath);
     if(cached != m_clipCache.end()) {
@@ -353,7 +353,7 @@ std::shared_ptr<const HdPackAudioRuntime::DecodedClip> HdPackAudioRuntime::loadC
     return clip;
 }
 
-bool HdPackAudioRuntime::shouldPinClip(const std::string& assetPath) const
+bool ModAudioRuntime::shouldPinClip(const std::string& assetPath) const
 {
     return std::any_of(
         m_config.sfxFilesById.begin(),
@@ -361,7 +361,7 @@ bool HdPackAudioRuntime::shouldPinClip(const std::string& assetPath) const
         [&](const auto& entry) { return entry.second == assetPath; });
 }
 
-bool HdPackAudioRuntime::playBgmTrack(int trackId)
+bool ModAudioRuntime::playBgmTrack(int trackId)
 {
     if(m_bgm && !m_bgm->finished && m_currentBgmTrackId == trackId) {
         m_bgmPaused = false;
@@ -389,7 +389,7 @@ bool HdPackAudioRuntime::playBgmTrack(int trackId)
     return true;
 }
 
-bool HdPackAudioRuntime::playSfxTrack(uint8_t sfxNumber)
+bool ModAudioRuntime::playSfxTrack(uint8_t sfxNumber)
 {
     const auto it = m_config.sfxFilesById.find(static_cast<int>(m_album) * 256 + sfxNumber);
     if(it == m_config.sfxFilesById.end()) {
@@ -410,7 +410,7 @@ bool HdPackAudioRuntime::playSfxTrack(uint8_t sfxNumber)
 
 
 
-float HdPackAudioRuntime::mixClipSample(ActiveClip& clip, uint8_t volume) const
+float ModAudioRuntime::mixClipSample(ActiveClip& clip, uint8_t volume) const
 {
     if(clip.finished || !clip.clip || clip.clip->monoSamples.empty()) {
         clip.finished = true;
@@ -485,7 +485,7 @@ float HdPackAudioRuntime::mixClipSample(ActiveClip& clip, uint8_t volume) const
     return value * (static_cast<float>(volume) / 255.0f);
 }
 
-int HdPackAudioRuntime::registerIndexForWrite(uint16_t addr) const
+int ModAudioRuntime::registerIndexForWrite(uint16_t addr) const
 {
     if(!hasConfig()) {
         return -1;
