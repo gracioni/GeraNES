@@ -23,7 +23,7 @@ If your goal is accuracy first, GeraNES is designed around that philosophy.
 - Also available as a libretro core
 - Web version available for quick testing and sharing
 
-Try the web version [HERE](https://racionisoft.com/geranes/GeraNES.html)!
+Try the web version [HERE](https://racionisoft.com/geranes/GeraNES.html?settings=ewogICJuZXRwbGF5IjogewogICAgInNpZ25hbGluZ1VybCI6ICJ3c3M6Ly9zaWduYWwucmFjaW9uaXNvZnQuY29tL3dzLyIKICB9Cn0=)!
 
 ## Reports
 
