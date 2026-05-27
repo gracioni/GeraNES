@@ -657,7 +657,7 @@ bool loadTextCpuSymbols(const std::string& text, std::unordered_map<uint16_t, Cp
     static const std::regex nameEquals(R"(^\s*([A-Za-z_.$@][A-Za-z0-9_.$@]*)\s*[:=]\s*(\$[0-9A-Fa-f]+|0x[0-9A-Fa-f]+|[0-9A-Fa-f]{3,4})\b)");
     static const std::regex addrName(R"(^\s*(?:\$|0x)?([0-9A-Fa-f]{3,4})\s+([A-Za-z_.$@][A-Za-z0-9_.$@]*)\b)");
     static const std::regex bankAddrName(R"(^\s*(?:[A-Za-z]:)?[0-9A-Fa-f]{1,2}:([0-9A-Fa-f]{3,4})[:\s]+([A-Za-z_.$@][A-Za-z0-9_.$@]*)\b)");
-    static const std::regex mesenLabel(R"(^\s*(?:[A-Za-z]|[A-Za-z][A-Za-z0-9_]+):(?:[0-9A-Fa-f]{1,2}:)?([0-9A-Fa-f]{3,4}):([^#;\s]+))");
+    static const std::regex asmLabel(R"(^\s*(?:[A-Za-z]|[A-Za-z][A-Za-z0-9_]+):(?:[0-9A-Fa-f]{1,2}:)?([0-9A-Fa-f]{3,4}):([^#;\s]+))");
 
     const std::string extension = lowerExtension(path);
     if(extension == ".dbg") {
@@ -689,7 +689,7 @@ bool loadTextCpuSymbols(const std::string& text, std::unordered_map<uint16_t, Cp
         } else if(std::regex_search(line, match, nameEquals) && parseCpuSymbolValue(match[2].str(), address, true)) {
             addCpuSymbol(symbols, address, match[1].str(), kind);
             found = true;
-        } else if(std::regex_search(line, match, mesenLabel) && parseCpuSymbolValue(match[1].str(), address, true)) {
+        } else if(std::regex_search(line, match, asmLabel) && parseCpuSymbolValue(match[1].str(), address, true)) {
             addCpuSymbol(symbols, address, match[2].str(), kind);
             found = true;
         } else if(std::regex_search(line, match, bankAddrName) && parseCpuSymbolValue(match[1].str(), address, true)) {

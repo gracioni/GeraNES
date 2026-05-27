@@ -507,7 +507,7 @@ private:
     bool conditionMatches(const MemoryCondition& condition, GeraNESEmu& emu) const;
     const DecodedImage* decodedImage(const std::string& assetPath);
     static std::optional<DecodedImage> decodeImage(const std::vector<uint8_t>& data);
-    bool loadMesenHiresFile();
+    bool loadHiresFile();
     void rebuildFrameConditionPlan();
     void invalidateRenderComposeCache();
     void populateOverrideLookupCache(RenderComposeCache& cache, const std::vector<const ChrOverride*>& activeOverrides, bool trackTileHashNeeds);
