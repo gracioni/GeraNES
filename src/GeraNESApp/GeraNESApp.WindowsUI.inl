@@ -140,6 +140,11 @@ inline void GeraNESApp::showGui()
         drawLogWindow();
     }
 
+    if(m_pendingRomLoad.active) {
+        drawPendingRomLoadOverlay();
+        m_imGuiWindowFocusBlocksEmulator = true;
+    }
+
     if(m_snesMouseGrabActive || m_arkanoidGrabActive) {
         m_imGuiWindowFocusBlocksEmulator = false;
     }
@@ -181,4 +186,64 @@ inline void GeraNESApp::showOverlay()
     m_userToast.draw(drawList, overlayOrigin, static_cast<float>(width()), static_cast<float>(height()), m_fontToast);
 
     m_touch->draw(drawList, overlayOrigin);
+}
+
+inline void GeraNESApp::drawPendingRomLoadOverlay()
+{
+    const ModManager::StartupAssetPreloadStatus preloadStatus = m_modManager.startupAssetPreloadStatus();
+    const uint32_t totalAssets = std::max<uint32_t>(1u, preloadStatus.totalAssets);
+    const float progress = std::clamp(static_cast<float>(preloadStatus.completedAssets) / static_cast<float>(totalAssets), 0.0f, 1.0f);
+
+    ImGuiViewport* viewport = ImGui::GetMainViewport();
+    if(viewport != nullptr) {
+        ImDrawList* foreground = ImGui::GetForegroundDrawList(viewport);
+        foreground->AddRectFilled(
+            viewport->Pos,
+            ImVec2(viewport->Pos.x + viewport->Size.x, viewport->Pos.y + viewport->Size.y),
+            IM_COL32(0, 0, 0, 200));
+    }
+
+    SetNextWindowCenteredOnMainViewport(ImVec2(420.0f, 120.0f), ImGuiCond_Always, ImGuiCond_Always, 24.0f, ImVec2(320.0f, 100.0f));
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 0.0f);
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0.0f);
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(20.0f, 18.0f));
+    ImGui::PushStyleColor(ImGuiCol_WindowBg, IM_COL32(0, 0, 0, 0));
+    ImGui::PushStyleColor(ImGuiCol_Border, IM_COL32(255, 255, 255, 255));
+
+    if(ImGui::Begin("##ModLoadProgressOverlay", nullptr,
+        ImGuiWindowFlags_NoDecoration |
+        ImGuiWindowFlags_NoSavedSettings |
+        ImGuiWindowFlags_NoMove |
+        ImGuiWindowFlags_NoDocking |
+        ImGuiWindowFlags_NoNav |
+        ImGuiWindowFlags_NoInputs)) {
+        ImDrawList* drawList = ImGui::GetWindowDrawList();
+        const ImVec2 windowPos = ImGui::GetWindowPos();
+        const ImVec2 windowSize = ImGui::GetWindowSize();
+        const ImVec2 labelSize = ImGui::CalcTextSize("Loading mod assets...");
+        const float labelX = windowPos.x + (windowSize.x - labelSize.x) * 0.5f;
+        drawList->AddText(ImVec2(labelX, windowPos.y + 16.0f), IM_COL32(255, 255, 255, 255), "Loading mod assets...");
+
+        const float barWidth = windowSize.x - 40.0f;
+        const float barHeight = 22.0f;
+        const ImVec2 barMin(windowPos.x + 20.0f, windowPos.y + 56.0f);
+        const ImVec2 barMax(barMin.x + barWidth, barMin.y + barHeight);
+        drawList->AddRect(barMin, barMax, IM_COL32(255, 255, 255, 255), 0.0f, 0, 2.0f);
+        if(progress > 0.0f) {
+            const float fillWidth = std::max(0.0f, (barWidth - 4.0f) * progress);
+            drawList->AddRectFilled(
+                ImVec2(barMin.x + 2.0f, barMin.y + 2.0f),
+                ImVec2(barMin.x + 2.0f + fillWidth, barMax.y - 2.0f),
+                IM_COL32(255, 255, 255, 255));
+        }
+
+        const std::string progressText = std::to_string(preloadStatus.completedAssets) + " / " + std::to_string(preloadStatus.totalAssets);
+        const ImVec2 progressSize = ImGui::CalcTextSize(progressText.c_str());
+        const float progressX = windowPos.x + (windowSize.x - progressSize.x) * 0.5f;
+        drawList->AddText(ImVec2(progressX, windowPos.y + 88.0f), IM_COL32(255, 255, 255, 255), progressText.c_str());
+    }
+    ImGui::End();
+
+    ImGui::PopStyleColor(2);
+    ImGui::PopStyleVar(3);
 }

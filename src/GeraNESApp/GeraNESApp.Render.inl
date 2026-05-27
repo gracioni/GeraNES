@@ -115,6 +115,7 @@ inline void GeraNESApp::render()
 {
     IEmulationHost::ModRenderSnapshot modSnapshot;
     std::vector<uint32_t> modFramebuffer;
+    const bool showPendingRomLoadScreen = m_pendingRomLoad.active && !m_emu.valid();
     const bool useModRenderPath =
         m_emu.valid() &&
         m_modManager.active() &&
@@ -130,7 +131,14 @@ inline void GeraNESApp::render()
     const int activeBottom = PPU::SCREEN_HEIGHT - overscan.bottom;
     const uint32_t* framebuffer = nullptr;
 
-    if(!m_emu.valid()) {
+    if(showPendingRomLoadScreen) {
+        if(m_framebufferUploadCopy.size() != static_cast<size_t>(PPU::SCREEN_WIDTH * PPU::SCREEN_HEIGHT)) {
+            m_framebufferUploadCopy.assign(static_cast<size_t>(PPU::SCREEN_WIDTH * PPU::SCREEN_HEIGHT), 0u);
+        } else {
+            std::fill(m_framebufferUploadCopy.begin(), m_framebufferUploadCopy.end(), 0u);
+        }
+        framebuffer = m_framebufferUploadCopy.data();
+    } else if(!m_emu.valid()) {
         fillNoRomStaticFramebuffer();
         framebuffer = m_framebufferUploadCopy.data();
     } else if(!useModRenderPath) {

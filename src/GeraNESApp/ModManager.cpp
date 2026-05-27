@@ -252,7 +252,6 @@ private:
 #define MODMANAGER_PROFILE_COUNT(field, delta) do { } while(false)
 #endif
 
-
 bool evaluateMemoryCondition(const ModManager::MemoryCondition& condition, uint32_t actual, uint32_t expected)
 {
     if(condition.hasMask) {
@@ -620,8 +619,16 @@ void sha1ProcessBlock(Sha1State& state, const uint8_t* block)
 
 }
 
+ModManager::~ModManager()
+{
+    cancelStartupAssetPreload();
+}
+
 void ModManager::clear()
 {
+    cancelStartupAssetPreload();
+    std::scoped_lock runtimeLock(m_runtimeMutex);
+
     if(!m_modAudioRuntime) {
         m_modAudioRuntime = std::make_shared<ModAudioRuntime>(
             [this](const std::string& assetPath) { return readSourceEntry(assetPath); });
@@ -724,6 +731,7 @@ void ModManager::clearModSource()
 
 void ModManager::onEmulatorReset()
 {
+    std::scoped_lock runtimeLock(m_runtimeMutex);
     m_lastFrameConditionUpdate = UINT32_MAX;
     m_frameConditionState = {};
     m_frameConditionGroupMatchesScratch.clear();
@@ -734,6 +742,7 @@ void ModManager::onEmulatorReset()
 
 void ModManager::onStateLoaded(uint32_t frameCount)
 {
+    std::scoped_lock runtimeLock(m_runtimeMutex);
     m_lastFrameConditionUpdate = UINT32_MAX;
     m_frameConditionState = {};
     m_frameConditionGroupMatchesScratch.clear();
@@ -883,6 +892,15 @@ std::optional<uint8_t> ModManager::handleModAudioCpuRead(uint16_t addr) const
     return m_modAudioRuntime ? m_modAudioRuntime->handleCpuRead(addr) : std::nullopt;
 }
 
+ModManager::StartupAssetPreloadStatus ModManager::startupAssetPreloadStatus() const
+{
+    StartupAssetPreloadStatus status;
+    status.active = m_startupPreloadActive.load(std::memory_order_acquire);
+    status.completedAssets = m_startupPreloadCompletedAssets.load(std::memory_order_acquire);
+    status.totalAssets = m_startupPreloadTotalAssets.load(std::memory_order_acquire);
+    return status;
+}
+
 ModManager::LoadRequest ModManager::prepareRomLoad(const std::filesystem::path& romPath)
 {
     LoadRequest request;
@@ -983,6 +1001,8 @@ ModManager::LoadRequest ModManager::prepareRomLoad(const std::filesystem::path& 
 
 bool ModManager::loadDefinitionForCurrentMod()
 {
+    cancelStartupAssetPreload();
+    std::scoped_lock runtimeLock(m_runtimeMutex);
     if(!m_active || m_modPath.empty()) return false;
     m_scriptLoaded = false;
     m_chrOverrides.clear();
@@ -1001,20 +1021,10 @@ bool ModManager::loadDefinitionForCurrentMod()
         if(!override.assetAvailable || override.assetPath.empty()) {
             continue;
         }
-        if(override.ignorePalette) {
-            if(decodedImage(override.assetPath) == nullptr) {
-                logModMessage(
-                    "Failed to load CHR image asset: " + override.assetPath,
-                    Logger::Type::WARNING);
-                override.assetAvailable = false;
-            }
-            continue;
-        }
         const std::string normalizedPath = normalizeZipPath(override.assetPath);
         auto it = chrAssetValidity.find(normalizedPath);
         if(it == chrAssetValidity.end()) {
-            const DecodedImage* image = decodedImage(normalizedPath);
-            const bool valid = image != nullptr;
+            const bool valid = sourceHasEntry(normalizedPath);
             if(!valid) {
                 logModMessage(
                     "Failed to load CHR image asset: " + normalizedPath,
@@ -1028,15 +1038,22 @@ bool ModManager::loadDefinitionForCurrentMod()
     }
 
     rebuildFrameConditionPlan();
-    preloadStartupAssets();
+    startStartupAssetPreload();
     m_scriptLoaded = true;
     logModMessage("Mesen hires.txt loaded.", Logger::Type::INFO);
     return true;
 }
 
-void ModManager::preloadStartupAssets()
+void ModManager::startStartupAssetPreload()
 {
     constexpr uint32_t startupFrame = 0;
+    StartupAssetPreloadPlan plan;
+    plan.generation = m_startupPreloadGeneration.fetch_add(1, std::memory_order_acq_rel) + 1u;
+    plan.startupFrame = startupFrame;
+    plan.folderSource = isFolderSource();
+    plan.modPath = m_modPath;
+    plan.modArchiveRoot = m_modArchiveRoot;
+    plan.zipEntryLookup = m_zipEntryLookup;
     std::unordered_set<std::string> imageAssets;
 
     auto addImageAsset = [&](const std::string& assetPath) {
@@ -1064,72 +1081,178 @@ void ModManager::preloadStartupAssets()
         m_modAudioRuntime = std::make_shared<ModAudioRuntime>(
             [this](const std::string& assetPath) { return readSourceEntry(assetPath); });
     }
+    plan.modAudioRuntime = m_modAudioRuntime;
     m_modAudioRuntime->setConfig(m_modAudioConfig);
     m_modAudioRuntime->setCacheFrame(startupFrame);
 
-    std::vector<std::string> audioAssets;
-    audioAssets.reserve(m_modAudioConfig.bgmFilesById.size() + m_modAudioConfig.sfxFilesById.size());
+    plan.audioAssets.reserve(m_modAudioConfig.bgmFilesById.size() + m_modAudioConfig.sfxFilesById.size());
 
     for(const auto& [_, track] : m_modAudioConfig.bgmFilesById) {
         if(!track.assetPath.empty()) {
-            audioAssets.push_back(normalizeZipPath(track.assetPath));
+            plan.audioAssets.push_back(normalizeZipPath(track.assetPath));
         }
     }
 
     for(const auto& [_, assetPath] : m_modAudioConfig.sfxFilesById) {
         const std::string normalizedPath = normalizeZipPath(assetPath);
         if(!normalizedPath.empty()) {
-            audioAssets.push_back(normalizedPath);
+            plan.audioAssets.push_back(normalizedPath);
         }
     }
 
-    std::sort(audioAssets.begin(), audioAssets.end());
-    audioAssets.erase(std::unique(audioAssets.begin(), audioAssets.end()), audioAssets.end());
+    std::sort(plan.audioAssets.begin(), plan.audioAssets.end());
+    plan.audioAssets.erase(std::unique(plan.audioAssets.begin(), plan.audioAssets.end()), plan.audioAssets.end());
+    plan.imageAssets.assign(imageAssets.begin(), imageAssets.end());
+    std::sort(plan.imageAssets.begin(), plan.imageAssets.end());
+    const uint32_t totalAssets = static_cast<uint32_t>(plan.imageAssets.size() + plan.audioAssets.size());
+    m_startupPreloadCompletedAssets.store(0u, std::memory_order_release);
+    m_startupPreloadTotalAssets.store(totalAssets, std::memory_order_release);
 
-    if(isFolderSource()) {
-        for(const std::string& assetPath : imageAssets) {
-            decodedImage(assetPath);
-            pinDecodedImage(assetPath);
+    if(plan.imageAssets.empty() && plan.audioAssets.empty()) {
+        m_startupPreloadActive.store(false, std::memory_order_release);
+        return;
+    }
+
+    m_startupPreloadActive.store(true, std::memory_order_release);
+    m_startupPreloadThread = std::jthread([this, plan = std::move(plan)](std::stop_token stopToken) mutable {
+        runStartupAssetPreload(stopToken, std::move(plan));
+    });
+}
+
+void ModManager::cancelStartupAssetPreload()
+{
+    m_startupPreloadGeneration.fetch_add(1, std::memory_order_acq_rel);
+    m_startupPreloadActive.store(false, std::memory_order_release);
+    m_startupPreloadCompletedAssets.store(0u, std::memory_order_release);
+    m_startupPreloadTotalAssets.store(0u, std::memory_order_release);
+    if(m_startupPreloadThread.joinable()) {
+        m_startupPreloadThread.request_stop();
+        m_startupPreloadThread.join();
+    }
+}
+
+void ModManager::runStartupAssetPreload(std::stop_token stopToken, StartupAssetPreloadPlan plan)
+{
+    auto cancelled = [&]() {
+        return stopToken.stop_requested() ||
+            m_startupPreloadGeneration.load(std::memory_order_acquire) != plan.generation;
+    };
+    auto markAssetComplete = [&]() {
+        m_startupPreloadCompletedAssets.fetch_add(1u, std::memory_order_acq_rel);
+    };
+    auto finishPreload = [&]() {
+        if(m_startupPreloadGeneration.load(std::memory_order_acquire) == plan.generation) {
+            m_startupPreloadActive.store(false, std::memory_order_release);
         }
-        for(const std::string& assetPath : audioAssets) {
-            m_modAudioRuntime->preloadClip(assetPath);
+    };
+
+    auto publishDecodedImage = [&](const std::string& assetPath, std::optional<DecodedImage> image) {
+        std::scoped_lock runtimeLock(m_runtimeMutex);
+        if(m_startupPreloadGeneration.load(std::memory_order_acquire) != plan.generation) {
+            return;
         }
+
+        auto cacheIt = m_imageCache.find(assetPath);
+        if(cacheIt == m_imageCache.end()) {
+            ImageCacheEntry entry;
+            entry.image = std::move(image);
+            entry.lastUsedFrame = plan.startupFrame;
+            entry.pinned = true;
+            cacheIt = m_imageCache.emplace(assetPath, std::move(entry)).first;
+        } else {
+            if(image.has_value() || !cacheIt->second.image.has_value()) {
+                cacheIt->second.image = std::move(image);
+            }
+            cacheIt->second.pinned = true;
+            cacheIt->second.lastUsedFrame = plan.startupFrame;
+        }
+
+        if(!cacheIt->second.image.has_value()) {
+            logModMessage("Failed to load mod image asset: " + assetPath, Logger::Type::WARNING);
+        }
+    };
+
+    auto readFolderAsset = [&](const std::string& assetPath) -> std::optional<std::vector<uint8_t>> {
+        const std::string resolvedEntryName = resolveSourceEntryNameForRoot(assetPath, plan.modArchiveRoot);
+        return readFileEntry(plan.modPath, resolvedEntryName);
+    };
+
+    if(plan.folderSource) {
+        for(const std::string& assetPath : plan.imageAssets) {
+            if(cancelled()) {
+                return;
+            }
+            std::optional<DecodedImage> decoded;
+            if(const auto data = readFolderAsset(assetPath); data.has_value()) {
+                decoded = decodeImage(*data);
+            }
+            if(cancelled()) {
+                return;
+            }
+            publishDecodedImage(assetPath, std::move(decoded));
+            markAssetComplete();
+        }
+
+        if(!plan.modAudioRuntime) {
+            finishPreload();
+            return;
+        }
+        for(const std::string& assetPath : plan.audioAssets) {
+            if(cancelled()) {
+                return;
+            }
+            if(const auto data = readFolderAsset(assetPath); data.has_value()) {
+                plan.modAudioRuntime->preloadClipData(assetPath, *data);
+            } else {
+                plan.modAudioRuntime->preloadClipData(assetPath, {});
+            }
+            markAssetComplete();
+        }
+        finishPreload();
         return;
     }
 
     std::vector<std::string> allAssets;
-    allAssets.reserve(imageAssets.size() + audioAssets.size());
-    allAssets.insert(allAssets.end(), imageAssets.begin(), imageAssets.end());
-    allAssets.insert(allAssets.end(), audioAssets.begin(), audioAssets.end());
+    allAssets.reserve(plan.imageAssets.size() + plan.audioAssets.size());
+    allAssets.insert(allAssets.end(), plan.imageAssets.begin(), plan.imageAssets.end());
+    allAssets.insert(allAssets.end(), plan.audioAssets.begin(), plan.audioAssets.end());
+    const std::unordered_map<std::string, std::vector<uint8_t>> zipAssetData = readZipEntriesFromLookup(
+        plan.modPath,
+        plan.modArchiveRoot,
+        plan.zipEntryLookup,
+        allAssets);
 
-    const std::unordered_map<std::string, std::vector<uint8_t>> zipAssetData = readZipEntries(allAssets);
-
-    for(const std::string& assetPath : imageAssets) {
-        auto cacheIt = m_imageCache.find(assetPath);
-        if(cacheIt == m_imageCache.end()) {
-            ImageCacheEntry entry;
-            if(const auto dataIt = zipAssetData.find(assetPath); dataIt != zipAssetData.end()) {
-                entry.image = decodeImage(dataIt->second);
-            }
-            entry.lastUsedFrame = startupFrame;
-            entry.pinned = true;
-            cacheIt = m_imageCache.emplace(assetPath, std::move(entry)).first;
-            if(!cacheIt->second.image.has_value()) {
-                logModMessage("Failed to load mod image asset: " + assetPath, Logger::Type::WARNING);
-            }
-        } else {
-            cacheIt->second.pinned = true;
-            cacheIt->second.lastUsedFrame = startupFrame;
+    for(const std::string& assetPath : plan.imageAssets) {
+        if(cancelled()) {
+            return;
         }
-    }
-
-    for(const std::string& assetPath : audioAssets) {
+        std::optional<DecodedImage> decoded;
         if(const auto dataIt = zipAssetData.find(assetPath); dataIt != zipAssetData.end()) {
-            m_modAudioRuntime->preloadClipData(assetPath, dataIt->second);
-        } else {
-            m_modAudioRuntime->preloadClip(assetPath);
+            decoded = decodeImage(dataIt->second);
         }
+        if(cancelled()) {
+            return;
+        }
+        publishDecodedImage(assetPath, std::move(decoded));
+        markAssetComplete();
     }
+
+    if(!plan.modAudioRuntime) {
+        finishPreload();
+        return;
+    }
+    for(const std::string& assetPath : plan.audioAssets) {
+        if(cancelled()) {
+            return;
+        }
+        if(const auto dataIt = zipAssetData.find(assetPath); dataIt != zipAssetData.end()) {
+            plan.modAudioRuntime->preloadClipData(assetPath, dataIt->second);
+        } else {
+            plan.modAudioRuntime->preloadClipData(assetPath, {});
+        }
+        markAssetComplete();
+    }
+    finishPreload();
 }
 
 bool ModManager::loadMesenHiresFile()
@@ -1591,6 +1714,7 @@ bool ModManager::loadMesenHiresFile()
 
 void ModManager::onFrame(GeraNESEmu& emu)
 {
+    std::scoped_lock runtimeLock(m_runtimeMutex);
     if(!m_active || !m_scriptLoaded) return;
     const bool needsGraphicsCapture =
         (!m_chrOverrides.empty() || !m_backgroundReplacements.empty());
@@ -2254,6 +2378,18 @@ std::string ModManager::normalizeZipPath(std::string path)
     return path;
 }
 
+std::string ModManager::resolveSourceEntryNameForRoot(const std::string& entryName, const std::string& archiveRoot)
+{
+    const std::string normalizedEntry = normalizeZipPath(entryName);
+    if(normalizedEntry.empty() || archiveRoot.empty()) {
+        return normalizedEntry;
+    }
+    if(normalizedEntry.rfind(archiveRoot, 0) == 0) {
+        return normalizedEntry;
+    }
+    return archiveRoot + normalizedEntry;
+}
+
 std::optional<std::string> ModManager::findZipEntryRootForFile(const std::filesystem::path& zipPath, const std::string& entryName)
 {
     const std::string normalizedTarget = normalizeZipPath(entryName);
@@ -2331,14 +2467,7 @@ std::optional<std::filesystem::path> ModManager::resolveFolderEntryPath(const st
 
 std::string ModManager::resolveSourceEntryName(const std::string& entryName) const
 {
-    const std::string normalizedEntry = normalizeZipPath(entryName);
-    if(normalizedEntry.empty() || m_modArchiveRoot.empty()) {
-        return normalizedEntry;
-    }
-    if(normalizedEntry.rfind(m_modArchiveRoot, 0) == 0) {
-        return normalizedEntry;
-    }
-    return m_modArchiveRoot + normalizedEntry;
+    return resolveSourceEntryNameForRoot(entryName, m_modArchiveRoot);
 }
 
 std::string ModManager::resolveZipEntryName(const std::string& entryName) const
@@ -2396,26 +2525,43 @@ bool ModManager::rebuildZipEntryLookup()
 
 std::unordered_map<std::string, std::vector<uint8_t>> ModManager::readZipEntries(const std::vector<std::string>& entryNames) const
 {
-    std::unordered_map<std::string, std::vector<uint8_t>> result;
     if(m_modPath.empty() || isFolderSource() || entryNames.empty()) {
+        return {};
+    }
+    return readZipEntriesFromLookup(m_modPath, m_modArchiveRoot, m_zipEntryLookup, entryNames);
+}
+
+std::unordered_map<std::string, std::vector<uint8_t>> ModManager::readZipEntriesFromLookup(
+    const std::filesystem::path& zipPath,
+    const std::string& archiveRoot,
+    const std::unordered_map<std::string, std::string>& zipEntryLookup,
+    const std::vector<std::string>& entryNames)
+{
+    std::unordered_map<std::string, std::vector<uint8_t>> result;
+    if(zipPath.empty() || entryNames.empty()) {
         return result;
     }
 
-    zip_t* zip = zip_open(m_modPath.string().c_str(), 0, 'r');
+    zip_t* zip = zip_open(zipPath.string().c_str(), 0, 'r');
     if(zip == nullptr) {
         return result;
     }
 
     result.reserve(entryNames.size());
     for(const std::string& entryName : entryNames) {
-        const std::string resolvedEntryName = resolveZipEntryName(entryName);
-        if(resolvedEntryName.empty()) {
+        const std::string resolvedSourceEntryName = resolveSourceEntryNameForRoot(entryName, archiveRoot);
+        if(resolvedSourceEntryName.empty()) {
             continue;
+        }
+
+        std::string resolvedZipEntryName = resolvedSourceEntryName;
+        if(const auto it = zipEntryLookup.find(toLower(resolvedSourceEntryName)); it != zipEntryLookup.end()) {
+            resolvedZipEntryName = it->second;
         }
 
         char* buffer = nullptr;
         size_t bufferSize = 0;
-        if(zip_entry_open(zip, resolvedEntryName.c_str()) != 0) {
+        if(zip_entry_open(zip, resolvedZipEntryName.c_str()) != 0) {
             continue;
         }
 
@@ -2693,6 +2839,7 @@ bool ModManager::conditionMatches(const MemoryCondition& condition, GeraNESEmu& 
 
 const ModManager::DecodedImage* ModManager::decodedImage(const std::string& assetPath)
 {
+    std::scoped_lock runtimeLock(m_runtimeMutex);
     const std::string normalizedPath = normalizeZipPath(assetPath);
     auto cacheIt = m_imageCache.find(normalizedPath);
     if(cacheIt == m_imageCache.end()) {
@@ -2714,6 +2861,7 @@ const ModManager::DecodedImage* ModManager::decodedImage(const std::string& asse
 
 void ModManager::pinDecodedImage(const std::string& assetPath)
 {
+    std::scoped_lock runtimeLock(m_runtimeMutex);
     const std::string normalizedPath = normalizeZipPath(assetPath);
     auto it = m_imageCache.find(normalizedPath);
     if(it == m_imageCache.end()) {
@@ -2732,6 +2880,7 @@ void ModManager::pinDecodedImage(const std::string& assetPath)
 
 void ModManager::evictUnusedDynamicAssets(uint32_t frameCount)
 {
+    std::scoped_lock runtimeLock(m_runtimeMutex);
     constexpr uint32_t DynamicAssetEvictionFrames = 3600;
     for(auto it = m_imageCache.begin(); it != m_imageCache.end(); ) {
         const ImageCacheEntry& entry = it->second;

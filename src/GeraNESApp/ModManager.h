@@ -1,11 +1,13 @@
 #pragma once
 
 #include <array>
+#include <atomic>
 #include <cstdint>
 #include <filesystem>
 #include <mutex>
 #include <optional>
 #include <string>
+#include <thread>
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
@@ -15,6 +17,8 @@
 
 class ModManager {
 public:
+    ~ModManager();
+
     struct MemoryCondition {
         enum class MemorySource {
             Cpu,
@@ -293,6 +297,12 @@ public:
         std::vector<DebugComposeStage> spriteStages;
     };
 
+    struct StartupAssetPreloadStatus {
+        bool active = false;
+        uint32_t completedAssets = 0;
+        uint32_t totalAssets = 0;
+    };
+
     void clear();
     bool selectModSource(const std::filesystem::path& modSourcePath, std::string& error);
     void clearModSource();
@@ -316,6 +326,7 @@ public:
     std::shared_ptr<IAudioOutput::ExternalAudioMixer> externalAudioMixer() const;
     bool handleModAudioCpuWrite(uint16_t addr, uint8_t value);
     std::optional<uint8_t> handleModAudioCpuRead(uint16_t addr) const;
+    StartupAssetPreloadStatus startupAssetPreloadStatus() const;
 
 private:
     mutable std::recursive_mutex m_runtimeMutex;
@@ -433,6 +444,18 @@ private:
         const RenderPreparedOverride* fastBackgroundOverride = nullptr;
     };
 
+    struct StartupAssetPreloadPlan {
+        uint64_t generation = 0;
+        uint32_t startupFrame = 0;
+        bool folderSource = false;
+        std::filesystem::path modPath;
+        std::string modArchiveRoot;
+        std::unordered_map<std::string, std::string> zipEntryLookup;
+        std::vector<std::string> imageAssets;
+        std::vector<std::string> audioAssets;
+        std::shared_ptr<ModAudioRuntime> modAudioRuntime;
+    };
+
     std::unordered_map<std::string, ImageCacheEntry> m_imageCache;
     std::unordered_map<std::string, std::string> m_zipEntryLookup;
     std::vector<PPU::DebugModSpritePixel> m_augmentedSpritePixelsScratch;
@@ -440,8 +463,14 @@ private:
     std::unordered_map<uint64_t, RenderComposeCache::AdditionalSpriteRuleSpan> m_resolvedAdditionalSpriteRuleMemo;
     RenderComposeCache m_renderComposeCache;
     bool m_renderComposeCacheDirty = true;
+    std::atomic<uint64_t> m_startupPreloadGeneration = 0;
+    std::atomic<bool> m_startupPreloadActive = false;
+    std::atomic<uint32_t> m_startupPreloadCompletedAssets = 0;
+    std::atomic<uint32_t> m_startupPreloadTotalAssets = 0;
+    std::jthread m_startupPreloadThread;
 
     static std::string normalizeZipPath(std::string path);
+    static std::string resolveSourceEntryNameForRoot(const std::string& entryName, const std::string& archiveRoot);
     static std::optional<std::string> findZipEntryRootForFile(const std::filesystem::path& zipPath, const std::string& entryName);
     static std::optional<std::filesystem::path> resolveFolderEntryPath(const std::filesystem::path& rootPath, const std::string& entryName);
     static std::optional<std::vector<uint8_t>> readFileEntry(const std::filesystem::path& rootPath, const std::string& entryName);
@@ -449,6 +478,11 @@ private:
     std::string resolveZipEntryName(const std::string& entryName) const;
     bool rebuildZipEntryLookup();
     std::unordered_map<std::string, std::vector<uint8_t>> readZipEntries(const std::vector<std::string>& entryNames) const;
+    static std::unordered_map<std::string, std::vector<uint8_t>> readZipEntriesFromLookup(
+        const std::filesystem::path& zipPath,
+        const std::string& archiveRoot,
+        const std::unordered_map<std::string, std::string>& zipEntryLookup,
+        const std::vector<std::string>& entryNames);
     bool isFolderSource() const;
     bool sourceHasEntry(const std::string& entryName) const;
     std::optional<std::vector<uint8_t>> readSourceEntry(const std::string& entryName) const;
@@ -461,7 +495,9 @@ private:
     static std::string sha1Hex(const std::vector<uint8_t>& data);
     static uint64_t makeMemoryCacheKey(MemoryCondition::MemorySource source, uint32_t address, bool word, int scale);
     void updateFrameConditionsForFrame(GeraNESEmu& emu);
-    void preloadStartupAssets();
+    void startStartupAssetPreload();
+    void cancelStartupAssetPreload();
+    void runStartupAssetPreload(std::stop_token stopToken, StartupAssetPreloadPlan plan);
     void pinDecodedImage(const std::string& assetPath);
     void evictUnusedDynamicAssets(uint32_t frameCount);
 

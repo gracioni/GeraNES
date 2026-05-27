@@ -438,6 +438,12 @@ private:
     std::string m_selectedPaletteName = "";
     std::string m_paletteNameInput = "";
     fs::path m_loadedRomPath;
+    struct PendingRomLoad {
+        bool active = false;
+        fs::path requestedPath;
+        std::string effectivePath;
+        ModManager::LoadRequest modLoad;
+    } m_pendingRomLoad;
 
     std::unique_ptr<TouchControls> m_touch;
 
@@ -455,6 +461,8 @@ private:
     void togglePauseAction();
     void resetAction();
     void closeRomAction();
+    bool finishOpenRomPath(const fs::path& requestedPath, const std::string& effectivePath, const ModManager::LoadRequest& modLoad, bool modDefinitionLoaded);
+    void updatePendingRomLoad();
     bool openRomPath(const fs::path& path, bool updateRecentFiles = true, bool clearSelectedMod = true);
     void loadModArchive();
     void loadModFolder();
@@ -598,6 +606,7 @@ public:
 
     void showGui();
     void showOverlay();
+    void drawPendingRomLoadOverlay();
     bool useCustomWindowChrome();
     float customTitleBarHeight();
     float customSideFrameWidth();

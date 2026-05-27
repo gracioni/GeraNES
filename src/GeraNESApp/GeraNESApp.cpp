@@ -892,6 +892,7 @@ void GeraNESApp::closeRomAction()
     }
 
     m_emu.setModFrameCaptureHook({});
+    m_pendingRomLoad = {};
     m_modManager.clearModSource();
     refreshModFrameCaptureHook();
     m_emu.closeRom();
@@ -1594,6 +1595,82 @@ void GeraNESApp::resetShowOriginalGraphicsInsteadOfModFramebuffer()
     m_showOriginalGraphicsInsteadOfModFramebuffer = false;
 }
 
+bool GeraNESApp::finishOpenRomPath(const fs::path& requestedPath, const std::string& effectivePath, const ModManager::LoadRequest& modLoad, bool modDefinitionLoaded)
+{
+    if(modDefinitionLoaded && m_emu.open(effectivePath)) {
+        const int effectiveMaxRewindTime = shouldSuppressRewindForNetplay()
+            ? 0
+            : std::max(0, AppSettings::instance().data.improvements.maxRewindTime);
+        m_emu.setupRewindSystem(effectiveMaxRewindTime > 0, effectiveMaxRewindTime);
+
+        if(modLoad.modLoaded) {
+            Logger::instance().log(modLoad.message + " " + modLoad.modPath.string(), Logger::Type::USER);
+        }
+        refreshModFrameCaptureHook();
+        updateBuffers();
+        normalizeTouchControlsTargetForCurrentTopology();
+        m_loadedRomPath = requestedPath;
+        const std::string filename = requestedPath.filename().string();
+        this->setTitle(std::string("GeraNES - ") + filename);
+        Logger::instance().log("Rom loaded", Logger::Type::USER);
+        m_netplayRuntime.refreshLocalRomSelectionImmediate();
+        m_imGuiWantsKeyboard = false;
+        m_imGuiWindowFocusBlocksEmulator = false;
+        if(ImGui::GetCurrentContext() != nullptr) {
+            ImGui::SetWindowFocus(nullptr);
+        }
+        m_emu.discardQueuedAudio();
+        if(const auto mixer = m_audioOutput.getExternalAudioMixer()) {
+            mixer->resetRuntime();
+        }
+        const auto netplayMenu = GeraNESNetplay::menuSnapshot(m_netplayRuntime);
+        const bool deferObserverResume =
+            netplayMenu.inputManaged &&
+            !netplayMenu.hosting &&
+            netplayMenu.localAssignments.empty();
+        if(!m_webVisibilitySuspended && !deferObserverResume) {
+            m_emu.setSimulationSuspended(false);
+        }
+        return true;
+    }
+
+    refreshModFrameCaptureHook();
+    updateBuffers();
+    m_loadedRomPath.clear();
+    if(modDefinitionLoaded) {
+        Logger::instance().log("Failed to load ROM", Logger::Type::USER);
+    }
+    m_emu.discardQueuedAudio();
+    if(const auto mixer = m_audioOutput.getExternalAudioMixer()) {
+        mixer->resetRuntime();
+    }
+    const auto netplayMenu = GeraNESNetplay::menuSnapshot(m_netplayRuntime);
+    const bool deferObserverResume =
+        netplayMenu.inputManaged &&
+        !netplayMenu.hosting &&
+        netplayMenu.localAssignments.empty();
+    if(!m_webVisibilitySuspended && !deferObserverResume) {
+        m_emu.setSimulationSuspended(false);
+    }
+    return false;
+}
+
+void GeraNESApp::updatePendingRomLoad()
+{
+    if(!m_pendingRomLoad.active) {
+        return;
+    }
+
+    const ModManager::StartupAssetPreloadStatus preloadStatus = m_modManager.startupAssetPreloadStatus();
+    if(preloadStatus.active) {
+        return;
+    }
+
+    const PendingRomLoad pendingLoad = m_pendingRomLoad;
+    m_pendingRomLoad = {};
+    finishOpenRomPath(pendingLoad.requestedPath, pendingLoad.effectivePath, pendingLoad.modLoad, true);
+}
+
 bool GeraNESApp::openRomPath(const fs::path& path, bool updateRecentFiles, bool clearSelectedMod)
 {
     if(isNetplayRomChangeRestricted()) {
@@ -1601,6 +1678,7 @@ bool GeraNESApp::openRomPath(const fs::path& path, bool updateRecentFiles, bool 
         return false;
     }
 
+    m_pendingRomLoad = {};
     m_emu.setSimulationSuspended(true);
     m_emu.withExclusiveAccess([](auto&) {});
     m_emu.discardQueuedAudio();
@@ -1640,48 +1718,25 @@ bool GeraNESApp::openRomPath(const fs::path& path, bool updateRecentFiles, bool 
         modDefinitionLoaded = m_modManager.loadDefinitionForCurrentMod();
     }
 
-    if(modDefinitionLoaded && m_emu.open(effectivePath)) {
-        const int effectiveMaxRewindTime = shouldSuppressRewindForNetplay()
-            ? 0
-            : std::max(0, AppSettings::instance().data.improvements.maxRewindTime);
-        m_emu.setupRewindSystem(effectiveMaxRewindTime > 0, effectiveMaxRewindTime);
+    if(modDefinitionLoaded && modLoad.modLoaded) {
+        const ModManager::StartupAssetPreloadStatus preloadStatus = m_modManager.startupAssetPreloadStatus();
+        if(preloadStatus.active) {
+            m_pendingRomLoad.active = true;
+            m_pendingRomLoad.requestedPath = path;
+            m_pendingRomLoad.effectivePath = effectivePath;
+            m_pendingRomLoad.modLoad = modLoad;
+            refreshModFrameCaptureHook();
+            updateBuffers();
+            return true;
+        }
+    }
 
-        if(modLoad.modLoaded) {
-            Logger::instance().log(modLoad.message + " " + modLoad.modPath.string(), Logger::Type::USER);
-        }
-        refreshModFrameCaptureHook();
-        updateBuffers();
-        normalizeTouchControlsTargetForCurrentTopology();
-        m_loadedRomPath = path;
-        const std::string filename = path.filename().string();
-        this->setTitle(std::string("GeraNES - ") + filename);
-        Logger::instance().log("Rom loaded", Logger::Type::USER);
-        m_netplayRuntime.refreshLocalRomSelectionImmediate();
-        m_imGuiWantsKeyboard = false;
-        m_imGuiWindowFocusBlocksEmulator = false;
-        if(ImGui::GetCurrentContext() != nullptr) {
-            ImGui::SetWindowFocus(nullptr);
-        }
-        m_emu.discardQueuedAudio();
-        if(const auto mixer = m_audioOutput.getExternalAudioMixer()) {
-            mixer->resetRuntime();
-        }
-        const auto netplayMenu = GeraNESNetplay::menuSnapshot(m_netplayRuntime);
-        const bool deferObserverResume =
-            netplayMenu.inputManaged &&
-            !netplayMenu.hosting &&
-            netplayMenu.localAssignments.empty();
-        if(!m_webVisibilitySuspended && !deferObserverResume) {
-            m_emu.setSimulationSuspended(false);
-        }
-        return true;
+    if(modDefinitionLoaded) {
+        return finishOpenRomPath(path, effectivePath, modLoad, true);
     } else {
         refreshModFrameCaptureHook();
         updateBuffers();
         m_loadedRomPath.clear();
-        if(modDefinitionLoaded) {
-            Logger::instance().log("Failed to load ROM", Logger::Type::USER);
-        }
         m_emu.discardQueuedAudio();
         if(const auto mixer = m_audioOutput.getExternalAudioMixer()) {
             mixer->resetRuntime();
@@ -3918,6 +3973,7 @@ void GeraNESApp::onWindowDisplayChanged(int displayIndex)
 void GeraNESApp::mainLoop()
 {
     updateCursor();
+    updatePendingRomLoad();
 
     const Uint64 counterNow = currentMainLoopCounter();
     Uint64 counterFreq = currentMainLoopCounterFrequency();
