@@ -2447,6 +2447,9 @@ void GeraNESApp::deleteCurrentPalette()
 #ifdef __EMSCRIPTEN__
 void GeraNESApp::processUploadedFile(const char* fileName, size_t fileSize, const uint8_t* fileContent)
 {
+    const WebFileOpenTarget target = m_pendingWebFileOpenTarget;
+    m_pendingWebFileOpenTarget = WebFileOpenTarget::Rom;
+
     Logger::instance().log(
         std::string("Processing uploaded file: ") + (fileName ? fileName : "<null>") +
         " (" + std::to_string(fileSize) + " bytes)",
@@ -2485,7 +2488,21 @@ void GeraNESApp::processUploadedFile(const char* fileName, size_t fileSize, cons
             std::string("Uploaded file stored at: ") + targetPath.string(),
             Logger::Type::INFO
         );
-        openFile(targetPath.string().c_str());
+        if(target == WebFileOpenTarget::ModArchive) {
+            std::string error;
+            if(m_modManager.selectModSource(targetPath, error)) {
+                resetShowOriginalGraphicsInsteadOfModFramebuffer();
+                Logger::instance().log("Mod selected: " + targetPath.string(), Logger::Type::USER);
+                AppSettings::instance().data.setLastFolder(targetPath.string());
+                if(!m_loadedRomPath.empty() && m_emu.valid()) {
+                    openRomPath(m_loadedRomPath, false, false);
+                }
+            } else {
+                Logger::instance().log(error, Logger::Type::ERROR);
+            }
+        } else {
+            openFile(targetPath.string().c_str());
+        }
     } else {
         Logger::instance().log("Failed to open file for writing in processUploadedFile call", Logger::Type::ERROR);
     }
@@ -2678,6 +2695,7 @@ void GeraNESApp::openRom()
         }
     });
 #else
+    m_pendingWebFileOpenTarget = WebFileOpenTarget::Rom;
     emcriptenFileDialog(reinterpret_cast<intptr_t>(this));
 #endif
 
@@ -2689,7 +2707,12 @@ void GeraNESApp::openRom()
 void GeraNESApp::loadModArchive()
 {
 #ifdef __EMSCRIPTEN__
-    Logger::instance().log("Mod loading from disk is not available in the web build.", Logger::Type::USER);
+    if(isNetplayRomChangeRestricted()) {
+        notifyNetplayRomChangeRestrictedAction("Open Mod");
+        return;
+    }
+    m_pendingWebFileOpenTarget = WebFileOpenTarget::ModArchive;
+    emcriptenFileDialog(reinterpret_cast<intptr_t>(this), ".zip");
 #else
     const bool resumeAfterDialog = m_emu.withExclusiveAccess([](auto& emu) {
         if(!emu.valid()) return false;

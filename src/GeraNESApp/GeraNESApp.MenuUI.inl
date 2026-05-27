@@ -1200,6 +1200,7 @@ inline void GeraNESApp::drawPaletteWindow()
 inline void GeraNESApp::drawOverscanWindow()
 {
     ImGui::SetNextWindowSize(ImVec2(320.0f, 0.0f), ImGuiCond_FirstUseEver);
+    ImGui::SetNextWindowPos(ImGui::GetMainViewport()->GetCenter(), ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
     if(!ImGui::Begin("Overscan", &m_showOverscanWindow, ImGuiWindowFlags_NoResize)) {
         ImGui::End();
         return;

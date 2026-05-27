@@ -3,7 +3,7 @@
 #include <cstddef>
 #include <cstdint>
 
-void emcriptenFileDialog(intptr_t handler);
+void emcriptenFileDialog(intptr_t handler, const char* acceptedExtensions = nullptr);
 
 void emcriptenRegisterVisibilityHandler(intptr_t handler);
 

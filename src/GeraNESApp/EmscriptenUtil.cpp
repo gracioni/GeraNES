@@ -663,13 +663,14 @@ EM_JS(void, emcriptenSyncImGuiTextInputJs, (int wantTextInput), {
     }
 });
 
-void emcriptenFileDialog(intptr_t handler) {
-    constexpr const char* kAcceptedExtensions =
+void emcriptenFileDialog(intptr_t handler, const char* acceptedExtensions) {
+    constexpr const char* kDefaultAcceptedExtensions =
 #ifdef ENABLE_NSF_PLAYER
         ".nes,.fds,.nsf,.zip,.7z";
 #else
         ".nes,.fds,.zip,.7z";
 #endif
+    const char* acceptList = acceptedExtensions != nullptr ? acceptedExtensions : kDefaultAcceptedExtensions;
 
     EM_ASM({
         var handler = Number(arguments[0]);
@@ -677,15 +678,15 @@ void emcriptenFileDialog(intptr_t handler) {
 
         function openFileDialog() {
 
-            var input = document.getElementById('__geranes_open_rom_input');
+            var input = document.getElementById('__geranes_file_input');
             if (!input) {
                 input = document.createElement('input');
-                input.id = '__geranes_open_rom_input';
+                input.id = '__geranes_file_input';
                 input.type = 'file';
-                input.accept = accepted;
                 input.style.display = 'none';
                 document.body.appendChild(input);
             }
+            input.accept = accepted;
 
             input.addEventListener('change', function () {
                 if (!input.files || input.files.length === 0) return;
@@ -733,7 +734,7 @@ void emcriptenFileDialog(intptr_t handler) {
         }
         openFileDialog();
 
-    }, handler, kAcceptedExtensions);
+    }, handler, acceptList);
 }
 
 void emcriptenRegisterVisibilityHandler(intptr_t handler)
