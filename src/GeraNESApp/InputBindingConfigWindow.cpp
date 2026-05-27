@@ -97,8 +97,7 @@ void InputBindingConfigWindow::update()
         }
     }
 
-    SetNextWindowSizeClamped(ImVec2(360.0f, 0.0f), ImGuiCond_Appearing);
-    ImGui::SetNextWindowPos(ImGui::GetMainViewport()->GetCenter(), ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+    SetNextWindowCenteredOnMainViewport(ImVec2(360.0f, 0.0f));
 
     if(ImGui::Begin(m_windowTitle.c_str(), &m_show)) {
         if(ImGui::BeginTable("InputBindingTable", 2, ImGuiTableFlags_NoSavedSettings | ImGuiTableFlags_Borders)) {

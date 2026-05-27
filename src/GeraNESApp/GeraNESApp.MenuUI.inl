@@ -1199,7 +1199,7 @@ inline void GeraNESApp::drawPaletteWindow()
 
 inline void GeraNESApp::drawOverscanWindow()
 {
-    ImGui::SetNextWindowSize(ImVec2(320.0f, 0.0f), ImGuiCond_FirstUseEver);
+    SetNextWindowCenteredOnMainViewport(ImVec2(320.0f, 0.0f));
     if(!ImGui::Begin("Overscan", &m_showOverscanWindow, ImGuiWindowFlags_NoResize)) {
         ImGui::End();
         return;
@@ -1252,7 +1252,7 @@ inline void GeraNESApp::drawOverscanWindow()
 
 inline void GeraNESApp::drawShaderStackWindow()
 {
-    ImGui::SetNextWindowSize(ImVec2(800.0f, 440.0f), ImGuiCond_Appearing);
+    SetNextWindowCenteredOnMainViewport(ImVec2(800.0f, 440.0f));
 
     if(!ImGui::Begin("Shader", &m_showShaderStackWindow)) {
         ImGui::End();

@@ -27,8 +27,7 @@ inline void GeraNESApp::drawMemoryViewerWindow()
         {"CHR ROM", 0x0000, 0x2000, MemoryViewerRegion::Source::Ppu},
     };
 
-    SetNextWindowSizeClamped(ImVec2(760.0f, 620.0f), ImGuiCond_Appearing);
-    ImGui::SetNextWindowPos(ImGui::GetMainViewport()->GetCenter(), ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+    SetNextWindowCenteredOnMainViewport(ImVec2(760.0f, 620.0f));
 
     if(!ImGui::Begin("Memory Viewer", &m_showMemoryViewerWindow)) {
         ImGui::End();

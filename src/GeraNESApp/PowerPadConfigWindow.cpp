@@ -91,8 +91,7 @@ void PowerPadConfigWindow::update()
         }
     }
 
-    SetNextWindowSizeClamped(ImVec2(WINDOW_WIDTH, 0.0f), ImGuiCond_Appearing);
-    ImGui::SetNextWindowPos(ImGui::GetMainViewport()->GetCenter(), ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+    SetNextWindowCenteredOnMainViewport(ImVec2(WINDOW_WIDTH, 0.0f));
 
     if(ImGui::Begin(m_windowTitle.c_str(), &m_show, ImGuiWindowFlags_NoResize)) {
         ImGui::TextWrapped("Click a pad and press the desired key. Escape clears the current binding.");

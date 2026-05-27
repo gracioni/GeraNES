@@ -2,8 +2,7 @@
 
 inline void GeraNESApp::drawCpuDebuggerWindow()
 {
-    SetNextWindowSizeClamped(ImVec2(860.0f, 620.0f), ImGuiCond_Appearing);
-    ImGui::SetNextWindowPos(ImGui::GetMainViewport()->GetCenter(), ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+    SetNextWindowCenteredOnMainViewport(ImVec2(860.0f, 620.0f));
 
     if(!ImGui::Begin("CPU Debugger", &m_showCpuDebuggerWindow, ImGuiWindowFlags_MenuBar)) {
         AppSettings::instance().data.debug.showCpuDebugger = m_showCpuDebuggerWindow;

@@ -94,6 +94,26 @@ extern "C" {
         );
     }
 
+    static void SetNextWindowPosCenteredOnMainViewport(ImGuiCond cond = ImGuiCond_Appearing)
+    {
+        if(const ImGuiViewport* viewport = ImGui::GetMainViewport(); viewport != nullptr) {
+            ImGui::SetNextWindowPos(viewport->GetCenter(), cond, ImVec2(0.5f, 0.5f));
+        } else {
+            const ImVec2 displaySize = ImGui::GetIO().DisplaySize;
+            ImGui::SetNextWindowPos(ImVec2(displaySize.x * 0.5f, displaySize.y * 0.5f), cond, ImVec2(0.5f, 0.5f));
+        }
+    }
+
+    static void SetNextWindowCenteredOnMainViewport(const ImVec2& requestedSize,
+                                                    ImGuiCond sizeCond = ImGuiCond_Appearing,
+                                                    ImGuiCond posCond = ImGuiCond_Appearing,
+                                                    float padding = 16.0f,
+                                                    const ImVec2& minimumSize = ImVec2(160.0f, 80.0f))
+    {
+        SetNextWindowSizeClamped(requestedSize, sizeCond, padding, minimumSize);
+        SetNextWindowPosCenteredOnMainViewport(posCond);
+    }
+
     static void SetNextWindowSizeConstraintsClamped(const ImVec2& requestedMin,
                                                     const ImVec2& requestedMax,
                                                     float padding = 16.0f,

@@ -10,8 +10,6 @@
 
 inline void GeraNESApp::showGui()
 {
-    const ImVec2 viewportCenter = ImGui::GetMainViewport()->GetCenter();
-
     float lastMenuBarHeight = m_menuBarHeight;
 
     drawCustomWindowChrome();
@@ -29,8 +27,7 @@ inline void GeraNESApp::showGui()
     m_powerPadConfigWindow.update();
 
     if(m_showImprovementsWindow) {
-        SetNextWindowSizeClamped(ImVec2(320.0f, 0.0f));
-        ImGui::SetNextWindowPos(viewportCenter, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+        SetNextWindowCenteredOnMainViewport(ImVec2(320.0f, 0.0f));
 
         if(ImGui::Begin("Improvements", &m_showImprovementsWindow, ImGuiWindowFlags_NoResize)) {
             m_imGuiWindowFocusBlocksEmulator |= ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows);
@@ -132,8 +129,7 @@ inline void GeraNESApp::showGui()
     }
 
     if(m_showAboutWindow) {
-        SetNextWindowSizeClamped(ImVec2(320.0f, 0.0f));
-        ImGui::SetNextWindowPos(viewportCenter, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+        SetNextWindowCenteredOnMainViewport(ImVec2(320.0f, 0.0f));
 
         if(ImGui::Begin("About", &m_showAboutWindow, ImGuiWindowFlags_NoResize)) {
             m_imGuiWindowFocusBlocksEmulator |= ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows);
@@ -157,8 +153,7 @@ inline void GeraNESApp::showGui()
     }
 
     if(m_showArkanoidNesConfigWindow) {
-        SetNextWindowSizeClamped(ImVec2(360.0f, 0.0f), ImGuiCond_Appearing);
-        ImGui::SetNextWindowPos(viewportCenter, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+        SetNextWindowCenteredOnMainViewport(ImVec2(360.0f, 0.0f));
 
         if(ImGui::Begin("Arkanoid Controller Config (NES)", &m_showArkanoidNesConfigWindow, ImGuiWindowFlags_NoResize)) {
             m_imGuiWindowFocusBlocksEmulator |= ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows);
@@ -177,8 +172,7 @@ inline void GeraNESApp::showGui()
     }
 
     if(m_showArkanoidFamicomConfigWindow) {
-        SetNextWindowSizeClamped(ImVec2(360.0f, 0.0f), ImGuiCond_Appearing);
-        ImGui::SetNextWindowPos(viewportCenter, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+        SetNextWindowCenteredOnMainViewport(ImVec2(360.0f, 0.0f));
 
         if(ImGui::Begin("Arkanoid Controller Config (Famicom)", &m_showArkanoidFamicomConfigWindow, ImGuiWindowFlags_NoResize)) {
             m_imGuiWindowFocusBlocksEmulator |= ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows);
@@ -197,8 +191,7 @@ inline void GeraNESApp::showGui()
     }
 
     if(m_showSnesMouseConfigWindow) {
-        SetNextWindowSizeClamped(ImVec2(360.0f, 0.0f), ImGuiCond_Appearing);
-        ImGui::SetNextWindowPos(viewportCenter, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+        SetNextWindowCenteredOnMainViewport(ImVec2(360.0f, 0.0f));
 
         if(ImGui::Begin("Mouse Config", &m_showSnesMouseConfigWindow, ImGuiWindowFlags_NoResize)) {
             m_imGuiWindowFocusBlocksEmulator |= ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows);
@@ -221,12 +214,11 @@ inline void GeraNESApp::showGui()
     }
 
     if(m_showNetplayWindow) {
-        GeraNESNetplay::drawNetplayWindow(m_showNetplayWindow, m_netplayRuntime, viewportCenter);
+        GeraNESNetplay::drawNetplayWindow(m_showNetplayWindow, m_netplayRuntime, ImGui::GetMainViewport()->GetCenter());
     }
 
     if(m_showRomDatabaseWindow) {
-        SetNextWindowSizeClamped(ImVec2(720.0f, 0.0f), ImGuiCond_Appearing);
-        ImGui::SetNextWindowPos(viewportCenter, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+        SetNextWindowCenteredOnMainViewport(ImVec2(720.0f, 0.0f));
         ImGui::OpenPopup("Rom Database");
     }
 
@@ -498,7 +490,7 @@ inline void GeraNESApp::showGui()
                 }
                 ImGui::EndDisabled();
 
-                ImGui::SetNextWindowPos(viewportCenter, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+                SetNextWindowPosCenteredOnMainViewport();
                 if(ImGui::BeginPopupModal("Confirm Save ROM Database Entry", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
                     ImGui::TextWrapped("Are you sure you want to save this entry to db.txt?");
                     ImGui::Spacing();
@@ -513,7 +505,7 @@ inline void GeraNESApp::showGui()
                     ImGui::EndPopup();
                 }
 
-                ImGui::SetNextWindowPos(viewportCenter, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+                SetNextWindowPosCenteredOnMainViewport();
                 if(ImGui::BeginPopupModal("Confirm Remove ROM Database Entry", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
                     ImGui::TextWrapped("Are you sure you want to remove this entry from db.txt?");
                     ImGui::Spacing();
@@ -535,8 +527,7 @@ inline void GeraNESApp::showGui()
     }
 
     if(m_showErrorWindow) {
-        SetNextWindowSizeClamped(ImVec2(320.0f, 0.0f));
-        ImGui::SetNextWindowPos(viewportCenter, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+        SetNextWindowCenteredOnMainViewport(ImVec2(320.0f, 0.0f));
 
         bool lastState = m_showErrorWindow;
 
@@ -568,8 +559,7 @@ inline void GeraNESApp::showGui()
     }
 
     if(m_showLogWindow) {
-        SetNextWindowSizeClamped(ImVec2(600.0f, 0.0f), ImGuiCond_Once);
-        ImGui::SetNextWindowPos(viewportCenter, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+        SetNextWindowCenteredOnMainViewport(ImVec2(600.0f, 0.0f), ImGuiCond_Once);
 
         if(ImGui::Begin("Log", &m_showLogWindow)) {
             m_imGuiWindowFocusBlocksEmulator |= ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows);
