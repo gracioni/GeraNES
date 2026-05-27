@@ -5,6 +5,7 @@
 #include <cctype>
 #include <chrono>
 #include <cmath>
+#include <cerrno>
 #include <cstring>
 #include <cstdlib>
 #include <fstream>
@@ -578,26 +579,45 @@ std::vector<std::string> splitComma(const std::string& value)
 uint32_t parseHexValue(const std::string& text, uint32_t fallback = 0)
 {
     if(text.empty()) return fallback;
-    try {
-        size_t index = 0;
-        uint32_t value = static_cast<uint32_t>(std::stoul(text, &index, 16));
-        return index == text.size() ? value : fallback;
-    } catch(...) {
+    errno = 0;
+    char* end = nullptr;
+    const unsigned long value = std::strtoul(text.c_str(), &end, 16);
+    if(errno != 0 || end != text.c_str() + text.size()) {
         return fallback;
     }
+    return static_cast<uint32_t>(value);
 }
 
 uint32_t parseDecOrHexValue(const std::string& text, uint32_t fallback = 0)
 {
     if(text.empty()) return fallback;
     const bool looksHex = text.find_first_of("ABCDEFabcdef") != std::string::npos;
-    try {
-        size_t index = 0;
-        const uint32_t value = static_cast<uint32_t>(std::stoul(text, &index, looksHex ? 16 : 10));
-        return index == text.size() ? value : fallback;
-    } catch(...) {
+    errno = 0;
+    char* end = nullptr;
+    const unsigned long value = std::strtoul(text.c_str(), &end, looksHex ? 16 : 10);
+    if(errno != 0 || end != text.c_str() + text.size()) {
         return fallback;
     }
+    return static_cast<uint32_t>(value);
+}
+
+std::optional<int> parseIntStrict(const std::string& text, int base = 10)
+{
+    if(text.empty()) {
+        return std::nullopt;
+    }
+
+    errno = 0;
+    char* end = nullptr;
+    const long value = std::strtol(text.c_str(), &end, base);
+    if(errno != 0 || end != text.c_str() + text.size()) {
+        return std::nullopt;
+    }
+    if(value < static_cast<long>(std::numeric_limits<int>::min()) ||
+       value > static_cast<long>(std::numeric_limits<int>::max())) {
+        return std::nullopt;
+    }
+    return static_cast<int>(value);
 }
 
 bool parseMesenBool(const std::string& text)
@@ -681,38 +701,12 @@ std::vector<uint8_t> parseMesenPalette(const std::string& paletteText)
 
 std::optional<int> parseDecimalIntStrict(const std::string& text)
 {
-    if(text.empty()) {
-        return std::nullopt;
-    }
-
-    try {
-        size_t index = 0;
-        const int value = std::stoi(text, &index, 10);
-        if(index != text.size()) {
-            return std::nullopt;
-        }
-        return value;
-    } catch(...) {
-        return std::nullopt;
-    }
+    return parseIntStrict(text, 10);
 }
 
 std::optional<int> parseSignedDecimalIntStrict(const std::string& text)
 {
-    if(text.empty()) {
-        return std::nullopt;
-    }
-
-    try {
-        size_t index = 0;
-        const int value = std::stoi(text, &index, 10);
-        if(index != text.size()) {
-            return std::nullopt;
-        }
-        return value;
-    } catch(...) {
-        return std::nullopt;
-    }
+    return parseIntStrict(text, 10);
 }
 
 std::string safeCacheStem(const std::filesystem::path& path)
@@ -1365,22 +1359,26 @@ bool ModManager::loadMesenHiresFile()
                 logModMessage("Invalid Mesen <overscan> on line " + std::to_string(lineNumber), Logger::Type::ERROR);
                 continue;
             }
-            try {
-                OverscanConfig overscan;
-                overscan.enabled = true;
-                overscan.top = std::clamp(std::stoi(trimMesenToken(tokens[0])), 0, PPU::SCREEN_HEIGHT);
-                overscan.right = std::clamp(std::stoi(trimMesenToken(tokens[1])), 0, PPU::SCREEN_WIDTH);
-                overscan.bottom = std::clamp(std::stoi(trimMesenToken(tokens[2])), 0, PPU::SCREEN_HEIGHT);
-                overscan.left = std::clamp(std::stoi(trimMesenToken(tokens[3])), 0, PPU::SCREEN_WIDTH);
-                if(overscan.top + overscan.bottom >= PPU::SCREEN_HEIGHT ||
-                   overscan.left + overscan.right >= PPU::SCREEN_WIDTH) {
-                    logModMessage("Invalid Mesen <overscan> dimensions on line " + std::to_string(lineNumber), Logger::Type::ERROR);
-                    continue;
-                }
-                m_overscanConfig = overscan;
-            } catch(...) {
+            const std::optional<int> top = parseIntStrict(trimMesenToken(tokens[0]));
+            const std::optional<int> right = parseIntStrict(trimMesenToken(tokens[1]));
+            const std::optional<int> bottom = parseIntStrict(trimMesenToken(tokens[2]));
+            const std::optional<int> left = parseIntStrict(trimMesenToken(tokens[3]));
+            if(!top.has_value() || !right.has_value() || !bottom.has_value() || !left.has_value()) {
                 logModMessage("Invalid Mesen <overscan> on line " + std::to_string(lineNumber), Logger::Type::ERROR);
+                continue;
             }
+            OverscanConfig overscan;
+            overscan.enabled = true;
+            overscan.top = std::clamp(*top, 0, PPU::SCREEN_HEIGHT);
+            overscan.right = std::clamp(*right, 0, PPU::SCREEN_WIDTH);
+            overscan.bottom = std::clamp(*bottom, 0, PPU::SCREEN_HEIGHT);
+            overscan.left = std::clamp(*left, 0, PPU::SCREEN_WIDTH);
+            if(overscan.top + overscan.bottom >= PPU::SCREEN_HEIGHT ||
+               overscan.left + overscan.right >= PPU::SCREEN_WIDTH) {
+                logModMessage("Invalid Mesen <overscan> dimensions on line " + std::to_string(lineNumber), Logger::Type::ERROR);
+                continue;
+            }
+            m_overscanConfig = overscan;
             continue;
         }
         if(line.rfind("<patch>", 0) == 0) {
@@ -1394,10 +1392,11 @@ bool ModManager::loadMesenHiresFile()
             continue;
         }
         if(line.rfind("<scale>", 0) == 0) {
-            try {
-                m_resolutionMultiplier = std::clamp(std::stoi(trimMesenToken(line.substr(7))), 1, 8);
-            } catch(...) {
+            const std::optional<int> scale = parseIntStrict(trimMesenToken(line.substr(7)));
+            if(!scale.has_value()) {
                 logModMessage("Invalid Mesen <scale> on line " + std::to_string(lineNumber), Logger::Type::ERROR);
+            } else {
+                m_resolutionMultiplier = std::clamp(*scale, 1, 8);
             }
             continue;
         }
@@ -1567,12 +1566,7 @@ bool ModManager::loadMesenHiresFile()
             }
 
             if(!parsed) {
-                int imageIndex = -1;
-                try {
-                    imageIndex = std::stoi(tokens[0]);
-                } catch(...) {
-                    imageIndex = -1;
-                }
+                const int imageIndex = parseIntStrict(tokens[0]).value_or(-1);
 
                 if(imageIndex >= 0 && imageIndex < static_cast<int>(images.size())) {
                     override.assetPath = images[static_cast<size_t>(imageIndex)];

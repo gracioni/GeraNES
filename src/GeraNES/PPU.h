@@ -63,8 +63,8 @@ class PPU
 {
 public:
 
-    const static int SCREEN_WIDTH = 256;
-    const static int SCREEN_HEIGHT = 240;
+    static constexpr int SCREEN_WIDTH = 256;
+    static constexpr int SCREEN_HEIGHT = 240;
 
 private:
 
