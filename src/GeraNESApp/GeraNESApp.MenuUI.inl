@@ -967,13 +967,13 @@ inline void GeraNESApp::menuBar() {
             ImGui::EndMenu();
         }
 
-        if (beginTopMenu(withMenuIcon(FontAwesomeIcons::kCircleInfo, "Help").c_str()))
+        if (beginTopMenu(withMenuIcon(FontAwesomeIcons::kCircleQuestion, "Help").c_str()))
         {
-            if(ImGui::MenuItem("User Guide")) {
+            if(ImGui::MenuItem(withMenuIcon(FontAwesomeIcons::kBookOpen, "User Guide").c_str())) {
                 openDocumentation();
             }
 
-            if(ImGui::MenuItem("About")) {
+            if(ImGui::MenuItem(withMenuIcon(FontAwesomeIcons::kCircleInfo, "About").c_str())) {
                 m_showAboutWindow = true;
             }
 

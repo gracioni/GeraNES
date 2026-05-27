@@ -10,6 +10,7 @@ inline constexpr const char* kVolumeHigh = "\xef\x80\xa8";
 inline constexpr const char* kPlay = "\xef\x81\x8b";
 inline constexpr const char* kPause = "\xef\x81\x8c";
 inline constexpr const char* kStop = "\xef\x81\x8d";
+inline constexpr const char* kCircleQuestion = "\xef\x81\x99";
 inline constexpr const char* kCircleInfo = "\xef\x81\x9a";
 inline constexpr const char* kExpand = "\xef\x81\xa5";
 inline constexpr const char* kFolder = "\xef\x81\xbb";
@@ -33,6 +34,7 @@ inline constexpr const char* kRotateRight = "\xef\x8b\xb9";
 inline constexpr const char* kClipboard = "\xef\x8c\xa8";
 inline constexpr const char* kMemory = "\xef\x94\xb8";
 inline constexpr const char* kPalette = "\xef\x94\xbf";
+inline constexpr const char* kBookOpen = "\xef\x94\x98";
 inline constexpr const char* kWandMagicSparkles = "\xee\x8b\x8a";
 inline constexpr const char* kXmark = "\xef\x80\x8d";
 
@@ -45,7 +47,7 @@ inline const ImWchar* glyphRanges()
         0xf019, 0xf019,
         0xf028, 0xf028,
         0xf04b, 0xf04d,
-        0xf05a, 0xf05a,
+        0xf059, 0xf05a,
         0xf065, 0xf065,
         0xf07b, 0xf07c,
         0xf0ac, 0xf0ad,
@@ -62,6 +64,7 @@ inline const ImWchar* glyphRanges()
         0xf2f5, 0xf2f5,
         0xf2f9, 0xf2f9,
         0xf328, 0xf328,
+        0xf518, 0xf518,
         0xf538, 0xf53f,
         0,
     };
