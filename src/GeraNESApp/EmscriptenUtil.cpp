@@ -871,11 +871,11 @@ void emcriptenImportModArchive(intptr_t handler) {
                 }
 
                 if (!ccallFn) {
-                    console.error("ccall not available for onModImportComplete");
+                    console.error("ccall not available for onSessionImportComplete");
                     return;
                 }
 
-                ccallFn('onModImportComplete', null, ['number'], [handler]);
+                ccallFn('onSessionImportComplete', null, ['number'], [handler]);
 
             } catch (err) {
                 console.error("Mod import failed:", err);

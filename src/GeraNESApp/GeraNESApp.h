@@ -548,8 +548,6 @@ public:
     void onWebVisibilityChanged(bool visible);
     void onWebAppUnload();
     void onSessionImportComplete();
-    void onModImportComplete();
-
 #endif
 
     void onCaptureBegin();

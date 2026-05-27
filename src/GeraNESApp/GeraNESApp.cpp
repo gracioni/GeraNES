@@ -2538,38 +2538,35 @@ void GeraNESApp::onWebAppUnload()
 
 void GeraNESApp::onSessionImportComplete()
 {
-    syncSettings();
-}
-
-void GeraNESApp::onModImportComplete()
-{
     static constexpr const char* kImportedModPathManifest = "/uploads/mod-import-current-path.txt";
 
     std::ifstream manifest(kImportedModPathManifest, std::ios::binary);
-    if(!manifest) {
-        Logger::instance().log("Imported mod path manifest is missing.", Logger::Type::ERROR);
-        return;
-    }
+    if(manifest) {
+        std::string extractedModPath;
+        std::getline(manifest, extractedModPath);
+        manifest.close();
 
-    std::string extractedModPath;
-    std::getline(manifest, extractedModPath);
-    if(extractedModPath.empty()) {
-        Logger::instance().log("Imported mod path is invalid.", Logger::Type::ERROR);
-        return;
-    }
-
-    std::string error;
-    const fs::path selectedPath(extractedModPath);
-    if(m_modManager.selectModSource(selectedPath, error)) {
-        resetShowOriginalGraphicsInsteadOfModFramebuffer();
-        Logger::instance().log("Mod selected: " + selectedPath.string(), Logger::Type::USER);
-        AppSettings::instance().data.setLastFolder(selectedPath.string());
-        if(!m_loadedRomPath.empty() && m_emu.valid()) {
-            openRomPath(m_loadedRomPath, false, false);
+        if(!extractedModPath.empty()) {
+            std::string error;
+            const fs::path selectedPath(extractedModPath);
+            if(m_modManager.selectModSource(selectedPath, error)) {
+                resetShowOriginalGraphicsInsteadOfModFramebuffer();
+                Logger::instance().log("Mod selected: " + selectedPath.string(), Logger::Type::USER);
+                AppSettings::instance().data.setLastFolder(selectedPath.string());
+                if(!m_loadedRomPath.empty() && m_emu.valid()) {
+                    openRomPath(m_loadedRomPath, false, false);
+                }
+            } else {
+                Logger::instance().log(error, Logger::Type::ERROR);
+            }
         }
-    } else {
-        Logger::instance().log(error, Logger::Type::ERROR);
+
+        std::error_code ec;
+        fs::remove(kImportedModPathManifest, ec);
+        return;
     }
+
+    syncSettings();
 }
 #endif
 
