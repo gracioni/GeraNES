@@ -548,7 +548,7 @@ public:
     void onWebVisibilityChanged(bool visible);
     void onWebAppUnload();
     void onSessionImportComplete();
-    void onModImportComplete(const char* extractedModPath);
+    void onModImportComplete();
 
 #endif
 

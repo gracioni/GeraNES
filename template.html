@@ -493,7 +493,20 @@
 
       hiresCandidates.sort((a, b) => a.length - b.length);
       const hiresPath = hiresCandidates[0];
-      return hiresPath.substring(0, hiresPath.lastIndexOf("/"));
+      const modRoot = hiresPath.substring(0, hiresPath.lastIndexOf("/"));
+      const encoder = new TextEncoder();
+      const manifestPath = "/uploads/mod-import-current-path.txt";
+      try { FS.mkdirTree("/uploads"); } catch (_) {}
+      try { FS.unlink(manifestPath); } catch (_) {}
+      FS.writeFile(manifestPath, encoder.encode(modRoot), { encoding: "binary" });
+
+      if (typeof FS.syncfs === "function") {
+        await new Promise((res, rej) =>
+          FS.syncfs(true, (err) => (err ? rej(err) : res()))
+        );
+      }
+
+      return true;
     }
 
     // Export entire MEMFS → zip

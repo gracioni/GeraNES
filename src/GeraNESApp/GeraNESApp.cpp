@@ -2541,9 +2541,19 @@ void GeraNESApp::onSessionImportComplete()
     syncSettings();
 }
 
-void GeraNESApp::onModImportComplete(const char* extractedModPath)
+void GeraNESApp::onModImportComplete()
 {
-    if(extractedModPath == nullptr || extractedModPath[0] == '\0') {
+    static constexpr const char* kImportedModPathManifest = "/uploads/mod-import-current-path.txt";
+
+    std::ifstream manifest(kImportedModPathManifest, std::ios::binary);
+    if(!manifest) {
+        Logger::instance().log("Imported mod path manifest is missing.", Logger::Type::ERROR);
+        return;
+    }
+
+    std::string extractedModPath;
+    std::getline(manifest, extractedModPath);
+    if(extractedModPath.empty()) {
         Logger::instance().log("Imported mod path is invalid.", Logger::Type::ERROR);
         return;
     }

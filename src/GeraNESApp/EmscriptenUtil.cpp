@@ -875,7 +875,7 @@ void emcriptenImportModArchive(intptr_t handler) {
                     return;
                 }
 
-                ccallFn('onModImportComplete', null, ['number', 'string'], [handler, extractedPath]);
+                ccallFn('onModImportComplete', null, ['number'], [handler]);
 
             } catch (err) {
                 console.error("Mod import failed:", err);
