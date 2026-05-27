@@ -10,6 +10,7 @@
 #include <fstream>
 #include <iomanip>
 #include <limits>
+#include <sys/stat.h>
 #include <sstream>
 #include <unordered_set>
 
@@ -31,6 +32,30 @@ constexpr uint8_t kPngSignature[8] = { 0x89u, 'P', 'N', 'G', '\r', '\n', 0x1Au, 
 void logModMessage(const std::string& message, Logger::Type type)
 {
     Logger::instance().log("[MOD] " + message, type);
+}
+
+bool pathExists(const std::filesystem::path& path)
+{
+    struct stat st = {};
+    return stat(path.string().c_str(), &st) == 0;
+}
+
+bool pathIsDirectory(const std::filesystem::path& path)
+{
+    struct stat st = {};
+    if(stat(path.string().c_str(), &st) != 0) {
+        return false;
+    }
+    return (st.st_mode & S_IFMT) == S_IFDIR;
+}
+
+bool pathIsRegularFile(const std::filesystem::path& path)
+{
+    struct stat st = {};
+    if(stat(path.string().c_str(), &st) != 0) {
+        return false;
+    }
+    return (st.st_mode & S_IFMT) == S_IFREG;
 }
 
 #if GERANES_MODMANAGER_PROFILE
@@ -825,23 +850,14 @@ bool ModManager::selectModSource(const std::filesystem::path& modSourcePath, std
         return false;
     }
 
-    std::error_code ec;
-    const bool exists = std::filesystem::exists(modSourcePath, ec);
-    if(ec || !exists) {
+    const bool exists = pathExists(modSourcePath);
+    if(!exists) {
         error = "Mod source does not exist.";
         return false;
     }
 
-    const bool isDirectory = std::filesystem::is_directory(modSourcePath, ec);
-    if(ec) {
-        error = "Failed to inspect mod source.";
-        return false;
-    }
-    const bool isFile = std::filesystem::is_regular_file(modSourcePath, ec);
-    if(ec) {
-        error = "Failed to inspect mod source.";
-        return false;
-    }
+    const bool isDirectory = pathIsDirectory(modSourcePath);
+    const bool isFile = pathIsRegularFile(modSourcePath);
     if(!isDirectory && !isFile) {
         error = "Mod source must be a folder or zip file.";
         return false;
@@ -2353,8 +2369,7 @@ bool ModManager::isFolderSource() const
     if(m_modPath.empty()) {
         return false;
     }
-    std::error_code ec;
-    return std::filesystem::is_directory(m_modPath, ec);
+    return pathIsDirectory(m_modPath);
 }
 
 std::string ModManager::normalizeZipPath(std::string path)
@@ -2513,8 +2528,7 @@ std::optional<std::vector<uint8_t>> ModManager::readFileEntry(const std::filesys
         return std::nullopt;
     }
 
-    std::error_code ec;
-    if(!std::filesystem::exists(*resolvedPath, ec) || !std::filesystem::is_regular_file(*resolvedPath, ec)) {
+    if(!pathExists(*resolvedPath) || !pathIsRegularFile(*resolvedPath)) {
         return std::nullopt;
     }
 
@@ -2543,8 +2557,7 @@ bool ModManager::sourceHasEntry(const std::string& entryName) const
         if(!resolvedPath.has_value()) {
             return false;
         }
-        std::error_code ec;
-        return std::filesystem::exists(*resolvedPath, ec) && std::filesystem::is_regular_file(*resolvedPath, ec);
+        return pathExists(*resolvedPath) && pathIsRegularFile(*resolvedPath);
     }
     return m_zipEntryLookup.find(toLower(resolvedEntryName)) != m_zipEntryLookup.end();
 }
