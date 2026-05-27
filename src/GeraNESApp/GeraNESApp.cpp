@@ -886,8 +886,18 @@ void GeraNESApp::resetAction()
 bool GeraNESApp::openDocumentation()
 {
 #ifdef __EMSCRIPTEN__
-    m_userToast.show("Local help is not available in the web build");
-    return false;
+    const int opened = EM_ASM_INT({
+        const currentUrl = new URL(window.location.href);
+        const docsUrl = new URL("docs/index.html", currentUrl);
+        const handle = window.open(docsUrl.toString(), "_blank", "noopener");
+        return handle ? 1 : 0;
+    });
+    if(opened == 0) {
+        Logger::instance().log("Failed to open help documentation tab", Logger::Type::WARNING);
+        m_userToast.show("Failed to open help documentation");
+        return false;
+    }
+    return true;
 #else
     const fs::path docPath = fs::current_path() / "docs" / "index.html";
     if(!fs::exists(docPath)) {
