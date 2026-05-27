@@ -521,26 +521,39 @@ cmrc_add_resource_library(libretro_db_assets "${CMAKE_CURRENT_SOURCE_DIR}/data/d
 set_target_properties(resources PROPERTIES POSITION_INDEPENDENT_CODE ON)
 set_target_properties(libretro_db_assets PROPERTIES POSITION_INDEPENDENT_CODE ON)
 
+find_package(Python3 REQUIRED COMPONENTS Interpreter)
+
+set(GERANES_DOCS_CONFIG_FILE "${CMAKE_CURRENT_SOURCE_DIR}/docs/user-guide/mkdocs.yml")
+set(GERANES_DOCS_SITE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/docs/user-guide/site")
+
+add_custom_target(generate_user_docs
+    COMMAND ${CMAKE_COMMAND} -E rm -rf "${GERANES_DOCS_SITE_DIR}"
+    COMMAND ${Python3_EXECUTABLE} -m mkdocs build --clean
+            --config-file "${GERANES_DOCS_CONFIG_FILE}"
+    WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
+    COMMENT "Generating user documentation"
+    VERBATIM
+)
+
 # Copy data folder to build
 if(EMSCRIPTEN)
     set(DATA_DIR "${CMAKE_CURRENT_SOURCE_DIR}/data")
     set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} --preload-file ${DATA_DIR}@/")
-else()
-    find_package(Python3 REQUIRED COMPONENTS Interpreter)
 
-    set(GERANES_DOCS_CONFIG_FILE "${CMAKE_CURRENT_SOURCE_DIR}/docs/user-guide/mkdocs.yml")
-    set(GERANES_DOCS_SITE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/docs/user-guide/site")
-    set(GERANES_RUNTIME_DATA_STAGE_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated/runtime_data")
-    set(GERANES_RUNTIME_DATA_MANIFEST "${CMAKE_CURRENT_BINARY_DIR}/generated/runtime_data_manifest.txt")
-
-    add_custom_target(generate_user_docs
-        COMMAND ${CMAKE_COMMAND} -E rm -rf "${GERANES_DOCS_SITE_DIR}"
-        COMMAND ${Python3_EXECUTABLE} -m mkdocs build --clean
-                --config-file "${GERANES_DOCS_CONFIG_FILE}"
-        WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
-        COMMENT "Generating user documentation"
+    add_custom_target(copy_web_docs ALL
+        COMMAND ${CMAKE_COMMAND} -E rm -rf "${CMAKE_BINARY_DIR}/docs"
+        COMMAND ${CMAKE_COMMAND} -E make_directory "${CMAKE_BINARY_DIR}/docs"
+        COMMAND ${CMAKE_COMMAND} -E copy_directory
+                "${GERANES_DOCS_SITE_DIR}"
+                "${CMAKE_BINARY_DIR}/docs"
+        COMMENT "Copying generated user documentation to web build directory"
         VERBATIM
     )
+
+    add_dependencies(copy_web_docs generate_user_docs)
+else()
+    set(GERANES_RUNTIME_DATA_STAGE_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated/runtime_data")
+    set(GERANES_RUNTIME_DATA_MANIFEST "${CMAKE_CURRENT_BINARY_DIR}/generated/runtime_data_manifest.txt")
 
     add_custom_target(copy_runtime_data ALL
         COMMAND ${CMAKE_COMMAND} -E rm -rf "${GERANES_RUNTIME_DATA_STAGE_DIR}"
