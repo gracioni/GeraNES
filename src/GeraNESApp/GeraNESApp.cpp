@@ -2023,8 +2023,8 @@ GeraNESApp::GeraNESApp()
     m_audioOutput.setExternalAudioMixer(m_modManager.externalAudioMixer());
     m_emu.withExclusiveAccess([this](GeraNESEmu& emu) {
         emu.setExternalCpuIoHandlers(
-            [this](uint16_t addr, uint8_t value) { return m_modManager.handleHdAudioCpuWrite(addr, value); },
-            [this](uint16_t addr) { return m_modManager.handleHdAudioCpuRead(addr); });
+            [this](uint16_t addr, uint8_t value) { return m_modManager.handleModAudioCpuWrite(addr, value); },
+            [this](uint16_t addr) { return m_modManager.handleModAudioCpuRead(addr); });
         emu.signalResetExecuted.bind_auto(&GeraNESApp::onEmuResetForModAudio, this);
         emu.signalLoadExecuted.bind_auto(&GeraNESApp::onEmuLoadForModAssets, this);
     });

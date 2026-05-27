@@ -314,8 +314,8 @@ public:
     std::optional<std::vector<uint8_t>> readAsset(const std::string& assetPath) const;
     std::optional<DebugComposePixel> debugComposePixel(const uint32_t* sourceFramebuffer, const ChrRenderSnapshot& snapshot, int scale, int nesX, int nesY, const std::string& filterText = "");
     std::shared_ptr<IAudioOutput::ExternalAudioMixer> externalAudioMixer() const;
-    bool handleHdAudioCpuWrite(uint16_t addr, uint8_t value);
-    std::optional<uint8_t> handleHdAudioCpuRead(uint16_t addr) const;
+    bool handleModAudioCpuWrite(uint16_t addr, uint8_t value);
+    std::optional<uint8_t> handleModAudioCpuRead(uint16_t addr) const;
 
 private:
     mutable std::recursive_mutex m_runtimeMutex;
@@ -337,8 +337,8 @@ private:
     std::unordered_map<uint32_t, int> m_chrRomCanonicalTileByHash;
     std::string m_patchAssetPath;
     std::string m_patchExpectedRomHash;
-    ModAudioConfig m_hdAudioConfig;
-    std::shared_ptr<ModAudioRuntime> m_hdAudioRuntime;
+    ModAudioConfig m_modAudioConfig;
+    std::shared_ptr<ModAudioRuntime> m_modAudioRuntime;
     FrameConditionState m_frameConditionState;
     FrameConditionPlan m_frameConditionPlan;
     std::vector<uint8_t> m_frameConditionGroupMatchesScratch;
