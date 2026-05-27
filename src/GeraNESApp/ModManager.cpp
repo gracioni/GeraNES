@@ -4016,6 +4016,24 @@ std::optional<ModManager::DecodedImage> ModManager::decodeImage(const std::vecto
     int width = 0;
     int height = 0;
     int channels = 0;
+    if(!stbi_info_from_memory(data.data(), static_cast<int>(data.size()), &width, &height, &channels) ||
+       width <= 0 || height <= 0) {
+        return std::nullopt;
+    }
+
+    static constexpr int kMaxDecodedImageDimension = 8192;
+    static constexpr size_t kMaxDecodedImagePixels = 16u * 1024u * 1024u;
+    if(width > kMaxDecodedImageDimension || height > kMaxDecodedImageDimension) {
+        return std::nullopt;
+    }
+    const size_t pixelCount = static_cast<size_t>(width) * static_cast<size_t>(height);
+    if(pixelCount == 0 || pixelCount > kMaxDecodedImagePixels) {
+        return std::nullopt;
+    }
+
+    width = 0;
+    height = 0;
+    channels = 0;
     stbi_uc* pixels = stbi_load_from_memory(data.data(), static_cast<int>(data.size()), &width, &height, &channels, 4);
     if(pixels == nullptr || width <= 0 || height <= 0) {
         stbi_image_free(pixels);
@@ -4025,7 +4043,7 @@ std::optional<ModManager::DecodedImage> ModManager::decodeImage(const std::vecto
     DecodedImage image;
     image.width = width;
     image.height = height;
-    image.rgba.resize(static_cast<size_t>(width) * static_cast<size_t>(height));
+    image.rgba.resize(pixelCount);
     for(int y = 0; y < height; ++y) {
         for(int x = 0; x < width; ++x) {
             const size_t srcIndex = (static_cast<size_t>(y) * static_cast<size_t>(width) + static_cast<size_t>(x)) * 4u;
