@@ -195,13 +195,7 @@ inline void GeraNESApp::drawPendingRomLoadOverlay()
     const float progress = std::clamp(static_cast<float>(preloadStatus.completedAssets) / static_cast<float>(totalAssets), 0.0f, 1.0f);
 
     ImGuiViewport* viewport = ImGui::GetMainViewport();
-    if(viewport != nullptr) {
-        ImDrawList* foreground = ImGui::GetForegroundDrawList(viewport);
-        foreground->AddRectFilled(
-            viewport->Pos,
-            ImVec2(viewport->Pos.x + viewport->Size.x, viewport->Pos.y + viewport->Size.y),
-            IM_COL32(0, 0, 0, 200));
-    }
+    (void)viewport;
 
     SetNextWindowCenteredOnMainViewport(ImVec2(420.0f, 120.0f), ImGuiCond_Always, ImGuiCond_Always, 24.0f, ImVec2(320.0f, 100.0f));
     ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 0.0f);
