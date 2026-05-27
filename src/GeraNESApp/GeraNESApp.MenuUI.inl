@@ -892,7 +892,13 @@ inline void GeraNESApp::menuBar() {
                     if(ImGui::MenuItem(withMenuIcon(FontAwesomeIcons::kFileZipper, "ZIP File").c_str())) {
                         loadModArchive();
                     }
-                    if(ImGui::MenuItem(withMenuIcon(FontAwesomeIcons::kFolder, "Folder").c_str())) {
+                    const bool canLoadModFolder =
+#ifdef __EMSCRIPTEN__
+                        false;
+#else
+                        true;
+#endif
+                    if(ImGui::MenuItem(withMenuIcon(FontAwesomeIcons::kFolder, "Folder").c_str(), nullptr, false, canLoadModFolder)) {
                         loadModFolder();
                     }
                     ImGui::EndMenu();

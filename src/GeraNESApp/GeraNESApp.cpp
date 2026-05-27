@@ -2447,9 +2447,6 @@ void GeraNESApp::deleteCurrentPalette()
 #ifdef __EMSCRIPTEN__
 void GeraNESApp::processUploadedFile(const char* fileName, size_t fileSize, const uint8_t* fileContent)
 {
-    const WebFileOpenTarget target = m_pendingWebFileOpenTarget;
-    m_pendingWebFileOpenTarget = WebFileOpenTarget::Rom;
-
     Logger::instance().log(
         std::string("Processing uploaded file: ") + (fileName ? fileName : "<null>") +
         " (" + std::to_string(fileSize) + " bytes)",
@@ -2488,21 +2485,7 @@ void GeraNESApp::processUploadedFile(const char* fileName, size_t fileSize, cons
             std::string("Uploaded file stored at: ") + targetPath.string(),
             Logger::Type::INFO
         );
-        if(target == WebFileOpenTarget::ModArchive) {
-            std::string error;
-            if(m_modManager.selectModSource(targetPath, error)) {
-                resetShowOriginalGraphicsInsteadOfModFramebuffer();
-                Logger::instance().log("Mod selected: " + targetPath.string(), Logger::Type::USER);
-                AppSettings::instance().data.setLastFolder(targetPath.string());
-                if(!m_loadedRomPath.empty() && m_emu.valid()) {
-                    openRomPath(m_loadedRomPath, false, false);
-                }
-            } else {
-                Logger::instance().log(error, Logger::Type::ERROR);
-            }
-        } else {
-            openFile(targetPath.string().c_str());
-        }
+        openFile(targetPath.string().c_str());
     } else {
         Logger::instance().log("Failed to open file for writing in processUploadedFile call", Logger::Type::ERROR);
     }
@@ -2556,6 +2539,27 @@ void GeraNESApp::onWebAppUnload()
 void GeraNESApp::onSessionImportComplete()
 {
     syncSettings();
+}
+
+void GeraNESApp::onModImportComplete(const char* extractedModPath)
+{
+    if(extractedModPath == nullptr || extractedModPath[0] == '\0') {
+        Logger::instance().log("Imported mod path is invalid.", Logger::Type::ERROR);
+        return;
+    }
+
+    std::string error;
+    const fs::path selectedPath(extractedModPath);
+    if(m_modManager.selectModSource(selectedPath, error)) {
+        resetShowOriginalGraphicsInsteadOfModFramebuffer();
+        Logger::instance().log("Mod selected: " + selectedPath.string(), Logger::Type::USER);
+        AppSettings::instance().data.setLastFolder(selectedPath.string());
+        if(!m_loadedRomPath.empty() && m_emu.valid()) {
+            openRomPath(m_loadedRomPath, false, false);
+        }
+    } else {
+        Logger::instance().log(error, Logger::Type::ERROR);
+    }
 }
 #endif
 
@@ -2695,7 +2699,6 @@ void GeraNESApp::openRom()
         }
     });
 #else
-    m_pendingWebFileOpenTarget = WebFileOpenTarget::Rom;
     emcriptenFileDialog(reinterpret_cast<intptr_t>(this));
 #endif
 
@@ -2711,8 +2714,7 @@ void GeraNESApp::loadModArchive()
         notifyNetplayRomChangeRestrictedAction("Open Mod");
         return;
     }
-    m_pendingWebFileOpenTarget = WebFileOpenTarget::ModArchive;
-    emcriptenFileDialog(reinterpret_cast<intptr_t>(this), ".zip");
+    emcriptenImportModArchive(reinterpret_cast<intptr_t>(this));
 #else
     const bool resumeAfterDialog = m_emu.withExclusiveAccess([](auto& emu) {
         if(!emu.valid()) return false;

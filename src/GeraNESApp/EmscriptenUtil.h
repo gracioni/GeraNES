@@ -10,6 +10,7 @@ void emcriptenRegisterVisibilityHandler(intptr_t handler);
 void emcriptenRegisterUnloadHandler(intptr_t handler);
 
 void emcriptenImportSession(intptr_t handler);
+void emcriptenImportModArchive(intptr_t handler);
 
 void emcriptenExportSession();
 

@@ -438,13 +438,6 @@ private:
     std::string m_selectedPaletteName = "";
     std::string m_paletteNameInput = "";
     fs::path m_loadedRomPath;
-#ifdef __EMSCRIPTEN__
-    enum class WebFileOpenTarget {
-        Rom,
-        ModArchive
-    };
-    WebFileOpenTarget m_pendingWebFileOpenTarget = WebFileOpenTarget::Rom;
-#endif
 
     std::unique_ptr<TouchControls> m_touch;
 
@@ -555,6 +548,7 @@ public:
     void onWebVisibilityChanged(bool visible);
     void onWebAppUnload();
     void onSessionImportComplete();
+    void onModImportComplete(const char* extractedModPath);
 
 #endif
 

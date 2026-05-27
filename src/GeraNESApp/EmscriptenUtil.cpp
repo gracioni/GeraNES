@@ -850,6 +850,41 @@ void emcriptenImportSession(intptr_t handler) {
     }, handler);
 }
 
+void emcriptenImportModArchive(intptr_t handler) {
+
+    EM_ASM({
+        const handler = Number(arguments[0]);
+        (async () => {
+
+            const ccallFn = (typeof ccall === 'function') ? ccall :
+                ((typeof Module !== 'undefined' && Module && typeof Module.ccall === 'function') ? Module.ccall.bind(Module) : null);
+
+            try {
+                if (typeof importModDirectoryFromZip !== 'function') {
+                    console.error("importModDirectoryFromZip not found");
+                    return;
+                }
+
+                const extractedPath = await importModDirectoryFromZip();
+                if (!extractedPath) {
+                    return;
+                }
+
+                if (!ccallFn) {
+                    console.error("ccall not available for onModImportComplete");
+                    return;
+                }
+
+                ccallFn('onModImportComplete', null, ['number', 'string'], [handler, extractedPath]);
+
+            } catch (err) {
+                console.error("Mod import failed:", err);
+            }
+
+        })();
+    }, handler);
+}
+
 void emcriptenExportSession() {
     EM_ASM({
         try {

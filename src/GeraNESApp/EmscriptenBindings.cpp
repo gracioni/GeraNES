@@ -74,6 +74,10 @@ extern "C" {
         reinterpret_cast<GeraNESApp*>(handler)->onSessionImportComplete();
     }
 
+    void EMSCRIPTEN_KEEPALIVE onModImportComplete(intptr_t handler, const char* extractedModPath) {
+        reinterpret_cast<GeraNESApp*>(handler)->onModImportComplete(extractedModPath);
+    }
+
     void EMSCRIPTEN_KEEPALIVE injectWebTextUtf8(const char* text) {
         if(text == nullptr || text[0] == '\0') {
             return;

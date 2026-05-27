@@ -401,6 +401,101 @@
       return true;
     }
 
+    // Import mod zip into a temp directory and return the extracted mod root.
+    async function importModDirectoryFromZip(fileOrBlob) {
+      if (typeof FS === 'undefined') {
+        console.error('Emscripten FS is not yet available.');
+        throw new Error('FS not available');
+      }
+
+      if (!fileOrBlob) {
+        return new Promise((resolve, reject) => {
+          let input = document.getElementById("modImportInput");
+          if (!input) {
+            input = document.createElement("input");
+            input.type = "file";
+            input.accept = ".zip";
+            input.id = "modImportInput";
+            input.style.display = "none";
+            document.body.appendChild(input);
+          }
+
+          const onChange = async (ev) => {
+            input.removeEventListener("change", onChange);
+            const f = ev.target.files[0];
+            input.value = "";
+            if (!f) {
+              resolve(null);
+              return;
+            }
+            try {
+              resolve(await importModDirectoryFromZip(f));
+            } catch (e) {
+              reject(e);
+            }
+          };
+
+          input.addEventListener("change", onChange, { once: true });
+          input.click();
+        });
+      }
+
+      const zip = await JSZip.loadAsync(fileOrBlob);
+      const entries = Object.keys(zip.files);
+      const zipName = (fileOrBlob && typeof fileOrBlob.name === 'string') ? fileOrBlob.name : 'mod';
+      const safeBaseName = zipName.replace(/\.zip$/i, '').replace(/[^a-zA-Z0-9._-]+/g, '_') || 'mod';
+      const tempRoot = `/uploads/mod-import-${safeBaseName}-${Date.now()}`;
+      const hiresCandidates = [];
+
+      function sanitize(path) {
+        return path
+          .replace(/^\/+/, "")
+          .split("/")
+          .filter((x) => x !== "" && x !== "..")
+          .join("/");
+      }
+
+      try { FS.mkdirTree(tempRoot); } catch (_) {}
+
+      for (const name of entries) {
+        const clean = sanitize(name);
+        if (!clean) continue;
+
+        const full = `${tempRoot}/${clean}`;
+        const entry = zip.files[name];
+        if (/\/?hires\.txt$/i.test(clean) && !entry.dir) {
+          hiresCandidates.push(full);
+        }
+
+        if (entry.dir) {
+          try { FS.mkdirTree(full); } catch (_) {}
+          continue;
+        }
+
+        const data = await entry.async("uint8array");
+        const dir = full.substring(0, full.lastIndexOf("/"));
+        if (dir) {
+          try { FS.mkdirTree(dir); } catch (_) {}
+        }
+        try { FS.unlink(full); } catch (_) {}
+        FS.writeFile(full, data, { encoding: "binary" });
+      }
+
+      if (typeof FS.syncfs === "function") {
+        await new Promise((res, rej) =>
+          FS.syncfs(true, (err) => (err ? rej(err) : res()))
+        );
+      }
+
+      if (hiresCandidates.length === 0) {
+        throw new Error("Selected mod does not contain hires.txt.");
+      }
+
+      hiresCandidates.sort((a, b) => a.length - b.length);
+      const hiresPath = hiresCandidates[0];
+      return hiresPath.substring(0, hiresPath.lastIndexOf("/"));
+    }
+
     // Export entire MEMFS → zip
     async function exportEntireFS(filename = "geranes_session.zip") {
       if (typeof FS === 'undefined' || typeof JSZip === 'undefined') {
