@@ -448,6 +448,7 @@ private:
     std::string resolveSourceEntryName(const std::string& entryName) const;
     std::string resolveZipEntryName(const std::string& entryName) const;
     bool rebuildZipEntryLookup();
+    std::unordered_map<std::string, std::vector<uint8_t>> readZipEntries(const std::vector<std::string>& entryNames) const;
     bool isFolderSource() const;
     bool sourceHasEntry(const std::string& entryName) const;
     std::optional<std::vector<uint8_t>> readSourceEntry(const std::string& entryName) const;

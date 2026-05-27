@@ -39,6 +39,7 @@ public:
     bool handleCpuWrite(uint16_t addr, uint8_t value);
     std::optional<uint8_t> handleCpuRead(uint16_t addr) const;
     bool preloadClip(const std::string& assetPath);
+    bool preloadClipData(const std::string& assetPath, const std::vector<uint8_t>& data);
     void setCacheFrame(uint32_t frameCount);
     void rebaseCacheFrame(uint32_t frameCount);
     void evictUnusedDynamicClips(uint32_t maxUnusedFrames);
@@ -90,6 +91,13 @@ private:
     uint32_t m_cacheFrame = 0;
 
     std::shared_ptr<const DecodedClip> loadClip(const std::string& assetPath);
+    std::shared_ptr<const DecodedClip> storeDecodedClip(
+        const std::string& assetPath,
+        std::shared_ptr<const DecodedClip> clip,
+        bool pinned);
+    static std::shared_ptr<const DecodedClip> decodeClipData(
+        const std::string& assetPath,
+        const std::vector<uint8_t>& assetData);
     bool shouldPinClip(const std::string& assetPath) const;
     bool playBgmTrack(int trackId);
     bool playSfxTrack(uint8_t sfxNumber);

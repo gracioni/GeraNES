@@ -155,6 +155,22 @@ bool ModAudioRuntime::preloadClip(const std::string& assetPath)
     return clip && !clip->monoSamples.empty();
 }
 
+bool ModAudioRuntime::preloadClipData(const std::string& assetPath, const std::vector<uint8_t>& data)
+{
+    std::scoped_lock lock(m_mutex);
+
+    const auto cached = m_clipCache.find(assetPath);
+    if(cached != m_clipCache.end()) {
+        cached->second.lastUsedFrame = m_cacheFrame;
+        return cached->second.clip && !cached->second.clip->monoSamples.empty();
+    }
+
+    const bool pinned = shouldPinClip(assetPath);
+    const auto clip = decodeClipData(assetPath, data);
+    storeDecodedClip(assetPath, clip, pinned);
+    return clip && !clip->monoSamples.empty();
+}
+
 void ModAudioRuntime::setCacheFrame(uint32_t frameCount)
 {
     std::scoped_lock lock(m_mutex);
@@ -283,10 +299,28 @@ std::shared_ptr<const ModAudioRuntime::DecodedClip> ModAudioRuntime::loadClip(co
         return nullptr;
     }
 
+    const bool pinned = shouldPinClip(assetPath);
+    const auto clip = decodeClipData(assetPath, *assetData);
+    return storeDecodedClip(assetPath, clip, pinned);
+}
+
+std::shared_ptr<const ModAudioRuntime::DecodedClip> ModAudioRuntime::storeDecodedClip(
+    const std::string& assetPath,
+    std::shared_ptr<const DecodedClip> clip,
+    bool pinned)
+{
+    m_clipCache[assetPath] = { clip, m_cacheFrame, pinned };
+    return clip;
+}
+
+std::shared_ptr<const ModAudioRuntime::DecodedClip> ModAudioRuntime::decodeClipData(
+    const std::string& assetPath,
+    const std::vector<uint8_t>& assetData)
+{
     int error = 0;
     stb_vorbis* vorbis = stb_vorbis_open_memory(
-        assetData->data(),
-        static_cast<int>(assetData->size()),
+        assetData.data(),
+        static_cast<int>(assetData.size()),
         &error,
         nullptr);
 
@@ -294,7 +328,6 @@ std::shared_ptr<const ModAudioRuntime::DecodedClip> ModAudioRuntime::loadClip(co
         Logger::instance().log(
             "Failed to decode HD audio asset: " + assetPath + " (stb_vorbis error " + std::to_string(error) + ")",
             Logger::Type::WARNING);
-        m_clipCache[assetPath] = { nullptr, m_cacheFrame, shouldPinClip(assetPath) };
         return nullptr;
     }
 
@@ -306,7 +339,6 @@ std::shared_ptr<const ModAudioRuntime::DecodedClip> ModAudioRuntime::loadClip(co
     if(channels <= 0 || sampleRate <= 0) {
         Logger::instance().log("Failed to decode HD audio asset: " + assetPath, Logger::Type::WARNING);
         stb_vorbis_close(vorbis);
-        m_clipCache[assetPath] = { nullptr, m_cacheFrame, shouldPinClip(assetPath) };
         return nullptr;
     }
 
@@ -345,11 +377,9 @@ std::shared_ptr<const ModAudioRuntime::DecodedClip> ModAudioRuntime::loadClip(co
 
     if(clip->monoSamples.empty()) {
         Logger::instance().log("Failed to decode HD audio asset: " + assetPath, Logger::Type::WARNING);
-        m_clipCache[assetPath] = { nullptr, m_cacheFrame, shouldPinClip(assetPath) };
         return nullptr;
     }
 
-    m_clipCache[assetPath] = { clip, m_cacheFrame, shouldPinClip(assetPath) };
     return clip;
 }
 
