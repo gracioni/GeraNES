@@ -253,67 +253,12 @@ inline void GeraNESApp::drawMemoryViewerWindow()
         m_memoryViewerEditOpen = true;
         ImGui::OpenPopup("Edit Memory Byte");
     }
-
-    if(m_memoryViewerEditOpen && ImGui::BeginPopupModal("Edit Memory Byte", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
-        ImGui::Text("Address: $%04X", static_cast<unsigned int>(m_memoryViewerEditAddress & 0xFFFFu));
-        if(ImGui::IsWindowAppearing()) {
-            ImGui::SetKeyboardFocusHere();
-        }
-        ImGui::SetNextItemWidth(70.0f);
-        const bool editSubmitted = ImGui::InputText(
-            "Value",
-            m_memoryViewerEditText,
-            sizeof(m_memoryViewerEditText),
-            ImGuiInputTextFlags_CharsHexadecimal |
-            ImGuiInputTextFlags_EnterReturnsTrue |
-            ImGuiInputTextFlags_AutoSelectAll
-        );
-        const bool writeClicked = ImGui::Button("Write");
-        if(editSubmitted || writeClicked) {
-            uint8_t value = 0;
-            for(char c : m_memoryViewerEditText) {
-                if(c == '\0') {
-                    break;
-                }
-
-                value <<= 4;
-                if(c >= '0' && c <= '9') {
-                    value |= static_cast<uint8_t>(c - '0');
-                } else if(c >= 'a' && c <= 'f') {
-                    value |= static_cast<uint8_t>(c - 'a' + 10);
-                } else if(c >= 'A' && c <= 'F') {
-                    value |= static_cast<uint8_t>(c - 'A' + 10);
-                }
-            }
-            m_memoryViewerEditValue = value;
-            const uint32_t address = m_memoryViewerEditAddress;
-            const MemoryViewerRegion writeRegion = region;
-            m_emu.withExclusiveAccess([&](auto& emu) {
-                switch(writeRegion.source) {
-                    case MemoryViewerRegion::Source::Cpu:
-                        emu.debugWriteCpuMemory(static_cast<uint16_t>(address), value);
-                        break;
-                    case MemoryViewerRegion::Source::Ppu:
-                        emu.getConsole().ppu().debugWritePpuMemory(static_cast<uint16_t>(address), value);
-                        break;
-                    case MemoryViewerRegion::Source::PrimaryOam:
-                        emu.getConsole().ppu().debugWritePrimaryOam(static_cast<uint8_t>(address - writeRegion.baseAddress), value);
-                        break;
-                    case MemoryViewerRegion::Source::SecondaryOam:
-                        emu.getConsole().ppu().debugWriteSecondaryOam(static_cast<uint8_t>(address - writeRegion.baseAddress), value);
-                        break;
-                }
-            });
-            m_memoryViewerEditOpen = false;
-            ImGui::CloseCurrentPopup();
-        }
-        ImGui::SameLine();
-        if(ImGui::Button("Cancel")) {
-            m_memoryViewerEditOpen = false;
-            ImGui::CloseCurrentPopup();
-        }
-        ImGui::EndPopup();
-    }
+    const int writeRegionSource =
+        region.source == MemoryViewerRegion::Source::Cpu ? 0 :
+        region.source == MemoryViewerRegion::Source::Ppu ? 1 :
+        region.source == MemoryViewerRegion::Source::PrimaryOam ? 2 :
+        3;
+    drawMemoryViewerEditPopup(region.baseAddress, writeRegionSource);
 
     ImGui::End();
 }
