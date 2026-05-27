@@ -7,7 +7,6 @@ class DeadEndMapper : public BaseMapper
 {
 private:
     int m_mapperId = 0;
-    const char* m_message = nullptr;
     bool m_logged = false;
 
     void logOnce()
@@ -15,14 +14,13 @@ private:
         if(m_logged) return;
         m_logged = true;
 
-        std::string msg = "Mapper " + std::to_string(m_mapperId) + ": ";
-        msg += (m_message != nullptr) ? m_message : "undocumented/unsupported legacy assignment stub.";
+        std::string msg = "Mapper " + std::to_string(m_mapperId) + ": undocumented/unsupported legacy assignment stub.";
         Logger::instance().log(msg, Logger::Type::WARNING);
     }
 
 protected:
-    DeadEndMapper(ICartridgeData& cd, int mapperId, const char* message)
-        : BaseMapper(cd), m_mapperId(mapperId), m_message(message)
+    DeadEndMapper(ICartridgeData& cd, int mapperId)
+        : BaseMapper(cd), m_mapperId(mapperId)
     {
         logOnce();
     }
