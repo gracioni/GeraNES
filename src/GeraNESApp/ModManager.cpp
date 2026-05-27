@@ -24,11 +24,6 @@
 #define GERANES_MODMANAGER_PROFILE 0
 
 namespace {
-using mz_ulong = unsigned long;
-extern "C" int mz_uncompress(unsigned char* pDest, mz_ulong* pDest_len, const unsigned char* pSource, mz_ulong source_len);
-constexpr int MZ_OK = 0;
-constexpr uint8_t kPngSignature[8] = { 0x89u, 'P', 'N', 'G', '\r', '\n', 0x1Au, '\n' };
-
 void logModMessage(const std::string& message, Logger::Type type)
 {
     Logger::instance().log("[MOD] " + message, type);
@@ -314,173 +309,6 @@ uint32_t readBigEndian32(const uint8_t* data)
            (static_cast<uint32_t>(data[1]) << 16u) |
            (static_cast<uint32_t>(data[2]) << 8u) |
            static_cast<uint32_t>(data[3]);
-}
-
-uint8_t paethPredictor(uint8_t a, uint8_t b, uint8_t c)
-{
-    const int p = static_cast<int>(a) + static_cast<int>(b) - static_cast<int>(c);
-    const int pa = std::abs(p - static_cast<int>(a));
-    const int pb = std::abs(p - static_cast<int>(b));
-    const int pc = std::abs(p - static_cast<int>(c));
-    if(pa <= pb && pa <= pc) return a;
-    if(pb <= pc) return b;
-    return c;
-}
-
-struct IndexedPngDecode {
-    int width = 0;
-    int height = 0;
-    std::vector<uint32_t> rgba;
-    std::vector<uint8_t> indices;
-};
-
-std::optional<IndexedPngDecode> decodeIndexedPng4(const std::vector<uint8_t>& data)
-{
-    if(data.size() < sizeof(kPngSignature) || std::memcmp(data.data(), kPngSignature, sizeof(kPngSignature)) != 0) {
-        return std::nullopt;
-    }
-
-    uint32_t width = 0;
-    uint32_t height = 0;
-    uint8_t bitDepth = 0;
-    uint8_t colorType = 0xFFu;
-    uint8_t compressionMethod = 0xFFu;
-    uint8_t filterMethod = 0xFFu;
-    uint8_t interlaceMethod = 0xFFu;
-    std::vector<uint8_t> paletteBytes;
-    std::vector<uint8_t> alphaBytes;
-    std::vector<uint8_t> idat;
-
-    size_t offset = sizeof(kPngSignature);
-    while(offset + 12u <= data.size()) {
-        const uint32_t chunkLength = readBigEndian32(data.data() + offset);
-        offset += 4u;
-        if(offset + 4u > data.size()) return std::nullopt;
-        const char* type = reinterpret_cast<const char*>(data.data() + offset);
-        offset += 4u;
-        if(offset + static_cast<size_t>(chunkLength) + 4u > data.size()) return std::nullopt;
-        const uint8_t* chunkData = data.data() + offset;
-        offset += static_cast<size_t>(chunkLength);
-        offset += 4u; // CRC
-
-        if(std::memcmp(type, "IHDR", 4) == 0) {
-            if(chunkLength != 13u) return std::nullopt;
-            width = readBigEndian32(chunkData + 0);
-            height = readBigEndian32(chunkData + 4);
-            bitDepth = chunkData[8];
-            colorType = chunkData[9];
-            compressionMethod = chunkData[10];
-            filterMethod = chunkData[11];
-            interlaceMethod = chunkData[12];
-        } else if(std::memcmp(type, "PLTE", 4) == 0) {
-            paletteBytes.assign(chunkData, chunkData + chunkLength);
-        } else if(std::memcmp(type, "tRNS", 4) == 0) {
-            alphaBytes.assign(chunkData, chunkData + chunkLength);
-        } else if(std::memcmp(type, "IDAT", 4) == 0) {
-            idat.insert(idat.end(), chunkData, chunkData + chunkLength);
-        } else if(std::memcmp(type, "IEND", 4) == 0) {
-            break;
-        }
-    }
-
-    if(width == 0 || height == 0 || colorType != 3u || compressionMethod != 0u || filterMethod != 0u || interlaceMethod != 0u) {
-        return std::nullopt;
-    }
-    if(bitDepth != 1u && bitDepth != 2u && bitDepth != 4u && bitDepth != 8u) {
-        return std::nullopt;
-    }
-    if(paletteBytes.empty() || (paletteBytes.size() % 3u) != 0u || idat.empty()) {
-        return std::nullopt;
-    }
-
-    const size_t paletteColorCount = paletteBytes.size() / 3u;
-    if(paletteColorCount != 4u) {
-        return std::nullopt;
-    }
-
-    const size_t packedRowBytes = (static_cast<size_t>(width) * static_cast<size_t>(bitDepth) + 7u) / 8u;
-    const size_t expectedInflatedSize = static_cast<size_t>(height) * (1u + packedRowBytes);
-    std::vector<uint8_t> inflated(expectedInflatedSize);
-    mz_ulong inflatedSize = static_cast<mz_ulong>(inflated.size());
-    if(mz_uncompress(inflated.data(), &inflatedSize, idat.data(), static_cast<mz_ulong>(idat.size())) != MZ_OK ||
-       inflatedSize != static_cast<mz_ulong>(expectedInflatedSize)) {
-        return std::nullopt;
-    }
-
-    IndexedPngDecode decoded;
-    decoded.width = static_cast<int>(width);
-    decoded.height = static_cast<int>(height);
-    decoded.rgba.resize(static_cast<size_t>(width) * static_cast<size_t>(height));
-    decoded.indices.resize(static_cast<size_t>(width) * static_cast<size_t>(height));
-
-    std::vector<uint8_t> previousRow(packedRowBytes, 0u);
-    std::vector<uint8_t> currentRow(packedRowBytes, 0u);
-    size_t srcOffset = 0;
-    for(uint32_t y = 0; y < height; ++y) {
-        const uint8_t filterType = inflated[srcOffset++];
-        if(srcOffset + packedRowBytes > inflated.size()) {
-            return std::nullopt;
-        }
-        std::copy_n(inflated.data() + srcOffset, packedRowBytes, currentRow.begin());
-        srcOffset += packedRowBytes;
-
-        for(size_t x = 0; x < packedRowBytes; ++x) {
-            const uint8_t left = x > 0 ? currentRow[x - 1] : 0u;
-            const uint8_t up = previousRow[x];
-            const uint8_t upLeft = x > 0 ? previousRow[x - 1] : 0u;
-            switch(filterType) {
-            case 0: break;
-            case 1: currentRow[x] = static_cast<uint8_t>(currentRow[x] + left); break;
-            case 2: currentRow[x] = static_cast<uint8_t>(currentRow[x] + up); break;
-            case 3: currentRow[x] = static_cast<uint8_t>(currentRow[x] + static_cast<uint8_t>((static_cast<int>(left) + static_cast<int>(up)) / 2)); break;
-            case 4: currentRow[x] = static_cast<uint8_t>(currentRow[x] + paethPredictor(left, up, upLeft)); break;
-            default: return std::nullopt;
-            }
-        }
-
-        for(uint32_t x = 0; x < width; ++x) {
-            uint8_t paletteIndex = 0;
-            switch(bitDepth) {
-            case 1: {
-                const uint8_t byte = currentRow[x >> 3u];
-                paletteIndex = static_cast<uint8_t>((byte >> (7u - (x & 7u))) & 0x01u);
-                break;
-            }
-            case 2: {
-                const uint8_t byte = currentRow[x >> 2u];
-                const uint8_t shift = static_cast<uint8_t>((3u - (x & 3u)) * 2u);
-                paletteIndex = static_cast<uint8_t>((byte >> shift) & 0x03u);
-                break;
-            }
-            case 4: {
-                const uint8_t byte = currentRow[x >> 1u];
-                paletteIndex = static_cast<uint8_t>(((x & 1u) == 0u) ? ((byte >> 4u) & 0x0Fu) : (byte & 0x0Fu));
-                break;
-            }
-            case 8:
-                paletteIndex = currentRow[x];
-                break;
-            default:
-                return std::nullopt;
-            }
-            if(paletteIndex >= paletteColorCount) {
-                return std::nullopt;
-            }
-            const size_t dstIndex = static_cast<size_t>(y) * static_cast<size_t>(width) + static_cast<size_t>(x);
-            const size_t paletteOffset = static_cast<size_t>(paletteIndex) * 3u;
-            const uint8_t alpha = paletteIndex < alphaBytes.size() ? alphaBytes[paletteIndex] : 0xFFu;
-            decoded.indices[dstIndex] = paletteIndex;
-            decoded.rgba[dstIndex] =
-                (static_cast<uint32_t>(alpha) << 24u) |
-                static_cast<uint32_t>(paletteBytes[paletteOffset + 0u]) |
-                (static_cast<uint32_t>(paletteBytes[paletteOffset + 1u]) << 8u) |
-                (static_cast<uint32_t>(paletteBytes[paletteOffset + 2u]) << 16u);
-        }
-
-        previousRow.swap(currentRow);
-    }
-
-    return decoded;
 }
 
 std::string toLower(std::string value)
@@ -1186,10 +1014,10 @@ bool ModManager::loadDefinitionForCurrentMod()
         auto it = chrAssetValidity.find(normalizedPath);
         if(it == chrAssetValidity.end()) {
             const DecodedImage* image = decodedImage(normalizedPath);
-            const bool valid = image != nullptr && image->indexedFourColor;
+            const bool valid = image != nullptr;
             if(!valid) {
                 logModMessage(
-                    "CHR sheet must be an indexed PNG with exactly 4 colors: " + normalizedPath,
+                    "Failed to load CHR image asset: " + normalizedPath,
                     Logger::Type::WARNING);
             }
             it = chrAssetValidity.emplace(normalizedPath, valid).first;
@@ -2060,7 +1888,6 @@ void ModManager::populateOverrideLookupCache(RenderComposeCache& cache, const st
             continue;
         }
         prepared.rgbaData = prepared.image->rgba.data();
-        prepared.indexedPixelsData = prepared.image->indexedPixels.data();
         prepared.sourceScale = std::max(1, m_resolutionMultiplier);
         prepared.imageWidth = prepared.image->width;
         prepared.imageHeight = prepared.image->height;
@@ -2078,10 +1905,6 @@ void ModManager::populateOverrideLookupCache(RenderComposeCache& cache, const st
             override->sourceLayout == ChrOverride::SourceLayout::Auto
                 ? ChrOverride::SourceLayout::PatternTables
                 : override->sourceLayout;
-        prepared.usesIndexedPalette =
-            !prepared.ignorePalette &&
-            prepared.image->indexedFourColor &&
-            prepared.image->indexedPixels.size() == prepared.image->rgba.size();
         if(override->hasSourcePosition()) {
             prepared.fixedTileSrcX = override->sourceX;
             prepared.fixedTileSrcY = override->sourceY;
@@ -3762,42 +3585,18 @@ std::optional<ModManager::DebugComposePixel> ModManager::debugComposePixel(const
 
         if(sourceAlpha == 0) {
             stage.returnedBaseColor = true;
-            stage.reason = preserveSourceAlpha ? "indexed source alpha zero -> no sprite draw" : "indexed source alpha zero";
+            stage.reason = preserveSourceAlpha ? "raw rgba alpha zero -> no sprite draw" : "raw rgba alpha zero";
             return { baseColor, stage };
         }
-        if(!image->indexedFourColor || image->indexedPixels.size() != image->rgba.size()) {
-            stage.returnedBaseColor = true;
-            stage.reason = preserveSourceAlpha ? "not indexed four-color png -> no sprite draw" : "not indexed four-color png";
-            return { baseColor, stage };
-        }
-
-        const uint8_t sourcePaletteIndex = image->indexedPixels[sourcePixelIndex];
-        stage.indexedPaletteIndex = static_cast<int>(sourcePaletteIndex);
-        if(sourcePaletteIndex == 0) {
-            if(preserveSourceAlpha) {
-                stage.returnedBaseColor = true;
-                stage.reason = "indexed color 0 -> no sprite draw";
-                return { baseColor, stage };
-            }
-            const uint32_t mappedColor =
-                (snapshot.paletteColors[snapshot.universalBgColor & 0x3F] & 0x00FFFFFFu) |
-                (static_cast<uint32_t>(sourceAlpha) << 24u);
-            stage.reason = "indexed color 0 -> universal background";
-            return { blendPixel(baseColor, mappedColor, 255), stage };
-        }
-
-        const int paletteIndex = static_cast<int>(sourcePaletteIndex) - 1;
-        if(paletteIndex < 0 || paletteIndex >= static_cast<int>(palette.size())) {
-            stage.returnedBaseColor = true;
-            stage.reason = "indexed color outside palette mapping";
-            return { baseColor, stage };
-        }
-
         const uint32_t mappedColor =
-            (snapshot.paletteColors[palette[static_cast<size_t>(paletteIndex)] & 0x3F] & 0x00FFFFFFu) |
+            (stage.rawRgba & 0x00FFFFFFu) |
             (static_cast<uint32_t>(sourceAlpha) << 24u);
-        stage.reason = "indexed color mapped to NES palette";
-        return { blendPixel(baseColor, mappedColor, 255), stage };
+        if(sourceAlpha == 0xFF) {
+            stage.reason = "raw rgba opaque replace";
+            return { mappedColor, stage };
+        }
+        stage.reason = "raw rgba alpha blend";
+        return { blendPixel(baseColor, mappedColor, sourceAlpha), stage };
     };
 
     for(int priority = 0; priority < 10; ++priority) {
@@ -4059,13 +3858,6 @@ std::optional<ModManager::DecodedImage> ModManager::decodeImage(const std::vecto
         }
     }
     stbi_image_free(pixels);
-
-    if(const auto indexed = decodeIndexedPng4(data); indexed.has_value() &&
-       indexed->width == image.width && indexed->height == image.height &&
-       indexed->indices.size() == image.rgba.size()) {
-        image.indexedPixels = indexed->indices;
-        image.indexedFourColor = true;
-    }
 
     return image;
 }
@@ -5082,7 +4874,7 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
         return storeCachedResult(found);
     };
 
-    auto sampleOverridePixel = [&](uint32_t baseColor, uint32_t /*fallbackLayerColor*/, const PreparedOverride* prepared, int tileIndex, int offsetX, int offsetY, int subX, int subY, uint8_t /*colorLowBits*/, const std::array<uint8_t, 3>& palette, bool horizontalMirror, bool verticalMirror, bool preserveSourceAlpha = false) {
+    auto sampleOverridePixel = [&](uint32_t baseColor, uint32_t /*fallbackLayerColor*/, const PreparedOverride* prepared, int tileIndex, int offsetX, int offsetY, int subX, int subY, uint8_t /*colorLowBits*/, const std::array<uint8_t, 3>& /*palette*/, bool horizontalMirror, bool verticalMirror, bool preserveSourceAlpha = false) {
         if(prepared == nullptr) {
             return baseColor;
         }
@@ -5139,44 +4931,11 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
         }
         const size_t sourcePixelIndex = static_cast<size_t>(srcY) * static_cast<size_t>(image->width) + static_cast<size_t>(srcX);
         const uint32_t sourcePixel = image->rgba[sourcePixelIndex];
-        if(override->ignorePalette) {
-            const uint8_t sourceAlpha = static_cast<uint8_t>((sourcePixel >> 24u) & 0xFFu);
-            if(sourceAlpha == 0) {
-                return baseColor;
-            }
-            const uint32_t opaqueSource = (sourcePixel & 0x00FFFFFFu) | 0xFF000000u;
-            if(!preserveSourceAlpha) {
-                return opaqueSource;
-            }
-            if(sourceAlpha == 0xFF) {
-                return opaqueSource;
-            }
-            return blendPixel(baseColor, opaqueSource, sourceAlpha);
-        }
         const uint8_t sourceAlpha = static_cast<uint8_t>((sourcePixel >> 24u) & 0xFFu);
         if(sourceAlpha == 0) {
             return baseColor;
         }
-        if(!image->indexedFourColor || image->indexedPixels.size() != image->rgba.size()) {
-            return baseColor;
-        }
-        const uint8_t sourcePaletteIndex = image->indexedPixels[sourcePixelIndex];
-        if(sourcePaletteIndex == 0) {
-            if(preserveSourceAlpha) {
-                return baseColor;
-            }
-            const uint32_t mappedColor =
-                (snapshot.paletteColors[snapshot.universalBgColor & 0x3F] & 0x00FFFFFFu) |
-                (static_cast<uint32_t>(sourceAlpha) << 24u);
-            return blendPixel(baseColor, mappedColor, 255);
-        }
-        const int paletteIndex = static_cast<int>(sourcePaletteIndex) - 1;
-        if(paletteIndex < 0 || paletteIndex >= static_cast<int>(palette.size())) {
-            return baseColor;
-        }
-        const uint32_t mappedColor =
-            (snapshot.paletteColors[palette[static_cast<size_t>(paletteIndex)] & 0x3F] & 0x00FFFFFFu) |
-            (static_cast<uint32_t>(sourceAlpha) << 24u);
+        const uint32_t mappedColor = (sourcePixel & 0x00FFFFFFu) | (static_cast<uint32_t>(sourceAlpha) << 24u);
         if(sourceAlpha == 0xFF) {
             return mappedColor;
         }
@@ -5319,17 +5078,14 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
         const PreparedOverride* override = nullptr;
         const DecodedImage* image = nullptr;
         const uint32_t* rgbaData = nullptr;
-        const uint8_t* indexedPixelsData = nullptr;
         uint32_t fallbackColor = 0;
         std::array<uint8_t, 3> palette = {};
-        std::array<uint32_t, 4> mappedPalette = {};
         int tileSrcX = 0;
         int tileSrcY = 0;
         int sourceScale = 1;
         int imageWidth = 0;
         int imageHeight = 0;
         bool ignorePalette = false;
-        bool usesIndexedPalette = false;
         bool tileSrcValid = false;
     };
     CachedBackgroundOverrideState lastBackgroundOverrideState;
@@ -5434,10 +5190,6 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
             const int bgFullTileIndex = bgPixel.tileIndex != 0xFFFF ? static_cast<int>(bgPixel.tileIndex) : -1;
             outState.palette = { bgPixel.palette[0], bgPixel.palette[1], bgPixel.palette[2] };
             outState.fallbackColor = snapshot.paletteColors[bgPixel.paletteIndex & 0x3F];
-            outState.mappedPalette[0] = snapshot.paletteColors[snapshot.universalBgColor & 0x3F];
-            outState.mappedPalette[1] = snapshot.paletteColors[outState.palette[0] & 0x3F];
-            outState.mappedPalette[2] = snapshot.paletteColors[outState.palette[1] & 0x3F];
-            outState.mappedPalette[3] = snapshot.paletteColors[outState.palette[2] & 0x3F];
             if(bgFullTileIndex < 0) {
                 return;
             }
@@ -5477,12 +5229,10 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
                 outState.image = preparedOverride->image;
                 if(override != nullptr && outState.image != nullptr) {
                     outState.rgbaData = preparedOverride->rgbaData;
-                    outState.indexedPixelsData = preparedOverride->indexedPixelsData;
                     outState.sourceScale = preparedOverride->sourceScale;
                     outState.imageWidth = preparedOverride->imageWidth;
                     outState.imageHeight = preparedOverride->imageHeight;
                     outState.ignorePalette = preparedOverride->ignorePalette;
-                    outState.usesIndexedPalette = preparedOverride->usesIndexedPalette;
                     if(preparedOverride->fixedTileSourceValid) {
                         outState.tileSrcX = preparedOverride->fixedTileSrcX;
                         outState.tileSrcY = preparedOverride->fixedTileSrcY;
@@ -5689,17 +5439,13 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
             const PreparedOverride* backgroundOverride = backgroundOverrideState.override;
             const uint32_t backgroundFallbackColor = backgroundOverrideState.fallbackColor;
             const std::array<uint8_t, 3>& backgroundPalette = backgroundOverrideState.palette;
-            const std::array<uint32_t, 4>& backgroundMappedPalette = backgroundOverrideState.mappedPalette;
             const DecodedImage* backgroundOverrideImage = backgroundOverrideState.image;
             const uint32_t* backgroundOverrideRgbaData = backgroundOverrideState.rgbaData;
-            const uint8_t* backgroundOverrideIndexedPixelsData = backgroundOverrideState.indexedPixelsData;
             const int backgroundOverrideTileSrcX = backgroundOverrideState.tileSrcX;
             const int backgroundOverrideTileSrcY = backgroundOverrideState.tileSrcY;
             const int backgroundOverrideSourceScale = backgroundOverrideState.sourceScale;
             const int backgroundOverrideImageWidth = backgroundOverrideState.imageWidth;
             const int backgroundOverrideImageHeight = backgroundOverrideState.imageHeight;
-            const bool backgroundOverrideIgnorePalette = backgroundOverrideState.ignorePalette;
-            const bool backgroundOverrideUsesIndexedPalette = backgroundOverrideState.usesIndexedPalette;
             const bool backgroundOverrideTileSrcValid = backgroundOverrideState.tileSrcValid;
             bool hasAnyValidSpriteCandidate = false;
             if(hasSpriteCandidates) {
@@ -5737,18 +5483,10 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
                     static_cast<size_t>(srcY) * static_cast<size_t>(backgroundOverrideImageWidth) + static_cast<size_t>(srcX);
                 const uint32_t sourcePixel = backgroundOverrideRgbaData[sourcePixelIndex];
                 const uint8_t sourceAlpha = static_cast<uint8_t>((sourcePixel >> 24u) & 0xFFu);
-                if(backgroundOverrideIgnorePalette) {
-                    return sourceAlpha == 0 ? 0u : ((sourcePixel & 0x00FFFFFFu) | (static_cast<uint32_t>(sourceAlpha) << 24u));
-                }
-                if(sourceAlpha == 0 || !backgroundOverrideUsesIndexedPalette || backgroundOverrideIndexedPixelsData == nullptr) {
+                if(sourceAlpha == 0) {
                     return 0u;
                 }
-                const uint8_t sourcePaletteIndex = backgroundOverrideIndexedPixelsData[sourcePixelIndex];
-                const uint32_t paletteColor =
-                    sourcePaletteIndex == 0
-                        ? backgroundMappedPalette[0]
-                        : backgroundMappedPalette[static_cast<size_t>(sourcePaletteIndex)];
-                return (paletteColor & 0x00FFFFFFu) | (static_cast<uint32_t>(sourceAlpha) << 24u);
+                return (sourcePixel & 0x00FFFFFFu) | (static_cast<uint32_t>(sourceAlpha) << 24u);
             };
 
             auto blendMappedBackgroundOverridePixel = [&](uint32_t color, uint32_t mappedPixel) {
@@ -6917,25 +6655,8 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
                             continue;
                         }
 
-                        uint32_t sampleColor = 0;
-                        if(override->ignorePalette) {
-                            sampleColor = (sourcePixel & 0x00FFFFFFu) | (static_cast<uint32_t>(sourceAlpha) << 24u);
-                        } else {
-                            if(!image->indexedFourColor || image->indexedPixels.size() != image->rgba.size()) {
-                                continue;
-                            }
-                            const uint8_t sourcePaletteIndex = image->indexedPixels[sourcePixelIndex];
-                            if(sourcePaletteIndex == 0) {
-                                continue;
-                            }
-                            const int paletteIndex = static_cast<int>(sourcePaletteIndex) - 1;
-                            if(paletteIndex < 0 || paletteIndex >= static_cast<int>(resolvedCandidate.spritePalette.size())) {
-                                continue;
-                            }
-                            sampleColor =
-                                (snapshot.paletteColors[resolvedCandidate.spritePalette[static_cast<size_t>(paletteIndex)] & 0x3F] & 0x00FFFFFFu) |
-                                (static_cast<uint32_t>(sourceAlpha) << 24u);
-                        }
+                        const uint32_t sampleColor =
+                            (sourcePixel & 0x00FFFFFFu) | (static_cast<uint32_t>(sourceAlpha) << 24u);
 
                         const size_t sampleIndex = overrideSampleIndexFor(subX, subY);
                         resolvedCandidate.overrideSampleColors[sampleIndex] = sampleColor;

@@ -347,8 +347,6 @@ private:
         int width = 0;
         int height = 0;
         std::vector<uint32_t> rgba;
-        std::vector<uint8_t> indexedPixels;
-        bool indexedFourColor = false;
     };
 
     struct ImageCacheEntry {
@@ -361,7 +359,6 @@ private:
         const ChrOverride* override = nullptr;
         const DecodedImage* image = nullptr;
         const uint32_t* rgbaData = nullptr;
-        const uint8_t* indexedPixelsData = nullptr;
         int sourceScale = 1;
         int imageWidth = 0;
         int imageHeight = 0;
@@ -373,7 +370,6 @@ private:
         bool hasDynamicConditions = false;
         bool tileOriginCacheable = true;
         bool ignorePalette = false;
-        bool usesIndexedPalette = false;
         bool wholeChr = false;
         bool fixedTileSourceValid = false;
         uint8_t targetMask = 0;
