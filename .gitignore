@@ -6,4 +6,6 @@ dist*/
 *.dll
 *.so
 
+docs/user-guide/site/
+
 __pycache__/

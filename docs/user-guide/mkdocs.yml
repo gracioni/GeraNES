@@ -1,0 +1,48 @@
+site_name: GeraNES User Guide
+site_description: End-user documentation for the GeraNES NES emulator
+site_url: ""
+docs_dir: src
+site_dir: site
+use_directory_urls: false
+
+theme:
+  name: material
+  custom_dir: overrides
+  language: en
+  icon:
+    logo: material/gamepad-variant
+  features:
+    - navigation.tabs
+    - navigation.sections
+    - navigation.top
+    - search.suggest
+    - search.highlight
+    - content.code.copy
+
+plugins:
+  - search
+
+extra_css:
+  - stylesheets/extra.css
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - def_list
+  - tables
+  - toc:
+      permalink: true
+
+nav:
+  - Home: index.md
+  - Getting Started: getting-started.md
+  - Loading Games: loading-games.md
+  - Controls and Input: controls-and-input.md
+  - Mods and HD Packs: mods-and-hd-packs.md
+  - Save States and Rewind: save-states-and-rewind.md
+  - Video: video.md
+  - Audio: audio.md
+  - Netplay: netplay.md
+  - FDS and Special Hardware: fds-and-special-hardware.md
+  - Troubleshooting: troubleshooting.md
+  - FAQ: faq.md

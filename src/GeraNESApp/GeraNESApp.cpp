@@ -883,6 +883,57 @@ void GeraNESApp::resetAction()
     m_emu.reset();
 }
 
+bool GeraNESApp::openDocumentation()
+{
+#ifdef __EMSCRIPTEN__
+    m_userToast.show("Local help is not available in the web build");
+    return false;
+#else
+    const fs::path docPath = fs::current_path() / "docs" / "index.html";
+    if(!fs::exists(docPath)) {
+        const std::string message = "Help file not found: " + docPath.string();
+        Logger::instance().log(message, Logger::Type::WARNING);
+        m_userToast.show("Help documentation not found");
+        return false;
+    }
+
+    auto encodeUrlPath = [](const std::string& raw) {
+        static constexpr char hex[] = "0123456789ABCDEF";
+        std::string encoded;
+        encoded.reserve(raw.size() + 8);
+        for(unsigned char c : raw) {
+            const bool safe =
+                (c >= 'A' && c <= 'Z') ||
+                (c >= 'a' && c <= 'z') ||
+                (c >= '0' && c <= '9') ||
+                c == '-' || c == '_' || c == '.' || c == '/' || c == ':' || c == '~';
+            if(safe) {
+                encoded.push_back(static_cast<char>(c));
+            } else {
+                encoded.push_back('%');
+                encoded.push_back(hex[(c >> 4) & 0xF]);
+                encoded.push_back(hex[c & 0xF]);
+            }
+        }
+        return encoded;
+    };
+
+    std::string normalized = fs::absolute(docPath).generic_string();
+    if(normalized.empty() || normalized.front() != '/') {
+        normalized.insert(normalized.begin(), '/');
+    }
+    const std::string url = "file://" + encodeUrlPath(normalized);
+    if(SDL_OpenURL(url.c_str()) != 0) {
+        const std::string message = "Failed to open help documentation: " + std::string(SDL_GetError());
+        Logger::instance().log(message, Logger::Type::WARNING);
+        m_userToast.show("Failed to open help documentation");
+        return false;
+    }
+
+    return true;
+#endif
+}
+
 void GeraNESApp::closeRomAction()
 {
     if(!m_emu.valid()) return;

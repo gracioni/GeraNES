@@ -526,13 +526,52 @@ if(EMSCRIPTEN)
     set(DATA_DIR "${CMAKE_CURRENT_SOURCE_DIR}/data")
     set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} --preload-file ${DATA_DIR}@/")
 else()
+    find_package(Python3 REQUIRED COMPONENTS Interpreter)
 
+    set(GERANES_DOCS_CONFIG_FILE "${CMAKE_CURRENT_SOURCE_DIR}/docs/user-guide/mkdocs.yml")
+    set(GERANES_DOCS_SITE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/docs/user-guide/site")
+    set(GERANES_RUNTIME_DATA_STAGE_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated/runtime_data")
+    set(GERANES_RUNTIME_DATA_MANIFEST "${CMAKE_CURRENT_BINARY_DIR}/generated/runtime_data_manifest.txt")
+
+    add_custom_target(generate_user_docs
+        COMMAND ${CMAKE_COMMAND} -E rm -rf "${GERANES_DOCS_SITE_DIR}"
+        COMMAND ${Python3_EXECUTABLE} -m mkdocs build --clean
+                --config-file "${GERANES_DOCS_CONFIG_FILE}"
+        WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
+        COMMENT "Generating user documentation"
+        VERBATIM
+    )
+
+    add_custom_target(copy_runtime_data ALL
+        COMMAND ${CMAKE_COMMAND} -E rm -rf "${GERANES_RUNTIME_DATA_STAGE_DIR}"
+        COMMAND ${CMAKE_COMMAND} -E make_directory "${GERANES_RUNTIME_DATA_STAGE_DIR}"
+        COMMAND ${CMAKE_COMMAND} -E copy_directory
+                "${CMAKE_CURRENT_SOURCE_DIR}/data"
+                "${GERANES_RUNTIME_DATA_STAGE_DIR}"
+        COMMAND ${CMAKE_COMMAND} -E rm -rf "${GERANES_RUNTIME_DATA_STAGE_DIR}/docs/site"
+        COMMAND ${CMAKE_COMMAND} -E make_directory "${GERANES_RUNTIME_DATA_STAGE_DIR}/docs"
+        COMMAND ${CMAKE_COMMAND} -E copy_directory
+                "${GERANES_DOCS_SITE_DIR}"
+                "${GERANES_RUNTIME_DATA_STAGE_DIR}/docs"
+        COMMAND ${CMAKE_COMMAND}
+                -DSOURCE_DIR="${GERANES_RUNTIME_DATA_STAGE_DIR}"
+                -DDEST_DIR="${CMAKE_BINARY_DIR}"
+                -DMANIFEST_FILE="${GERANES_RUNTIME_DATA_MANIFEST}"
+                -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/SyncManagedTree.cmake"
+        COMMENT "Copying runtime data to build directory"
+        VERBATIM
+    )
+
+    add_dependencies(copy_runtime_data generate_user_docs)
+
+    if(FALSE)
     file(GLOB source_files_and_dirs ${CMAKE_CURRENT_SOURCE_DIR}/data/*)
 
     # Copia cada item (diretório ou arquivo) para o destino
     foreach(item IN LISTS source_files_and_dirs)
         file(COPY ${item} DESTINATION ${CMAKE_BINARY_DIR})
     endforeach()
+    endif()
 
 endif()
 
@@ -675,6 +714,9 @@ endif()
 
 add_executable(${CMAKE_PROJECT_NAME} ${GERANES_EXE_SOURCES})
 target_compile_features(${CMAKE_PROJECT_NAME} PUBLIC cxx_std_20)
+if(NOT EMSCRIPTEN)
+    add_dependencies(${CMAKE_PROJECT_NAME} copy_runtime_data)
+endif()
 if(MINGW)
     target_compile_options(${CMAKE_PROJECT_NAME} PRIVATE -Wa,-mbig-obj)
 endif()

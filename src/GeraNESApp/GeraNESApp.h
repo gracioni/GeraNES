@@ -504,6 +504,7 @@ private:
     void drawEventViewerWindow();
     void drawImprovementsWindow();
     void drawAboutWindow();
+    bool openDocumentation();
     void drawArkanoidNesConfigWindow();
     void drawArkanoidFamicomConfigWindow();
     void drawSnesMouseConfigWindow();

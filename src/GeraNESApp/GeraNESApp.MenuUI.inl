@@ -967,12 +967,18 @@ inline void GeraNESApp::menuBar() {
             ImGui::EndMenu();
         }
 
-        ImGui::PushStyleColor(ImGuiCol_Text, ImGuiTheme::textOnAccent());
-        if (ImGui::MenuItem(withMenuIcon(FontAwesomeIcons::kCircleInfo, "About").c_str()))
+        if (beginTopMenu(withMenuIcon(FontAwesomeIcons::kCircleInfo, "Help").c_str()))
         {
-            m_showAboutWindow = true;
+            if(ImGui::MenuItem("User Guide")) {
+                openDocumentation();
+            }
+
+            if(ImGui::MenuItem("About")) {
+                m_showAboutWindow = true;
+            }
+
+            ImGui::EndMenu();
         }
-        ImGui::PopStyleColor();
 
         ImGui::PopStyleVar();
 
