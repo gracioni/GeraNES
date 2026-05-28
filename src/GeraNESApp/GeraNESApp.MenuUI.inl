@@ -56,7 +56,7 @@ inline void GeraNESApp::menuBar() {
             return open;
         };
 
-        if (beginTopMenu(withMenuIcon(FontAwesomeIcons::kFolderOpen, "File").c_str()))
+        if (beginTopMenu(withMenuIcon(FontAwesomeIcons::kFile, "File").c_str()))
         {
             const bool hasRomLoaded = m_emu.valid();
             auto sc = m_shortcuts.get("openRom");
@@ -118,7 +118,7 @@ inline void GeraNESApp::menuBar() {
             ImGui::EndMenu();
         }
 
-        if (beginTopMenu(withMenuIcon(FontAwesomeIcons::kGamepad, "Emulator").c_str(), !netplayClientRestricted))
+        if (beginTopMenu(withMenuIcon(FontAwesomeIcons::kCalculator, "Emulator").c_str(), !netplayClientRestricted))
         {
             const bool hasRomLoaded = m_emu.valid();
             int& saveStateSlot = AppSettings::instance().data.saveStateSlot;
@@ -394,7 +394,7 @@ inline void GeraNESApp::menuBar() {
                 ImGui::EndMenu();
             }
 
-            if (ImGui::BeginMenu(withMenuIcon(FontAwesomeIcons::kKeyboard, "Input").c_str()))
+            if (ImGui::BeginMenu(withMenuIcon(FontAwesomeIcons::kGamepad , "Input").c_str()))
             {
 #ifndef __EMSCRIPTEN__
             const auto netplaySnapshot = GeraNESNetplay::menuSnapshot(m_netplayRuntime);
@@ -705,7 +705,7 @@ inline void GeraNESApp::menuBar() {
             ImGui::EndMenu();
         }
 
-        if(ImGui::MenuItem(withMenuIcon(FontAwesomeIcons::kGear, "System").c_str())) {
+        if(ImGui::MenuItem("System")) {
             m_inputBindingConfigWindow.show("System", m_systemInput);
         }  
 
@@ -714,7 +714,7 @@ inline void GeraNESApp::menuBar() {
         const bool isVsRom = cartridgeSystem == GameDatabase::System::VsSystem;
         const bool hasHardwareActions = m_emu.valid() && (isFdsRom || isVsRom);
 
-            if (ImGui::BeginMenu(withMenuIcon(FontAwesomeIcons::kMicrochip, "Hardware").c_str(), hasHardwareActions && !netplayClientRestricted)) {
+            if (ImGui::BeginMenu("Hardware", hasHardwareActions && !netplayClientRestricted)) {
                 if (ImGui::MenuItem("FDS - Switch Disk Side", nullptr, false, isFdsRom && !netplayClientRestricted)) {
                     m_emu.fdsSwitchDiskSide();
                 }
@@ -750,7 +750,7 @@ inline void GeraNESApp::menuBar() {
 
             ImGui::Separator();
 
-            if (ImGui::BeginMenu(withMenuIcon(FontAwesomeIcons::kGamepad, "Touch controls").c_str())) {
+            if (ImGui::BeginMenu("Touch controls")) {
 
                 bool enabled = AppSettings::instance().data.input.touchControls.enabled;
                 if(ImGui::MenuItem("Enabled", nullptr, enabled)) {

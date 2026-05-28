@@ -1,0 +1,323 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Font Awesome Solid Browser</title>
+  <style>
+    @font-face {
+      font-family: "Font Awesome Solid Local";
+      src: url("../../resources/fonts/fa-solid-900.ttf") format("truetype");
+      font-weight: 900;
+      font-style: normal;
+    }
+
+    :root {
+      --bg: #f4f0e8;
+      --panel: #fffaf2;
+      --ink: #1f1b16;
+      --muted: #6f6559;
+      --line: #d8cbb9;
+      --accent: #b24a2f;
+      --accent-soft: #f2d4c8;
+    }
+
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: Georgia, "Times New Roman", serif;
+      background:
+        radial-gradient(circle at top left, #fff7ea 0, transparent 28%),
+        linear-gradient(180deg, #efe6d8 0, var(--bg) 100%);
+      color: var(--ink);
+    }
+
+    .wrap {
+      max-width: 1280px;
+      margin: 0 auto;
+      padding: 32px 20px 48px;
+    }
+
+    .hero {
+      display: grid;
+      gap: 14px;
+      margin-bottom: 24px;
+    }
+
+    h1 {
+      margin: 0;
+      font-size: clamp(2rem, 4vw, 3.5rem);
+      line-height: 0.95;
+      letter-spacing: -0.03em;
+    }
+
+    .sub {
+      max-width: 72ch;
+      color: var(--muted);
+      font-size: 1rem;
+      line-height: 1.5;
+    }
+
+    .toolbar {
+      display: grid;
+      gap: 12px;
+      grid-template-columns: minmax(0, 1fr) auto auto;
+      align-items: center;
+      margin-bottom: 18px;
+    }
+
+    .search,
+    .select {
+      width: 100%;
+      border: 1px solid var(--line);
+      background: var(--panel);
+      color: var(--ink);
+      border-radius: 12px;
+      padding: 14px 16px;
+      font: inherit;
+    }
+
+    .stat {
+      white-space: nowrap;
+      border: 1px solid var(--line);
+      background: rgba(255, 250, 242, 0.8);
+      border-radius: 999px;
+      padding: 10px 14px;
+      color: var(--muted);
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+      gap: 14px;
+    }
+
+    .card {
+      border: 1px solid var(--line);
+      background: rgba(255, 250, 242, 0.92);
+      border-radius: 18px;
+      padding: 16px;
+      display: grid;
+      gap: 10px;
+      box-shadow: 0 10px 30px rgba(64, 39, 17, 0.05);
+    }
+
+    .glyph {
+      min-height: 76px;
+      display: grid;
+      place-items: center;
+      border-radius: 14px;
+      background: linear-gradient(180deg, #fff 0, #f7eadb 100%);
+      border: 1px solid #eadccc;
+      font-family: "Font Awesome Solid Local";
+      font-weight: 900;
+      font-size: 2.2rem;
+      color: var(--accent);
+    }
+
+    .name {
+      font-weight: 700;
+      font-size: 1rem;
+      line-height: 1.2;
+      word-break: break-word;
+    }
+
+    .meta {
+      color: var(--muted);
+      font-size: 0.9rem;
+      line-height: 1.35;
+    }
+
+    .snippet {
+      margin-top: 2px;
+      padding: 10px 12px;
+      border-radius: 12px;
+      border: 1px solid #eadccc;
+      background: #fffdf8;
+      color: #4f4337;
+      font-family: Consolas, "Courier New", monospace;
+      font-size: 0.78rem;
+      line-height: 1.45;
+      white-space: pre-wrap;
+      word-break: break-all;
+    }
+
+    .code {
+      display: inline-block;
+      margin-top: 2px;
+      padding: 4px 8px;
+      border-radius: 999px;
+      background: var(--accent-soft);
+      color: #6d2413;
+      font-family: Consolas, "Courier New", monospace;
+      font-size: 0.85rem;
+    }
+
+    .empty {
+      padding: 32px 20px;
+      border: 1px dashed var(--line);
+      border-radius: 18px;
+      color: var(--muted);
+      background: rgba(255, 250, 242, 0.72);
+      text-align: center;
+    }
+
+    @media (max-width: 720px) {
+      .toolbar {
+        grid-template-columns: 1fr;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <section class="hero">
+      <h1>Font Awesome Solid Browser</h1>
+      <div class="sub">
+        Local browser for <code>resources/fonts/fa-solid-900.ttf</code>, mapped with official Font Awesome metadata.
+        Search by icon name, label, or Unicode codepoint.
+      </div>
+    </section>
+
+    <section class="toolbar">
+      <input id="search" class="search" type="search" placeholder="Search icons, labels, or U+ codes">
+      <select id="sort" class="select">
+        <option value="name">Sort: name</option>
+        <option value="code">Sort: codepoint</option>
+      </select>
+      <div id="count" class="stat">0 icons</div>
+    </section>
+
+    <section id="grid" class="grid" aria-live="polite"></section>
+  </div>
+
+  <template id="card-template">
+    <article class="card">
+      <div class="glyph"></div>
+      <div class="name"></div>
+      <div class="meta">
+        <div class="label"></div>
+        <div class="code"></div>
+      </div>
+      <div class="snippet"></div>
+    </article>
+  </template>
+
+  <script src="./fontawesome-solid-data.js"></script>
+  <script>
+    const searchInput = document.getElementById("search");
+    const sortSelect = document.getElementById("sort");
+    const countEl = document.getElementById("count");
+    const gridEl = document.getElementById("grid");
+    const template = document.getElementById("card-template");
+
+    function toCodepoint(unicodeHex) {
+      return Number.parseInt(unicodeHex, 16);
+    }
+
+    function toGlyph(unicodeHex) {
+      return String.fromCodePoint(toCodepoint(unicodeHex));
+    }
+
+    function normalize(text) {
+      return String(text || "").toLowerCase();
+    }
+
+    function toPascalCase(name) {
+      const parts = String(name)
+        .split(/[^a-zA-Z0-9]+/)
+        .filter(Boolean)
+        .map(part => part.charAt(0).toUpperCase() + part.slice(1));
+      let joined = parts.join("");
+      if(!joined) {
+        joined = "Icon";
+      }
+      if(/^[0-9]/.test(joined)) {
+        joined = "Icon" + joined;
+      }
+      return joined;
+    }
+
+    function toEscapedUtf8(unicodeHex) {
+      const glyph = toGlyph(unicodeHex);
+      const bytes = new TextEncoder().encode(glyph);
+      return Array.from(bytes)
+        .map(byte => "\\x" + byte.toString(16).padStart(2, "0"))
+        .join("");
+    }
+
+    function toCppSnippet(item) {
+      return `inline constexpr const char* k${toPascalCase(item.name)} = "${toEscapedUtf8(item.unicode)}";`;
+    }
+
+    function formatCode(unicodeHex) {
+      return "U+" + String(unicodeHex).toUpperCase().padStart(4, "0");
+    }
+
+    function render(items) {
+      gridEl.textContent = "";
+      countEl.textContent = `${items.length} icon${items.length === 1 ? "" : "s"}`;
+
+      if(items.length === 0) {
+        const empty = document.createElement("div");
+        empty.className = "empty";
+        empty.textContent = "No icons matched the current filter.";
+        gridEl.appendChild(empty);
+        return;
+      }
+
+      const fragment = document.createDocumentFragment();
+      for(const item of items) {
+        const node = template.content.firstElementChild.cloneNode(true);
+        node.querySelector(".glyph").textContent = toGlyph(item.unicode);
+        node.querySelector(".name").textContent = item.name;
+        node.querySelector(".label").textContent = item.label || item.name;
+        node.querySelector(".code").textContent = formatCode(item.unicode);
+        node.querySelector(".snippet").textContent = toCppSnippet(item);
+        fragment.appendChild(node);
+      }
+      gridEl.appendChild(fragment);
+    }
+
+    function applyFilters(allItems) {
+      const term = normalize(searchInput.value.trim());
+      const sortMode = sortSelect.value;
+
+      let items = allItems.filter(item => {
+        if(!term) {
+          return true;
+        }
+        return normalize(item.name).includes(term) ||
+               normalize(item.label).includes(term) ||
+               normalize(formatCode(item.unicode)).includes(term) ||
+               normalize(item.unicode).includes(term);
+      });
+
+      items = items.slice().sort((a, b) => {
+        if(sortMode === "code") {
+          return toCodepoint(a.unicode) - toCodepoint(b.unicode);
+        }
+        return a.name.localeCompare(b.name);
+      });
+
+      render(items);
+    }
+
+    const allItems = Array.isArray(window.FONT_AWESOME_SOLID_DATA)
+      ? window.FONT_AWESOME_SOLID_DATA
+      : [];
+
+    if(allItems.length === 0) {
+      const empty = document.createElement("div");
+      empty.className = "empty";
+      empty.textContent = "Failed to load icon data.";
+      gridEl.appendChild(empty);
+    } else {
+      const rerender = () => applyFilters(allItems);
+      searchInput.addEventListener("input", rerender);
+      sortSelect.addEventListener("change", rerender);
+      rerender();
+    }
+  </script>
+</body>
+</html>
