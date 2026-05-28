@@ -45,51 +45,28 @@ private:
                                             const InputState& input)
     {
         InputFrame frame = emu.createInputFrame(frameNumber);
-        InputFrame::DecodedData decoded;
-        decoded.p1A = input.p1A; decoded.p1B = input.p1B; decoded.p1Select = input.p1Select; decoded.p1Start = input.p1Start;
-        decoded.p1Up = input.p1Up; decoded.p1Down = input.p1Down; decoded.p1Left = input.p1Left; decoded.p1Right = input.p1Right;
-        decoded.p1X = input.p1X; decoded.p1Y = input.p1Y; decoded.p1L = input.p1L; decoded.p1R = input.p1R;
-        decoded.vbP1A = input.p1A; decoded.vbP1B = input.p1B; decoded.vbP1Select = input.p1Select; decoded.vbP1Start = input.p1Start;
-        decoded.vbP1Up0 = input.p1Up; decoded.vbP1Down0 = input.p1Down; decoded.vbP1Left0 = input.p1Left; decoded.vbP1Right0 = input.p1Right;
-        decoded.vbP1Up1 = input.p1Up2; decoded.vbP1Down1 = input.p1Down2; decoded.vbP1Left1 = input.p1Left2; decoded.vbP1Right1 = input.p1Right2;
-        decoded.vbP1L = input.p1L; decoded.vbP1R = input.p1R;
-
-        decoded.p2A = input.p2A; decoded.p2B = input.p2B; decoded.p2Select = input.p2Select; decoded.p2Start = input.p2Start;
-        decoded.p2Up = input.p2Up; decoded.p2Down = input.p2Down; decoded.p2Left = input.p2Left; decoded.p2Right = input.p2Right;
-        decoded.p2X = input.p2X; decoded.p2Y = input.p2Y; decoded.p2L = input.p2L; decoded.p2R = input.p2R;
-        decoded.vbP2A = input.p2A; decoded.vbP2B = input.p2B; decoded.vbP2Select = input.p2Select; decoded.vbP2Start = input.p2Start;
-        decoded.vbP2Up0 = input.p2Up; decoded.vbP2Down0 = input.p2Down; decoded.vbP2Left0 = input.p2Left; decoded.vbP2Right0 = input.p2Right;
-        decoded.vbP2Up1 = input.p2Up2; decoded.vbP2Down1 = input.p2Down2; decoded.vbP2Left1 = input.p2Left2; decoded.vbP2Right1 = input.p2Right2;
-        decoded.vbP2L = input.p2L; decoded.vbP2R = input.p2R;
-
-        decoded.p3A = input.p3A; decoded.p3B = input.p3B; decoded.p3Select = input.p3Select; decoded.p3Start = input.p3Start;
-        decoded.p3Up = input.p3Up; decoded.p3Down = input.p3Down; decoded.p3Left = input.p3Left; decoded.p3Right = input.p3Right;
-        decoded.p4A = input.p4A; decoded.p4B = input.p4B; decoded.p4Select = input.p4Select; decoded.p4Start = input.p4Start;
-        decoded.p4Up = input.p4Up; decoded.p4Down = input.p4Down; decoded.p4Left = input.p4Left; decoded.p4Right = input.p4Right;
-
-        decoded.zapperP1X = input.zapperX; decoded.zapperP1Y = input.zapperY; decoded.zapperP1Trigger = input.zapperP1Trigger;
-        decoded.zapperP2X = input.zapperX; decoded.zapperP2Y = input.zapperY; decoded.zapperP2Trigger = input.zapperP2Trigger;
-        decoded.bandaiA = input.p2A; decoded.bandaiB = input.p2B; decoded.bandaiSelect = input.p2Select; decoded.bandaiStart = input.p2Start;
-        decoded.bandaiUp = input.p2Up; decoded.bandaiDown = input.p2Down; decoded.bandaiLeft = input.p2Left; decoded.bandaiRight = input.p2Right;
-        decoded.bandaiX = input.zapperX; decoded.bandaiY = input.zapperY; decoded.bandaiTrigger = input.bandaiTrigger;
-        decoded.arkanoidP1Position = input.arkanoidNesPosition; decoded.arkanoidP1Button = input.mousePrimaryButton;
-        decoded.arkanoidP2Position = input.arkanoidNesPosition; decoded.arkanoidP2Button = input.mousePrimaryButton;
-        decoded.arkanoidFamicomPosition = input.arkanoidFamicomPosition; decoded.arkanoidFamicomButton = input.mousePrimaryButton;
-        decoded.konamiP1Run = input.konamiP1Run; decoded.konamiP1Jump = input.konamiP1Jump;
-        decoded.konamiP2Run = input.konamiP2Run; decoded.konamiP2Jump = input.konamiP2Jump;
-        decoded.snesMouseP1DeltaX = input.mouseDeltaX; decoded.snesMouseP1DeltaY = input.mouseDeltaY;
-        decoded.snesMouseP1Left = input.mousePrimaryButton; decoded.snesMouseP1Right = input.mouseSecondaryButton;
-        decoded.snesMouseP2DeltaX = input.mouseDeltaX; decoded.snesMouseP2DeltaY = input.mouseDeltaY;
-        decoded.snesMouseP2Left = input.mousePrimaryButton; decoded.snesMouseP2Right = input.mouseSecondaryButton;
-        decoded.suborMouseP1DeltaX = input.mouseDeltaX; decoded.suborMouseP1DeltaY = input.mouseDeltaY;
-        decoded.suborMouseP1Left = input.mousePrimaryButton; decoded.suborMouseP1Right = input.mouseSecondaryButton;
-        decoded.suborMouseP2DeltaX = input.mouseDeltaX; decoded.suborMouseP2DeltaY = input.mouseDeltaY;
-        decoded.suborMouseP2Left = input.mousePrimaryButton; decoded.suborMouseP2Right = input.mouseSecondaryButton;
-        decoded.suborKeyboardKeys = input.suborKeyboardKeys;
-        decoded.familyBasicKeyboardKeys = input.familyBasicKeyboardKeys;
-        decoded.powerPadP1Buttons = input.p1PowerPadButtons;
-        decoded.powerPadP2Buttons = input.p2PowerPadButtons;
-        (void)frame.setDecodedData(decoded);
+        frame.setPortButtons(1, {input.p1A, input.p1B, input.p1Select, input.p1Start, input.p1Up, input.p1Down, input.p1Left, input.p1Right,
+                                 input.p1X, input.p1Y, input.p1L, input.p1R, input.p1Up2, input.p1Down2, input.p1Left2, input.p1Right2});
+        frame.setPortButtons(2, {input.p2A, input.p2B, input.p2Select, input.p2Start, input.p2Up, input.p2Down, input.p2Left, input.p2Right,
+                                 input.p2X, input.p2Y, input.p2L, input.p2R, input.p2Up2, input.p2Down2, input.p2Left2, input.p2Right2});
+        frame.setPortButtons(3, {input.p3A, input.p3B, input.p3Select, input.p3Start, input.p3Up, input.p3Down, input.p3Left, input.p3Right});
+        frame.setPortButtons(4, {input.p4A, input.p4B, input.p4Select, input.p4Start, input.p4Up, input.p4Down, input.p4Left, input.p4Right});
+        frame.setPowerPadButtons(1, input.p1PowerPadButtons);
+        frame.setPowerPadButtons(2, input.p2PowerPadButtons);
+        frame.setSuborKeyboardKeys(input.suborKeyboardKeys);
+        frame.setFamilyBasicKeyboardKeys(input.familyBasicKeyboardKeys);
+        frame.setBandaiButtons({input.p2A, input.p2B, input.p2Select, input.p2Start, input.p2Up, input.p2Down, input.p2Left, input.p2Right});
+        frame.setZapper(1, {input.zapperX, input.zapperY, input.zapperP1Trigger});
+        frame.setZapper(2, {input.zapperX, input.zapperY, input.zapperP2Trigger});
+        frame.setBandaiPointer({input.zapperX, input.zapperY, input.bandaiTrigger});
+        frame.setArkanoidController(1, {input.arkanoidNesPosition, input.mousePrimaryButton});
+        frame.setArkanoidController(2, {input.arkanoidNesPosition, input.mousePrimaryButton});
+        frame.setArkanoidExpansion({input.arkanoidFamicomPosition, input.mousePrimaryButton});
+        frame.setKonamiHyperShot({input.konamiP1Run, input.konamiP1Jump, input.konamiP2Run, input.konamiP2Jump});
+        frame.setSnesMouse(1, {input.mouseDeltaX, input.mouseDeltaY, input.mousePrimaryButton, input.mouseSecondaryButton});
+        frame.setSnesMouse(2, {input.mouseDeltaX, input.mouseDeltaY, input.mousePrimaryButton, input.mouseSecondaryButton});
+        frame.setSuborMouse(1, {input.mouseDeltaX, input.mouseDeltaY, input.mousePrimaryButton, input.mouseSecondaryButton});
+        frame.setSuborMouse(2, {input.mouseDeltaX, input.mouseDeltaY, input.mousePrimaryButton, input.mouseSecondaryButton});
         return frame;
     }
 

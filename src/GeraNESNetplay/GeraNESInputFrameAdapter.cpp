@@ -125,65 +125,76 @@ void applyPadMaskToInputState(EmulationHost::InputState& state, PlayerSlot slot,
 
 void applyInputFrameToInputState(EmulationHost::InputState& state, const InputFrame& inputFrame)
 {
-    const InputFrame::DecodedData decoded = inputFrame.decodedData();
-    state.p1A = decoded.p1A; state.p1B = decoded.p1B; state.p1Select = decoded.p1Select; state.p1Start = decoded.p1Start;
-    state.p1Up = decoded.p1Up; state.p1Down = decoded.p1Down; state.p1Left = decoded.p1Left; state.p1Right = decoded.p1Right;
-    state.p1X = decoded.p1X; state.p1Y = decoded.p1Y; state.p1L = decoded.p1L; state.p1R = decoded.p1R;
-    state.p1Up2 = decoded.vbP1Up1; state.p1Down2 = decoded.vbP1Down1; state.p1Left2 = decoded.vbP1Left1; state.p1Right2 = decoded.vbP1Right1;
+    const InputFrame::PadButtons p1 = inputFrame.portButtons(1);
+    const InputFrame::PadButtons p2 = inputFrame.portButtons(2);
+    const InputFrame::PadButtons p3 = inputFrame.portButtons(3);
+    const InputFrame::PadButtons p4 = inputFrame.portButtons(4);
+    const InputFrame::PointerState zapper1 = inputFrame.zapper(1);
+    const InputFrame::PointerState zapper2 = inputFrame.zapper(2);
+    const InputFrame::PointerState bandai = inputFrame.bandaiPointer();
+    const InputFrame::RelativePointerState snes1 = inputFrame.snesMouse(1);
+    const InputFrame::RelativePointerState snes2 = inputFrame.snesMouse(2);
+    const InputFrame::RelativePointerState subor1 = inputFrame.suborMouse(1);
+    const InputFrame::RelativePointerState subor2 = inputFrame.suborMouse(2);
+    const InputFrame::KonamiHyperShotState konami = inputFrame.konamiHyperShot();
+    const InputFrame::ArkanoidState arkanoid1 = inputFrame.arkanoidController(1);
+    const InputFrame::ArkanoidState arkanoid2 = inputFrame.arkanoidController(2);
+    const InputFrame::ArkanoidState arkanoidExpansion = inputFrame.arkanoidExpansion();
 
-    state.p2A = decoded.p2A; state.p2B = decoded.p2B; state.p2Select = decoded.p2Select; state.p2Start = decoded.p2Start;
-    state.p2Up = decoded.p2Up; state.p2Down = decoded.p2Down; state.p2Left = decoded.p2Left; state.p2Right = decoded.p2Right;
-    state.p2X = decoded.p2X; state.p2Y = decoded.p2Y; state.p2L = decoded.p2L; state.p2R = decoded.p2R;
-    state.p2Up2 = decoded.vbP2Up1; state.p2Down2 = decoded.vbP2Down1; state.p2Left2 = decoded.vbP2Left1; state.p2Right2 = decoded.vbP2Right1;
+    state.p1A = p1.a; state.p1B = p1.b; state.p1Select = p1.select; state.p1Start = p1.start;
+    state.p1Up = p1.up; state.p1Down = p1.down; state.p1Left = p1.left; state.p1Right = p1.right;
+    state.p1X = p1.x; state.p1Y = p1.y; state.p1L = p1.l; state.p1R = p1.r;
+    state.p1Up2 = p1.up2; state.p1Down2 = p1.down2; state.p1Left2 = p1.left2; state.p1Right2 = p1.right2;
 
-    state.p3A = decoded.p3A; state.p3B = decoded.p3B; state.p3Select = decoded.p3Select; state.p3Start = decoded.p3Start;
-    state.p3Up = decoded.p3Up; state.p3Down = decoded.p3Down; state.p3Left = decoded.p3Left; state.p3Right = decoded.p3Right;
-    state.p4A = decoded.p4A; state.p4B = decoded.p4B; state.p4Select = decoded.p4Select; state.p4Start = decoded.p4Start;
-    state.p4Up = decoded.p4Up; state.p4Down = decoded.p4Down; state.p4Left = decoded.p4Left; state.p4Right = decoded.p4Right;
+    state.p2A = p2.a; state.p2B = p2.b; state.p2Select = p2.select; state.p2Start = p2.start;
+    state.p2Up = p2.up; state.p2Down = p2.down; state.p2Left = p2.left; state.p2Right = p2.right;
+    state.p2X = p2.x; state.p2Y = p2.y; state.p2L = p2.l; state.p2R = p2.r;
+    state.p2Up2 = p2.up2; state.p2Down2 = p2.down2; state.p2Left2 = p2.left2; state.p2Right2 = p2.right2;
 
-    state.p1PowerPadButtons = decoded.powerPadP1Buttons;
-    state.p2PowerPadButtons = decoded.powerPadP2Buttons;
-    state.suborKeyboardKeys = decoded.suborKeyboardKeys;
-    state.familyBasicKeyboardKeys = decoded.familyBasicKeyboardKeys;
+    state.p3A = p3.a; state.p3B = p3.b; state.p3Select = p3.select; state.p3Start = p3.start;
+    state.p3Up = p3.up; state.p3Down = p3.down; state.p3Left = p3.left; state.p3Right = p3.right;
+    state.p4A = p4.a; state.p4B = p4.b; state.p4Select = p4.select; state.p4Start = p4.start;
+    state.p4Up = p4.up; state.p4Down = p4.down; state.p4Left = p4.left; state.p4Right = p4.right;
 
-    if(decoded.zapperP1X != -1 || decoded.zapperP1Y != -1 || decoded.zapperP1Trigger) {
-        state.zapperX = decoded.zapperP1X;
-        state.zapperY = decoded.zapperP1Y;
-    } else if(decoded.zapperP2X != -1 || decoded.zapperP2Y != -1 || decoded.zapperP2Trigger) {
-        state.zapperX = decoded.zapperP2X;
-        state.zapperY = decoded.zapperP2Y;
-    } else if(decoded.bandaiX != -1 || decoded.bandaiY != -1 || decoded.bandaiTrigger) {
-        state.zapperX = decoded.bandaiX;
-        state.zapperY = decoded.bandaiY;
+    state.p1PowerPadButtons = inputFrame.powerPadButtons(1);
+    state.p2PowerPadButtons = inputFrame.powerPadButtons(2);
+    state.suborKeyboardKeys = inputFrame.suborKeyboardKeys();
+    state.familyBasicKeyboardKeys = inputFrame.familyBasicKeyboardKeys();
+
+    if(zapper1.x != -1 || zapper1.y != -1 || zapper1.trigger) {
+        state.zapperX = zapper1.x;
+        state.zapperY = zapper1.y;
+    } else if(zapper2.x != -1 || zapper2.y != -1 || zapper2.trigger) {
+        state.zapperX = zapper2.x;
+        state.zapperY = zapper2.y;
+    } else if(bandai.x != -1 || bandai.y != -1 || bandai.trigger) {
+        state.zapperX = bandai.x;
+        state.zapperY = bandai.y;
     } else {
         state.zapperX = -1;
         state.zapperY = -1;
     }
 
-    if(decoded.snesMouseP1DeltaX != 0 || decoded.snesMouseP1DeltaY != 0 ||
-       decoded.snesMouseP1Left || decoded.snesMouseP1Right) {
-        state.mouseDeltaX = decoded.snesMouseP1DeltaX;
-        state.mouseDeltaY = decoded.snesMouseP1DeltaY;
-        state.mousePrimaryButton = decoded.snesMouseP1Left;
-        state.mouseSecondaryButton = decoded.snesMouseP1Right;
-    } else if(decoded.snesMouseP2DeltaX != 0 || decoded.snesMouseP2DeltaY != 0 ||
-              decoded.snesMouseP2Left || decoded.snesMouseP2Right) {
-        state.mouseDeltaX = decoded.snesMouseP2DeltaX;
-        state.mouseDeltaY = decoded.snesMouseP2DeltaY;
-        state.mousePrimaryButton = decoded.snesMouseP2Left;
-        state.mouseSecondaryButton = decoded.snesMouseP2Right;
-    } else if(decoded.suborMouseP1DeltaX != 0 || decoded.suborMouseP1DeltaY != 0 ||
-              decoded.suborMouseP1Left || decoded.suborMouseP1Right) {
-        state.mouseDeltaX = decoded.suborMouseP1DeltaX;
-        state.mouseDeltaY = decoded.suborMouseP1DeltaY;
-        state.mousePrimaryButton = decoded.suborMouseP1Left;
-        state.mouseSecondaryButton = decoded.suborMouseP1Right;
-    } else if(decoded.suborMouseP2DeltaX != 0 || decoded.suborMouseP2DeltaY != 0 ||
-              decoded.suborMouseP2Left || decoded.suborMouseP2Right) {
-        state.mouseDeltaX = decoded.suborMouseP2DeltaX;
-        state.mouseDeltaY = decoded.suborMouseP2DeltaY;
-        state.mousePrimaryButton = decoded.suborMouseP2Left;
-        state.mouseSecondaryButton = decoded.suborMouseP2Right;
+    if(snes1.deltaX != 0 || snes1.deltaY != 0 || snes1.primary || snes1.secondary) {
+        state.mouseDeltaX = snes1.deltaX;
+        state.mouseDeltaY = snes1.deltaY;
+        state.mousePrimaryButton = snes1.primary;
+        state.mouseSecondaryButton = snes1.secondary;
+    } else if(snes2.deltaX != 0 || snes2.deltaY != 0 || snes2.primary || snes2.secondary) {
+        state.mouseDeltaX = snes2.deltaX;
+        state.mouseDeltaY = snes2.deltaY;
+        state.mousePrimaryButton = snes2.primary;
+        state.mouseSecondaryButton = snes2.secondary;
+    } else if(subor1.deltaX != 0 || subor1.deltaY != 0 || subor1.primary || subor1.secondary) {
+        state.mouseDeltaX = subor1.deltaX;
+        state.mouseDeltaY = subor1.deltaY;
+        state.mousePrimaryButton = subor1.primary;
+        state.mouseSecondaryButton = subor1.secondary;
+    } else if(subor2.deltaX != 0 || subor2.deltaY != 0 || subor2.primary || subor2.secondary) {
+        state.mouseDeltaX = subor2.deltaX;
+        state.mouseDeltaY = subor2.deltaY;
+        state.mousePrimaryButton = subor2.primary;
+        state.mouseSecondaryButton = subor2.secondary;
     } else {
         state.mouseDeltaX = 0;
         state.mouseDeltaY = 0;
@@ -191,23 +202,23 @@ void applyInputFrameToInputState(EmulationHost::InputState& state, const InputFr
         state.mouseSecondaryButton = false;
     }
 
-    state.zapperP1Trigger = decoded.zapperP1Trigger;
-    state.zapperP2Trigger = decoded.zapperP2Trigger;
-    state.bandaiTrigger = decoded.bandaiTrigger;
-    state.konamiP1Run = decoded.konamiP1Run;
-    state.konamiP1Jump = decoded.konamiP1Jump;
-    state.konamiP2Run = decoded.konamiP2Run;
-    state.konamiP2Jump = decoded.konamiP2Jump;
-    state.arkanoidNesPosition = decoded.arkanoidP1Button || decoded.arkanoidP1Position != 0.5f
-        ? decoded.arkanoidP1Position
-        : decoded.arkanoidP2Position;
-    state.arkanoidFamicomPosition = decoded.arkanoidFamicomPosition;
+    state.zapperP1Trigger = zapper1.trigger;
+    state.zapperP2Trigger = zapper2.trigger;
+    state.bandaiTrigger = bandai.trigger;
+    state.konamiP1Run = konami.p1Run;
+    state.konamiP1Jump = konami.p1Jump;
+    state.konamiP2Run = konami.p2Run;
+    state.konamiP2Jump = konami.p2Jump;
+    state.arkanoidNesPosition = arkanoid1.button || arkanoid1.position != 0.5f
+        ? arkanoid1.position
+        : arkanoid2.position;
+    state.arkanoidFamicomPosition = arkanoidExpansion.position;
 
-    if(decoded.arkanoidP1Button || decoded.arkanoidP2Button || decoded.arkanoidFamicomButton) {
+    if(arkanoid1.button || arkanoid2.button || arkanoidExpansion.button) {
         state.mousePrimaryButton = state.mousePrimaryButton ||
-                                   decoded.arkanoidP1Button ||
-                                   decoded.arkanoidP2Button ||
-                                   decoded.arkanoidFamicomButton;
+                                   arkanoid1.button ||
+                                   arkanoid2.button ||
+                                   arkanoidExpansion.button;
     }
 }
 
