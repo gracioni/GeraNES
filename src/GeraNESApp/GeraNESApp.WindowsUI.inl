@@ -6,6 +6,7 @@
 #include "GeraNESApp/GeraNESApp.CpuDebugSharedUI.inl"
 #include "GeraNESApp/GeraNESApp.ImprovementsWindowUI.inl"
 #include "GeraNESApp/GeraNESApp.AboutWindowUI.inl"
+#include "GeraNESApp/GeraNESApp.ReplayWindowUI.inl"
 #include "GeraNESApp/GeraNESApp.ArkanoidNesConfigWindowUI.inl"
 #include "GeraNESApp/GeraNESApp.ArkanoidFamicomConfigWindowUI.inl"
 #include "GeraNESApp/GeraNESApp.SnesMouseConfigWindowUI.inl"
@@ -47,6 +48,10 @@ inline void GeraNESApp::showGui()
 
     if(m_showPaletteWindow) {
         drawPaletteWindow();
+    }
+
+    if(m_showReplayWindow) {
+        drawReplayWindow();
     }
 
     if(m_showOverscanWindow) {

@@ -459,6 +459,7 @@ bool parseCc65DbgSymbols(
     return found;
 }
 
+
 void addCpuSymbol(
     std::unordered_map<uint16_t, CpuDebugSymbol>& symbols,
     uint16_t address,
@@ -954,6 +955,7 @@ void GeraNESApp::closeRomAction()
 
     m_emu.setModFrameCaptureHook({});
     m_pendingRomLoad = {};
+    clearReplaySession(true);
     m_modManager.clearModSource();
     refreshModFrameCaptureHook();
     m_emu.closeRom();
@@ -966,6 +968,483 @@ void GeraNESApp::closeRomAction()
         glActiveTexture(GL_TEXTURE0);
         glBindTexture(GL_TEXTURE_2D, m_texture);
         glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, 256, 256, GL_RGBA, GL_UNSIGNED_BYTE, m_textureUploadBuffer.data());
+    }
+}
+
+bool GeraNESApp::isReplayRestricted() const
+{
+    const auto snapshot = m_netplayRuntime.uiSnapshot();
+    return snapshot.active || snapshot.hosting || snapshot.connected || snapshot.reconnecting;
+}
+
+void GeraNESApp::refreshReplayFrameInputResolver()
+{
+    const auto replayState = m_replayManager.snapshot();
+    if(replayState.mode == ReplayManager::ReplayMode::Recording) {
+        m_emu.setFrameInputResolver({});
+        m_emu.setQueuedInputObserver([this](const InputFrame& frame) {
+            if(frame.frame == 0) {
+                m_replayManager.setBootstrapFrame(frame);
+            } else {
+                m_replayManager.appendRecordedFrame(frame);
+            }
+        });
+        return;
+    }
+
+    m_emu.setQueuedInputObserver({});
+    if(replayState.mode == ReplayManager::ReplayMode::Playback && replayState.loadedReplayActive && replayState.playing) {
+        m_emu.setFrameInputResolver([this](uint32_t targetFrame, IEmulationHost::ReplayFrameInput& replayInput) {
+            const auto replayFrame = m_replayManager.playbackFrameForFrame(targetFrame);
+            if(!replayFrame.has_value()) {
+                m_replayManager.markPlaybackReachedEnd();
+                return false;
+            }
+            replayInput.hasFrameOverride = true;
+            replayInput.frameOverride = *replayFrame;
+            m_replayManager.notePlaybackFrame(targetFrame);
+            return true;
+        });
+        return;
+    }
+
+    m_emu.setFrameInputResolver({});
+}
+
+void GeraNESApp::stopReplayPlayback(bool pauseEmulation)
+{
+    m_replayManager.stopPlayback();
+    refreshReplayFrameInputResolver();
+    if(pauseEmulation && m_emu.valid() && !m_emu.paused()) {
+        m_emu.togglePaused();
+    }
+}
+
+bool GeraNESApp::stopReplayToStart()
+{
+    if(!m_replayManager.isPlayback() || !m_replayManager.hasLoadedReplay()) {
+        return false;
+    }
+
+    if(!seekReplayToFrame(0)) {
+        return false;
+    }
+
+    m_replayManager.stopPlayback();
+    refreshReplayFrameInputResolver();
+    m_replaySliderValue = 0;
+    m_replaySliderDragging = false;
+    if(m_emu.valid() && !m_emu.paused()) {
+        m_emu.togglePaused();
+    }
+    return true;
+}
+
+void GeraNESApp::clearReplaySession(bool keepWindowOpen)
+{
+    stopReplayPlayback(false);
+    m_replayManager.clear();
+    m_replaySliderValue = 0;
+    m_replaySliderDragging = false;
+    if(!keepWindowOpen) {
+        m_showReplayWindow = false;
+    }
+}
+
+void GeraNESApp::applyReplayInputTopology(const IEmulationHost::InputTopologySnapshot& topology)
+{
+    if(topology.port1Device.has_value()) {
+        m_emu.setPortDevice(Settings::Port::P_1, *topology.port1Device);
+    }
+    if(topology.port2Device.has_value()) {
+        m_emu.setPortDevice(Settings::Port::P_2, *topology.port2Device);
+    }
+    m_emu.setExpansionDevice(topology.expansionDevice);
+    m_emu.setNesMultitapDevice(topology.nesMultitapDevice);
+    m_emu.setFamicomMultitapDevice(topology.famicomMultitapDevice);
+}
+
+InputFrame GeraNESApp::buildReplayRecordedFrame(const IEmulationHost::InputTopologySnapshot& topology,
+                                                uint32_t frameNumber,
+                                                const IEmulationHost::InputState& input)
+{
+    InputFrame frame{};
+    frame.frame = frameNumber;
+    frame.port1Device = topology.port1Device.value_or(Settings::Device::NONE);
+    frame.port2Device = topology.port2Device.value_or(Settings::Device::NONE);
+    frame.expansionDevice = topology.expansionDevice;
+    frame.nesMultitapDevice = topology.nesMultitapDevice;
+    frame.famicomMultitapDevice = topology.famicomMultitapDevice;
+
+    frame.p1A = input.p1A; frame.p1B = input.p1B; frame.p1Select = input.p1Select; frame.p1Start = input.p1Start;
+    frame.p1Up = input.p1Up; frame.p1Down = input.p1Down; frame.p1Left = input.p1Left; frame.p1Right = input.p1Right;
+    frame.p1X = input.p1X; frame.p1Y = input.p1Y; frame.p1L = input.p1L; frame.p1R = input.p1R;
+    frame.p2A = input.p2A; frame.p2B = input.p2B; frame.p2Select = input.p2Select; frame.p2Start = input.p2Start;
+    frame.p2Up = input.p2Up; frame.p2Down = input.p2Down; frame.p2Left = input.p2Left; frame.p2Right = input.p2Right;
+    frame.p2X = input.p2X; frame.p2Y = input.p2Y; frame.p2L = input.p2L; frame.p2R = input.p2R;
+    frame.p3A = input.p3A; frame.p3B = input.p3B; frame.p3Select = input.p3Select; frame.p3Start = input.p3Start;
+    frame.p3Up = input.p3Up; frame.p3Down = input.p3Down; frame.p3Left = input.p3Left; frame.p3Right = input.p3Right;
+    frame.p4A = input.p4A; frame.p4B = input.p4B; frame.p4Select = input.p4Select; frame.p4Start = input.p4Start;
+    frame.p4Up = input.p4Up; frame.p4Down = input.p4Down; frame.p4Left = input.p4Left; frame.p4Right = input.p4Right;
+    frame.vbP1A = input.p1A; frame.vbP1B = input.p1B; frame.vbP1Select = input.p1Select; frame.vbP1Start = input.p1Start;
+    frame.vbP1Up0 = input.p1Up; frame.vbP1Down0 = input.p1Down; frame.vbP1Left0 = input.p1Left; frame.vbP1Right0 = input.p1Right;
+    frame.vbP1Up1 = input.p1Up2; frame.vbP1Down1 = input.p1Down2; frame.vbP1Left1 = input.p1Left2; frame.vbP1Right1 = input.p1Right2;
+    frame.vbP1L = input.p1L; frame.vbP1R = input.p1R;
+    frame.vbP2A = input.p2A; frame.vbP2B = input.p2B; frame.vbP2Select = input.p2Select; frame.vbP2Start = input.p2Start;
+    frame.vbP2Up0 = input.p2Up; frame.vbP2Down0 = input.p2Down; frame.vbP2Left0 = input.p2Left; frame.vbP2Right0 = input.p2Right;
+    frame.vbP2Up1 = input.p2Up2; frame.vbP2Down1 = input.p2Down2; frame.vbP2Left1 = input.p2Left2; frame.vbP2Right1 = input.p2Right2;
+    frame.vbP2L = input.p2L; frame.vbP2R = input.p2R;
+    frame.powerPadP1Buttons = input.p1PowerPadButtons;
+    frame.powerPadP2Buttons = input.p2PowerPadButtons;
+    frame.suborKeyboardKeys = input.suborKeyboardKeys;
+    frame.familyBasicKeyboardKeys = input.familyBasicKeyboardKeys;
+    frame.bandaiA = input.p2A; frame.bandaiB = input.p2B; frame.bandaiSelect = input.p2Select; frame.bandaiStart = input.p2Start;
+    frame.bandaiUp = input.p2Up; frame.bandaiDown = input.p2Down; frame.bandaiLeft = input.p2Left; frame.bandaiRight = input.p2Right;
+    frame.zapperP1X = input.zapperX; frame.zapperP1Y = input.zapperY; frame.zapperP1Trigger = input.zapperP1Trigger;
+    frame.zapperP2X = input.zapperX; frame.zapperP2Y = input.zapperY; frame.zapperP2Trigger = input.zapperP2Trigger;
+    frame.bandaiX = input.zapperX; frame.bandaiY = input.zapperY; frame.bandaiTrigger = input.bandaiTrigger;
+    frame.arkanoidP1Position = input.arkanoidNesPosition; frame.arkanoidP1Button = input.mousePrimaryButton;
+    frame.arkanoidP2Position = input.arkanoidNesPosition; frame.arkanoidP2Button = input.mousePrimaryButton;
+    frame.arkanoidFamicomPosition = input.arkanoidFamicomPosition; frame.arkanoidFamicomButton = input.mousePrimaryButton;
+    frame.konamiP1Run = input.konamiP1Run; frame.konamiP1Jump = input.konamiP1Jump; frame.konamiP2Run = input.konamiP2Run; frame.konamiP2Jump = input.konamiP2Jump;
+    frame.snesMouseP1DeltaX = input.mouseDeltaX; frame.snesMouseP1DeltaY = input.mouseDeltaY; frame.snesMouseP1Left = input.mousePrimaryButton; frame.snesMouseP1Right = input.mouseSecondaryButton;
+    frame.snesMouseP2DeltaX = input.mouseDeltaX; frame.snesMouseP2DeltaY = input.mouseDeltaY; frame.snesMouseP2Left = input.mousePrimaryButton; frame.snesMouseP2Right = input.mouseSecondaryButton;
+    frame.suborMouseP1DeltaX = input.mouseDeltaX; frame.suborMouseP1DeltaY = input.mouseDeltaY; frame.suborMouseP1Left = input.mousePrimaryButton; frame.suborMouseP1Right = input.mouseSecondaryButton;
+    frame.suborMouseP2DeltaX = input.mouseDeltaX; frame.suborMouseP2DeltaY = input.mouseDeltaY; frame.suborMouseP2Left = input.mousePrimaryButton; frame.suborMouseP2Right = input.mouseSecondaryButton;
+    return frame;
+}
+
+std::string GeraNESApp::currentRomCrc32() const
+{
+    if(!m_emu.valid()) {
+        return "";
+    }
+
+    return m_emu.withExclusiveAccess([](auto& emu) {
+        return emu.getConsole().cartridge().prgChrCrc32String();
+    });
+}
+
+bool GeraNESApp::openReplayDialog()
+{
+#ifdef __EMSCRIPTEN__
+    Logger::instance().log("Replay file loading from disk is not available in the web build.", Logger::Type::USER);
+    return false;
+#else
+    const bool resumeAfterDialog = m_emu.withExclusiveAccess([](auto& emu) {
+        if(!emu.valid()) return false;
+        const bool shouldResume = !emu.paused();
+        if(shouldResume) {
+            emu.togglePaused();
+        }
+        return shouldResume;
+    });
+    setWindowsNativePumpEnabled(false);
+
+    const bool restoreAfterDialog = this->isFullScreen();
+#ifndef _WIN32
+    if(restoreAfterDialog) minimizeWindow();
+#endif
+
+    NFD_Init();
+    nfdu8char_t* outPath = nullptr;
+    nfdu8filteritem_t filterItem[] = {
+        { "Replay files", "replay" },
+        { "JSON", "json" },
+        { "All files", "*" }
+    };
+    nfdopendialogu8args_t args = {};
+    args.filterList = filterItem;
+    args.filterCount = sizeof(filterItem) / sizeof(nfdu8filteritem_t);
+    args.defaultPath = AppSettings::instance().data.getLastFolder().c_str();
+#ifdef _WIN32
+    args.parentWindow.type = NFD_WINDOW_HANDLE_TYPE_WINDOWS;
+    args.parentWindow.handle = nativeWindowHandle();
+#endif
+
+    bool opened = false;
+    const nfdresult_t result = NFD_OpenDialogU8_With(&outPath, &args);
+    if(result == NFD_OKAY) {
+        opened = openReplayFile(fs::path(outPath));
+        AppSettings::instance().data.setLastFolder(outPath);
+        NFD_FreePathU8(outPath);
+    } else if(result != NFD_CANCEL) {
+        Logger::instance().log(NFD_GetError(), Logger::Type::ERROR);
+    }
+
+    NFD_Quit();
+    setWindowsNativePumpEnabled(true);
+    m_emu.withExclusiveAccess([resumeAfterDialog](auto& emu) {
+        if(resumeAfterDialog && emu.paused()) {
+            emu.togglePaused();
+        }
+    });
+    if(restoreAfterDialog) this->restoreWindow();
+    return opened;
+#endif
+}
+
+bool GeraNESApp::saveReplayDialog(fs::path& path)
+{
+#ifdef __EMSCRIPTEN__
+    Logger::instance().log("Replay file saving to disk is not available in the web build.", Logger::Type::USER);
+    return false;
+#else
+    const bool resumeAfterDialog = m_emu.withExclusiveAccess([](auto& emu) {
+        if(!emu.valid()) return false;
+        const bool shouldResume = !emu.paused();
+        if(shouldResume) {
+            emu.togglePaused();
+        }
+        return shouldResume;
+    });
+    setWindowsNativePumpEnabled(false);
+
+    const bool restoreAfterDialog = this->isFullScreen();
+#ifndef _WIN32
+    if(restoreAfterDialog) minimizeWindow();
+#endif
+
+    NFD_Init();
+    nfdu8char_t* outPath = nullptr;
+    nfdu8filteritem_t filterItem[] = {
+        { "Replay files", "replay" },
+        { "JSON", "json" }
+    };
+    const std::string defaultName = m_loadedRomPath.stem().empty() ? "session.replay" : (m_loadedRomPath.stem().string() + ".replay");
+    nfdsavedialogu8args_t args = {};
+    args.filterList = filterItem;
+    args.filterCount = sizeof(filterItem) / sizeof(nfdu8filteritem_t);
+    args.defaultPath = AppSettings::instance().data.getLastFolder().c_str();
+    args.defaultName = defaultName.c_str();
+#ifdef _WIN32
+    args.parentWindow.type = NFD_WINDOW_HANDLE_TYPE_WINDOWS;
+    args.parentWindow.handle = nativeWindowHandle();
+#endif
+
+    bool saved = false;
+    const nfdresult_t result = NFD_SaveDialogU8_With(&outPath, &args);
+    if(result == NFD_OKAY) {
+        path = fs::path(outPath);
+        if(path.extension().empty()) {
+            path.replace_extension(".replay");
+        }
+        AppSettings::instance().data.setLastFolder(path.string());
+        NFD_FreePathU8(outPath);
+        saved = true;
+    } else if(result != NFD_CANCEL) {
+        Logger::instance().log(NFD_GetError(), Logger::Type::ERROR);
+    }
+
+    NFD_Quit();
+    setWindowsNativePumpEnabled(true);
+    m_emu.withExclusiveAccess([resumeAfterDialog](auto& emu) {
+        if(resumeAfterDialog && emu.paused()) {
+            emu.togglePaused();
+        }
+    });
+    if(restoreAfterDialog) this->restoreWindow();
+    return saved;
+#endif
+}
+
+bool GeraNESApp::startReplayRecording()
+{
+    if(!m_emu.valid() || m_loadedRomPath.empty()) {
+        m_userToast.show("Load a ROM before recording a replay");
+        return false;
+    }
+    if(isReplayRestricted()) {
+        m_userToast.show("Replay is unavailable while netplay is active");
+        return false;
+    }
+    if(m_replayManager.hasLoadedReplay()) {
+        m_userToast.show("Close the loaded replay before recording");
+        return false;
+    }
+
+    clearReplaySession(true);
+    const std::string romName = m_loadedRomPath.filename().string();
+    const std::string romCrc = currentRomCrc32();
+    const auto inputTopology = m_emu.getInputTopologySnapshot();
+
+    m_replayManager.beginRecording(romName, romCrc, inputTopology);
+    refreshReplayFrameInputResolver();
+    m_imGuiWindowFocusBlocksEmulator = false;
+    if(ImGui::GetCurrentContext() != nullptr) {
+        ImGui::SetWindowFocus(nullptr);
+    }
+
+    if(!openRomPath(m_loadedRomPath, false, false)) {
+        clearReplaySession(true);
+        m_userToast.show("Failed to reload ROM for replay recording");
+        return false;
+    }
+
+    applyReplayInputTopology(inputTopology);
+    m_showReplayWindow = true;
+
+    if(m_emu.paused()) {
+        m_emu.togglePaused();
+    }
+
+    Logger::instance().log("Replay recording started", Logger::Type::USER);
+    return true;
+}
+
+void GeraNESApp::stopReplayRecording()
+{
+    if(!m_replayManager.isRecording()) {
+        return;
+    }
+
+    stopReplayPlayback(true);
+    Logger::instance().log(
+        "Stopping replay recording. Captured inputs: " + std::to_string(m_replayManager.inputCount()),
+        Logger::Type::INFO
+    );
+
+    fs::path savePath;
+    if(!saveReplayDialog(savePath)) {
+        Logger::instance().log("Replay recording stopped without saving", Logger::Type::USER);
+        clearReplaySession(true);
+        return;
+    }
+
+    std::string error;
+    if(!m_replayManager.saveToFile(savePath, error)) {
+        Logger::instance().log("Failed to save replay: " + error, Logger::Type::ERROR);
+        m_userToast.show("Failed to save replay file");
+        clearReplaySession(true);
+        return;
+    }
+
+    Logger::instance().log("Replay saved: " + savePath.string(), Logger::Type::USER);
+    clearReplaySession(true);
+}
+
+bool GeraNESApp::openReplayFile(const fs::path& path)
+{
+    if(!m_emu.valid() || m_loadedRomPath.empty()) {
+        m_userToast.show("Load the target ROM before opening a replay");
+        return false;
+    }
+    if(isReplayRestricted()) {
+        m_userToast.show("Replay is unavailable while netplay is active");
+        return false;
+    }
+
+    std::string error;
+    if(!m_replayManager.loadFromFile(path, error)) {
+        Logger::instance().log("Failed to load replay: " + error, Logger::Type::ERROR);
+        m_userToast.show("Failed to load replay file");
+        return false;
+    }
+
+    const auto replayState = m_replayManager.snapshot();
+    const std::string currentCrc = currentRomCrc32();
+    if(currentCrc.empty() || (!replayState.data.romCrc.empty() && currentCrc != replayState.data.romCrc)) {
+        m_userToast.show("Replay ROM CRC does not match the loaded ROM");
+        Logger::instance().log("Replay ROM CRC mismatch", Logger::Type::ERROR);
+        m_replayManager.clear();
+        return false;
+    }
+
+    m_showReplayWindow = true;
+    Logger::instance().log("Replay loaded: " + path.string(), Logger::Type::USER);
+    if(!seekReplayToFrame(0)) {
+        return false;
+    }
+    startReplayPlayback();
+    return true;
+}
+
+bool GeraNESApp::seekReplayToFrame(uint32_t frame)
+{
+    if(!m_replayManager.isPlayback() || m_loadedRomPath.empty()) {
+        return false;
+    }
+
+    stopReplayPlayback(false);
+    m_emu.setSimulationSuspended(true);
+    const uint32_t targetFrame = m_replayManager.clampedFrame(frame);
+    const auto replayTopology = m_replayManager.inputTopology();
+    const auto snapshot = m_replayManager.runtimeSnapshotAtOrBefore(targetFrame);
+    const auto bootstrapFrame = m_replayManager.playbackFrameForFrame(0);
+    applyReplayInputTopology(replayTopology);
+    if(snapshot.has_value()) {
+        m_emu.setFrameInputResolver({});
+    } else if(bootstrapFrame.has_value()) {
+        m_emu.setFrameInputResolver([bootstrap = *bootstrapFrame](uint32_t targetFrame, IEmulationHost::ReplayFrameInput& replayInput) {
+            if(targetFrame != 0) {
+                return false;
+            }
+            replayInput.hasFrameOverride = true;
+            replayInput.frameOverride = bootstrap;
+            return true;
+        });
+    }
+    if(!openRomPath(m_loadedRomPath, false, false)) {
+        m_emu.setFrameInputResolver({});
+        m_emu.setSimulationSuspended(false);
+        return false;
+    }
+    m_emu.setFrameInputResolver({});
+
+    uint32_t resumeFrame = 0;
+    if(snapshot.has_value()) {
+        if(!m_emu.loadStateFromMemory(snapshot->second)) {
+            m_emu.setSimulationSuspended(false);
+            return false;
+        }
+        m_emu.discardQueuedAudio();
+        resumeFrame = snapshot->first;
+    }
+    if(targetFrame > resumeFrame) {
+        m_emu.resimulateToFrame(targetFrame, [this](uint32_t nextFrame) {
+            IEmulationHost::ReplayFrameInput input;
+            const auto replayFrame = m_replayManager.playbackFrameForFrame(nextFrame);
+            if(!replayFrame.has_value()) {
+                return input;
+            }
+            input.hasFrameOverride = true;
+            input.frameOverride = *replayFrame;
+            return input;
+        });
+    }
+
+    m_emu.discardQueuedAudio();
+    if(m_replayManager.shouldCaptureRuntimeSnapshot(m_emu.frameCount())) {
+        m_replayManager.storeRuntimeSnapshot(m_emu.frameCount(), m_emu.saveStateToMemory());
+    }
+    m_replayManager.setCursorFrame(targetFrame);
+    m_replaySliderValue = static_cast<int>(targetFrame);
+    m_emu.setSimulationSuspended(false);
+    return true;
+}
+
+void GeraNESApp::startReplayPlayback()
+{
+    if(!m_replayManager.isPlayback() || !m_replayManager.hasLoadedReplay()) {
+        return;
+    }
+
+    m_replayManager.beginPlayback();
+    refreshReplayFrameInputResolver();
+
+    if(m_emu.paused()) {
+        m_emu.togglePaused();
+    }
+}
+
+void GeraNESApp::syncReplayRuntimeState()
+{
+    const uint32_t emuFrame = m_emu.frameCount();
+    if(m_replayManager.shouldCaptureRuntimeSnapshot(emuFrame)) {
+        m_replayManager.storeRuntimeSnapshot(emuFrame, m_emu.saveStateToMemory());
+    }
+    if(m_replayManager.syncRuntimeFrame(emuFrame)) {
+        stopReplayPlayback(true);
     }
 }
 
@@ -1562,6 +2041,7 @@ void GeraNESApp::setSnesMouseGrab(bool active)
 
 void GeraNESApp::openFile(const char* path)
 {
+    clearReplaySession(true);
     openRomPath(fs::path(path), true);
 }
 
@@ -2165,6 +2645,21 @@ GeraNESApp::GeraNESApp()
     GeraNESNetplay::attachRuntimeWakeToHost(m_netplayRuntime, m_emu);
     GeraNESNetplay::installProcessGlobalFrontendNetplayLogCallbackOnce();
     m_emu.setPreAdvanceHook([this](GeraNESEmu& emu) {
+        const auto replayState = m_replayManager.snapshot();
+        if(replayState.mode != ReplayManager::ReplayMode::None) {
+            refreshReplayFrameInputResolver();
+
+            const uint32_t modObservedFrame = emu.frameCount();
+            if(m_hasLastModObservedFrame && modObservedFrame < m_lastModObservedFrame) {
+                m_modManager.onStateLoaded(modObservedFrame);
+            }
+            m_lastModObservedFrame = modObservedFrame;
+            m_hasLastModObservedFrame = true;
+
+            m_modManager.onFrame(emu);
+            return;
+        }
+
         IEmulationHost::InputState latestInputState{};
         {
             std::scoped_lock stateLock(m_netplayInputStateMutex);
@@ -2188,6 +2683,7 @@ GeraNESApp::GeraNESApp()
             runtimeSettings
         );
         cfg.inputDelayFrames = static_cast<int>(updateResult.inputDelayFrames);
+        refreshReplayFrameInputResolver();
 
         const uint32_t modObservedFrame = emu.frameCount();
         if(m_hasLastModObservedFrame && modObservedFrame < m_lastModObservedFrame) {
@@ -3447,10 +3943,15 @@ void GeraNESApp::pollAndPrepareInput()
         );
         {
             std::scoped_lock stateLock(m_netplayInputStateMutex);
+            m_replayLiveInputState = inputState;
             m_netplayLatestInputState = inputState;
         }
         m_emu.setPendingInput(inputState);
     } else {
+        {
+            std::scoped_lock stateLock(m_netplayInputStateMutex);
+            m_replayLiveInputState = {};
+        }
         m_emu.setPendingInput({});
     }
 }
@@ -4096,6 +4597,7 @@ void GeraNESApp::mainLoop()
     m_touch->update(dt);
     dispatch_queued_calls();
     applyEffectiveRewindSettings();
+    syncReplayRuntimeState();
     pollAndPrepareInput();
 
     ++m_displayLoopCounter;
@@ -4200,6 +4702,7 @@ void GeraNESApp::mainLoop()
     }
     m_lastObservedEmulationFrame = observedFrame;
     m_hasLastObservedEmulationFrame = true;
+    syncReplayRuntimeState();
     m_generatedFrameCounter += generatedFrames;
     m_fpsTimer += dt;
     if(m_fpsTimer >= 1000) {

@@ -29,6 +29,7 @@ public:
     using InputState = IEmulationHost::InputState;
     using ReplayFrameInput = IEmulationHost::ReplayFrameInput;
     using FrameInputResolver = IEmulationHost::FrameInputResolver;
+    using QueuedInputObserver = IEmulationHost::QueuedInputObserver;
     using NetplayDiagnosticsSnapshot = IEmulationHost::NetplayDiagnosticsSnapshot;
     using ManualStateChangeKind = IEmulationHost::ManualStateChangeKind;
     using ManualStateChangeRecord = IEmulationHost::ManualStateChangeRecord;
@@ -82,17 +83,18 @@ private:
         return frame;
     }
 
-    static void applyInputStateToEmu(GeraNESEmu& emu, const InputState& input)
+    static InputFrame applyInputStateToEmu(GeraNESEmu& emu, const InputState& input)
     {
         InputFrame frame = buildInputFrameForEmu(emu, emu.frameCount() + 1u, input);
         emu.queueInputFrame(frame);
         emu.setRewind(input.rewind);
         emu.setSpeedBoost(input.speedBoost);
+        return frame;
     }
 
-    static void queueReplayFrameInputToEmu(GeraNESEmu& emu,
-                                           uint32_t targetFrame,
-                                           const ReplayFrameInput& input)
+    static InputFrame queueReplayFrameInputToEmu(GeraNESEmu& emu,
+                                                 uint32_t targetFrame,
+                                                 const ReplayFrameInput& input)
     {
         InputFrame frame = input.hasFrameOverride
             ? input.frameOverride
@@ -102,6 +104,7 @@ private:
         emu.queueInputFrame(frame);
         emu.setRewind(input.state.rewind);
         emu.setSpeedBoost(input.state.speedBoost);
+        return frame;
     }
 
     struct Snapshot
@@ -215,6 +218,8 @@ private:
     InputState m_pendingInput;
     mutable std::mutex m_frameInputResolverMutex;
     FrameInputResolver m_frameInputResolver;
+    mutable std::mutex m_queuedInputObserverMutex;
+    QueuedInputObserver m_queuedInputObserver;
     std::atomic<bool> m_autoQueuePendingInputOnFrameStart{true};
     std::atomic<bool> m_allowPresenterTimeoutAdvance{true};
     mutable std::mutex m_preAdvanceHookMutex;
@@ -224,6 +229,7 @@ private:
 
     void runPreAdvanceHookLocked();
     void applyPendingInputLocked();
+    void notifyQueuedInputObserverLocked(const InputFrame& frame);
     void onCommand(std::function<void(GeraNESEmu&)> command);
     void refreshSnapshotLocked();
     void refreshPpuViewerSnapshotLocked(uint32_t frameCount);
@@ -247,7 +253,13 @@ public:
 
     void shutdown() override;
     void setPendingInput(const InputState& input) override;
+    InputState pendingInputSnapshot() const override
+    {
+        std::scoped_lock pendingInputLock(m_pendingInputMutex);
+        return m_pendingInput;
+    }
     void setFrameInputResolver(FrameInputResolver resolver) override;
+    void setQueuedInputObserver(QueuedInputObserver observer) override;
 
     void queueInputForFrame(uint32_t frameNumber, const InputState& input) override
     {
@@ -336,7 +348,7 @@ public:
             {
                 std::scoped_lock resolverLock(m_frameInputResolverMutex);
                 if(m_frameInputResolver && m_frameInputResolver(bootstrapFrame, bootstrapInput)) {
-                    queueReplayFrameInputToEmu(m_emu, bootstrapFrame, bootstrapInput);
+                    notifyQueuedInputObserverLocked(queueReplayFrameInputToEmu(m_emu, bootstrapFrame, bootstrapInput));
                     queuedBootstrap = true;
                 }
             }
@@ -348,6 +360,7 @@ public:
                 }
                 InputFrame frame = buildInputFrameForEmu(m_emu, bootstrapFrame, pendingInput);
                 m_emu.queueInputFrame(frame);
+                notifyQueuedInputObserverLocked(frame);
             }
         }
         refreshSnapshotLocked();
@@ -798,7 +811,7 @@ public:
             queueReplayFrameInputToEmu(m_emu, nextFrame, replayInput);
             lastReplayInput = replayInput;
             hasLastReplayInput = true;
-            m_emu.updateUntilFrame(frameDt);
+            m_emu.updateUntilFrame(frameDt, false);
         }
 
         if(hasLastReplayInput) {

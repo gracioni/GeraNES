@@ -29,6 +29,7 @@ public:
     using InputState = IEmulationHost::InputState;
     using ReplayFrameInput = IEmulationHost::ReplayFrameInput;
     using FrameInputResolver = IEmulationHost::FrameInputResolver;
+    using QueuedInputObserver = IEmulationHost::QueuedInputObserver;
     using NetplayDiagnosticsSnapshot = IEmulationHost::NetplayDiagnosticsSnapshot;
     using ManualStateChangeKind = IEmulationHost::ManualStateChangeKind;
     using ManualStateChangeRecord = IEmulationHost::ManualStateChangeRecord;
@@ -82,17 +83,18 @@ private:
         return frame;
     }
 
-    static void applyInputStateToEmu(GeraNESEmu& emu, const InputState& input)
+    static InputFrame applyInputStateToEmu(GeraNESEmu& emu, const InputState& input)
     {
         InputFrame frame = buildInputFrameForEmu(emu, emu.frameCount() + 1u, input);
         emu.queueInputFrame(frame);
         emu.setRewind(input.rewind);
         emu.setSpeedBoost(input.speedBoost);
+        return frame;
     }
 
-    static void queueReplayFrameInputToEmu(GeraNESEmu& emu,
-                                           uint32_t targetFrame,
-                                           const ReplayFrameInput& input)
+    static InputFrame queueReplayFrameInputToEmu(GeraNESEmu& emu,
+                                                 uint32_t targetFrame,
+                                                 const ReplayFrameInput& input)
     {
         InputFrame frame = input.hasFrameOverride
             ? input.frameOverride
@@ -102,6 +104,7 @@ private:
         emu.queueInputFrame(frame);
         emu.setRewind(input.state.rewind);
         emu.setSpeedBoost(input.state.speedBoost);
+        return frame;
     }
 
     struct Snapshot
@@ -177,6 +180,7 @@ private:
         std::vector<uint32_t>(PPU::SCREEN_WIDTH * PPU::SCREEN_HEIGHT, 0);
     InputState m_pendingInput;
     FrameInputResolver m_frameInputResolver;
+    QueuedInputObserver m_queuedInputObserver;
     bool m_autoQueuePendingInputOnFrameStart = true;
     FramePacingMode m_framePacingMode = FramePacingMode::FreeRunning;
     uint32_t m_presenterTickDtMs = 16;
@@ -196,6 +200,7 @@ private:
 
     void resetFreeRunningPacing();
     void applyPendingInput();
+    void notifyQueuedInputObserver(const InputFrame& frame);
     bool runPreAdvanceHook();
     void dispatchQueuedCommands();
     bool pumpFreeRunningWorkerSteps();
@@ -211,7 +216,12 @@ public:
 
     void shutdown() override;
     void setPendingInput(const InputState& input) override;
+    InputState pendingInputSnapshot() const override
+    {
+        return m_pendingInput;
+    }
     void setFrameInputResolver(FrameInputResolver resolver) override;
+    void setQueuedInputObserver(QueuedInputObserver observer) override;
     void queueInputForFrame(uint32_t frameNumber, const InputState& input) override;
     void queueInputFrames(const std::vector<std::pair<uint32_t, InputState>>& inputs) override;
     void setAutoQueuePendingInputOnFrameStart(bool enabled) override;
@@ -593,7 +603,7 @@ public:
             queueReplayFrameInputToEmu(m_emu, nextFrame, replayInput);
             lastReplayInput = replayInput;
             hasLastReplayInput = true;
-            m_emu.updateUntilFrame(frameDt);
+            m_emu.updateUntilFrame(frameDt, false);
         }
         if(hasLastReplayInput) {
             m_pendingInput = lastReplayInput.state;

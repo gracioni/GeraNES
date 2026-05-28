@@ -133,11 +133,18 @@ void SingleThreadEmulationHost::applyPendingInput()
         if(!m_frameInputResolver(targetFrame, input)) {
             return;
         }
-        queueReplayFrameInputToEmu(m_emu, targetFrame, input);
+        notifyQueuedInputObserver(queueReplayFrameInputToEmu(m_emu, targetFrame, input));
         return;
     }
 
-    applyInputStateToEmu(m_emu, m_pendingInput);
+    notifyQueuedInputObserver(applyInputStateToEmu(m_emu, m_pendingInput));
+}
+
+void SingleThreadEmulationHost::notifyQueuedInputObserver(const InputFrame& frame)
+{
+    if(m_queuedInputObserver) {
+        m_queuedInputObserver(frame);
+    }
 }
 
 bool SingleThreadEmulationHost::runPreAdvanceHook()
@@ -353,6 +360,11 @@ void SingleThreadEmulationHost::setFrameInputResolver(FrameInputResolver resolve
     m_frameInputResolver = std::move(resolver);
 }
 
+void SingleThreadEmulationHost::setQueuedInputObserver(QueuedInputObserver observer)
+{
+    m_queuedInputObserver = std::move(observer);
+}
+
 void SingleThreadEmulationHost::queueInputForFrame(uint32_t frameNumber, const InputState& input)
 {
     postCommand([frameNumber, input](GeraNESEmu& emu) {
@@ -452,10 +464,11 @@ bool SingleThreadEmulationHost::open(const std::string& path)
         const uint32_t bootstrapFrame = m_emu.frameCount();
         ReplayFrameInput bootstrapInput;
         if(m_frameInputResolver && m_frameInputResolver(bootstrapFrame, bootstrapInput)) {
-            queueReplayFrameInputToEmu(m_emu, bootstrapFrame, bootstrapInput);
+            notifyQueuedInputObserver(queueReplayFrameInputToEmu(m_emu, bootstrapFrame, bootstrapInput));
         } else {
             InputFrame frame = buildInputFrameForEmu(m_emu, bootstrapFrame, m_pendingInput);
             m_emu.queueInputFrame(frame);
+            notifyQueuedInputObserver(frame);
         }
     }
     refreshPresentedFramebuffer();

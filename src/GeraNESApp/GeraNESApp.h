@@ -68,6 +68,7 @@ namespace fs = std::filesystem;
 #include "GeraNESApp/ControllerInfo.h"
 #include "GeraNESApp/AppSettings.h"
 #include "GeraNESApp/ModManager.h"
+#include "GeraNESApp/ReplayManager.h"
 
 #include "GeraNES/util/CircularBuffer.h"
 #include "GeraNES/util/Crc32.h"
@@ -217,6 +218,7 @@ private:
     bool m_showPaletteWindow = false;
     bool m_showShaderWindow = false;
     bool m_showOverscanWindow = false;
+    bool m_showReplayWindow = false;
     bool m_showCpuDebuggerWindow = false;
     bool m_showCpuBreakpointsWindow = false;
     bool m_showMemoryViewerWindow = false;
@@ -313,6 +315,10 @@ private:
     ModManager m_modManager;
     mutable std::mutex m_netplayInputStateMutex;
     IEmulationHost::InputState m_netplayLatestInputState = {};
+    IEmulationHost::InputState m_replayLiveInputState = {};
+    ReplayManager m_replayManager;
+    int m_replaySliderValue = 0;
+    bool m_replaySliderDragging = false;
 
     struct RomDatabaseEditorData {
         bool loaded = false;
@@ -501,6 +507,7 @@ private:
     void deleteCurrentPalette();
     void drawPaletteWindow();
     void drawOverscanWindow();
+    void drawReplayWindow();
     void drawPpuViewerWindow();
     void drawModPixelInspectorWindow();
     void drawEventViewerWindow();
@@ -556,6 +563,24 @@ private:
     void persistSettingsForShutdown();
     void createShortcuts();
     void updateCursor();
+    bool isReplayRestricted() const;
+    void refreshReplayFrameInputResolver();
+    void stopReplayPlayback(bool pauseEmulation);
+    void clearReplaySession(bool keepWindowOpen = true);
+    void applyReplayInputTopology(const IEmulationHost::InputTopologySnapshot& topology);
+    static InputFrame buildReplayRecordedFrame(const IEmulationHost::InputTopologySnapshot& topology,
+                                               uint32_t frameNumber,
+                                               const IEmulationHost::InputState& input);
+    std::string currentRomCrc32() const;
+    bool openReplayDialog();
+    bool saveReplayDialog(fs::path& path);
+    bool startReplayRecording();
+    void stopReplayRecording();
+    bool openReplayFile(const fs::path& path);
+    bool seekReplayToFrame(uint32_t frame);
+    bool stopReplayToStart();
+    void startReplayPlayback();
+    void syncReplayRuntimeState();
 
 public:
 

@@ -396,25 +396,40 @@ inline void GeraNESApp::menuBar() {
 
             if (ImGui::BeginMenu(withMenuIcon(FontAwesomeIcons::kGamepad , "Input").c_str()))
             {
+            const auto replayState = m_replayManager.snapshot();
+            const bool replayInputLocked =
+                replayState.mode == ReplayManager::ReplayMode::Recording ||
+                replayState.loadedReplayActive;
+            const auto replayTopology = replayState.data.inputTopology;
 #ifndef __EMSCRIPTEN__
             const auto netplaySnapshot = GeraNESNetplay::menuSnapshot(m_netplayRuntime);
             const auto localInputTopology = m_emu.getInputTopologySnapshot();
             const bool netplayInputManaged = netplaySnapshot.inputManaged;
             const auto& localNetplayAssignments = netplaySnapshot.localAssignments;
             const bool canChangeNetplayManagedInput = !netplayInputManaged;
-            const auto effectivePort1Device = netplayInputManaged
+            const auto effectivePort1Device = replayInputLocked
+                ? replayTopology.port1Device
+                : netplayInputManaged
                 ? netplaySnapshot.port1Device
                 : localInputTopology.port1Device;
-            const auto effectivePort2Device = netplayInputManaged
+            const auto effectivePort2Device = replayInputLocked
+                ? replayTopology.port2Device
+                : netplayInputManaged
                 ? netplaySnapshot.port2Device
                 : localInputTopology.port2Device;
-            const auto effectiveExpansionDevice = netplayInputManaged
+            const auto effectiveExpansionDevice = replayInputLocked
+                ? replayTopology.expansionDevice
+                : netplayInputManaged
                 ? netplaySnapshot.expansionDevice
                 : localInputTopology.expansionDevice;
-            const auto effectiveNesMultitapDevice = netplayInputManaged
+            const auto effectiveNesMultitapDevice = replayInputLocked
+                ? replayTopology.nesMultitapDevice
+                : netplayInputManaged
                 ? netplaySnapshot.nesMultitapDevice
                 : localInputTopology.nesMultitapDevice;
-            const auto effectiveFamicomMultitapDevice = netplayInputManaged
+            const auto effectiveFamicomMultitapDevice = replayInputLocked
+                ? replayTopology.famicomMultitapDevice
+                : netplayInputManaged
                 ? netplaySnapshot.famicomMultitapDevice
                 : localInputTopology.famicomMultitapDevice;
 #else
@@ -422,25 +437,26 @@ inline void GeraNESApp::menuBar() {
             const std::vector<ConsoleNetplay::PlayerSlot> localNetplayAssignments;
             const bool canChangeNetplayManagedInput = true;
             const auto localInputTopology = m_emu.getInputTopologySnapshot();
-            const auto effectivePort1Device = localInputTopology.port1Device;
-            const auto effectivePort2Device = localInputTopology.port2Device;
-            const auto effectiveExpansionDevice = localInputTopology.expansionDevice;
-            const auto effectiveNesMultitapDevice = localInputTopology.nesMultitapDevice;
-            const auto effectiveFamicomMultitapDevice = localInputTopology.famicomMultitapDevice;
+            const auto effectivePort1Device = replayInputLocked ? replayTopology.port1Device : localInputTopology.port1Device;
+            const auto effectivePort2Device = replayInputLocked ? replayTopology.port2Device : localInputTopology.port2Device;
+            const auto effectiveExpansionDevice = replayInputLocked ? replayTopology.expansionDevice : localInputTopology.expansionDevice;
+            const auto effectiveNesMultitapDevice = replayInputLocked ? replayTopology.nesMultitapDevice : localInputTopology.nesMultitapDevice;
+            const auto effectiveFamicomMultitapDevice = replayInputLocked ? replayTopology.famicomMultitapDevice : localInputTopology.famicomMultitapDevice;
 #endif
             const bool nesFourScoreEnabled = effectiveNesMultitapDevice == Settings::NesMultitapDevice::FOUR_SCORE;
             const bool famicomHoriEnabled = effectiveFamicomMultitapDevice == Settings::FamicomMultitapDevice::HORI_ADAPTER;
             const bool anyMultitapActive = nesFourScoreEnabled || famicomHoriEnabled;
+            const bool topologyEditingEnabled = canChangeNetplayManagedInput && !replayInputLocked;
 
             auto effectivePortDeviceFor = [&](Settings::Port port)
             {
                 return port == Settings::Port::P_1 ? effectivePort1Device : effectivePort2Device;
             };
 
-            auto drawControllerPortMenuItem = [this, &effectivePortDeviceFor, canChangeNetplayManagedInput](const char* label, Settings::Port port, Settings::Device device)
+            auto drawControllerPortMenuItem = [this, &effectivePortDeviceFor, topologyEditingEnabled](const char* label, Settings::Port port, Settings::Device device)
             {
                 const bool selected = effectivePortDeviceFor(port) == std::optional<Settings::Device>(device);
-                if(ImGui::MenuItem(label, nullptr, selected, canChangeNetplayManagedInput)) {
+                if(ImGui::MenuItem(label, nullptr, selected, topologyEditingEnabled)) {
                     m_emu.setPortDevice(port, device);
                 }
             };
@@ -557,6 +573,8 @@ inline void GeraNESApp::menuBar() {
             const bool allowMultitapP3Config = !netplayInputManaged || localHasNetplayAssignment(GeraNESNetplay::kMultitapP3PlayerSlot);
             const bool allowMultitapP4Config = !netplayInputManaged || localHasNetplayAssignment(GeraNESNetplay::kMultitapP4PlayerSlot);
 
+            ImGui::BeginDisabled(replayInputLocked);
+
             if (ImGui::BeginMenu("Port 1", !anyMultitapActive && (!netplayInputManaged || allowPort1Config))) {
                 drawControllerPortMenuItem("None", Settings::Port::P_1, Settings::Device::NONE);
                 drawControllerPortMenuItem("Standard Controller", Settings::Port::P_1, Settings::Device::CONTROLLER);
@@ -600,39 +618,39 @@ inline void GeraNESApp::menuBar() {
             }
 
             if (ImGui::BeginMenu("Expansion", !anyMultitapActive && (!netplayInputManaged || allowExpansionConfig))) {
-                if (ImGui::MenuItem("None", nullptr, effectiveExpansionDevice == Settings::ExpansionDevice::NONE, canChangeNetplayManagedInput))
+                if (ImGui::MenuItem("None", nullptr, effectiveExpansionDevice == Settings::ExpansionDevice::NONE, topologyEditingEnabled))
                 {
                     m_emu.setExpansionDevice(Settings::ExpansionDevice::NONE);
                 }
-                if (ImGui::MenuItem("Standard Controller (Famicom)", nullptr, effectiveExpansionDevice == Settings::ExpansionDevice::STANDARD_CONTROLLER_FAMICOM, canChangeNetplayManagedInput))
+                if (ImGui::MenuItem("Standard Controller (Famicom)", nullptr, effectiveExpansionDevice == Settings::ExpansionDevice::STANDARD_CONTROLLER_FAMICOM, topologyEditingEnabled))
                 {
                     m_emu.setExpansionDevice(Settings::ExpansionDevice::STANDARD_CONTROLLER_FAMICOM);
                 }
-                if (ImGui::MenuItem("Bandai Hyper Shot", nullptr, effectiveExpansionDevice == Settings::ExpansionDevice::BANDAI_HYPERSHOT, canChangeNetplayManagedInput))
+                if (ImGui::MenuItem("Bandai Hyper Shot", nullptr, effectiveExpansionDevice == Settings::ExpansionDevice::BANDAI_HYPERSHOT, topologyEditingEnabled))
                 {
                     m_emu.setExpansionDevice(Settings::ExpansionDevice::BANDAI_HYPERSHOT);
                 }
-                if (ImGui::MenuItem("Konami Hyper Shot", nullptr, effectiveExpansionDevice == Settings::ExpansionDevice::KONAMI_HYPERSHOT, canChangeNetplayManagedInput))
+                if (ImGui::MenuItem("Konami Hyper Shot", nullptr, effectiveExpansionDevice == Settings::ExpansionDevice::KONAMI_HYPERSHOT, topologyEditingEnabled))
                 {
                     m_emu.setExpansionDevice(Settings::ExpansionDevice::KONAMI_HYPERSHOT);
                 }
-                if (ImGui::MenuItem("Family Trainer (Side A)", nullptr, effectiveExpansionDevice == Settings::ExpansionDevice::FAMILY_TRAINER_SIDE_A, canChangeNetplayManagedInput))
+                if (ImGui::MenuItem("Family Trainer (Side A)", nullptr, effectiveExpansionDevice == Settings::ExpansionDevice::FAMILY_TRAINER_SIDE_A, topologyEditingEnabled))
                 {
                     m_emu.setExpansionDevice(Settings::ExpansionDevice::FAMILY_TRAINER_SIDE_A);
                 }
-                if (ImGui::MenuItem("Family Trainer (Side B)", nullptr, effectiveExpansionDevice == Settings::ExpansionDevice::FAMILY_TRAINER_SIDE_B, canChangeNetplayManagedInput))
+                if (ImGui::MenuItem("Family Trainer (Side B)", nullptr, effectiveExpansionDevice == Settings::ExpansionDevice::FAMILY_TRAINER_SIDE_B, topologyEditingEnabled))
                 {
                     m_emu.setExpansionDevice(Settings::ExpansionDevice::FAMILY_TRAINER_SIDE_B);
                 }
-                if (ImGui::MenuItem("Subor Keyboard", nullptr, effectiveExpansionDevice == Settings::ExpansionDevice::SUBOR_KEYBOARD, canChangeNetplayManagedInput))
+                if (ImGui::MenuItem("Subor Keyboard", nullptr, effectiveExpansionDevice == Settings::ExpansionDevice::SUBOR_KEYBOARD, topologyEditingEnabled))
                 {
                     m_emu.setExpansionDevice(Settings::ExpansionDevice::SUBOR_KEYBOARD);
                 }
-                if (ImGui::MenuItem("Family Basic Keyboard", nullptr, effectiveExpansionDevice == Settings::ExpansionDevice::FAMILY_BASIC_KEYBOARD, canChangeNetplayManagedInput))
+                if (ImGui::MenuItem("Family Basic Keyboard", nullptr, effectiveExpansionDevice == Settings::ExpansionDevice::FAMILY_BASIC_KEYBOARD, topologyEditingEnabled))
                 {
                     m_emu.setExpansionDevice(Settings::ExpansionDevice::FAMILY_BASIC_KEYBOARD);
                 }
-                if (ImGui::MenuItem("Arkanoid Controller (Famicom)", nullptr, effectiveExpansionDevice == Settings::ExpansionDevice::ARKANOID_CONTROLLER, canChangeNetplayManagedInput))
+                if (ImGui::MenuItem("Arkanoid Controller (Famicom)", nullptr, effectiveExpansionDevice == Settings::ExpansionDevice::ARKANOID_CONTROLLER, topologyEditingEnabled))
                 {
                     m_emu.setExpansionDevice(Settings::ExpansionDevice::ARKANOID_CONTROLLER);
                 }
@@ -662,7 +680,7 @@ inline void GeraNESApp::menuBar() {
             if (ImGui::BeginMenu("Multitap", !netplayInputManaged || anyMultitapActive)) {
                 if (ImGui::BeginMenu("NES")) {
                     if (ImGui::BeginMenu("Four Score")) {
-                        if(ImGui::MenuItem("Enabled", nullptr, nesFourScoreEnabled, canChangeNetplayManagedInput)) {
+                        if(ImGui::MenuItem("Enabled", nullptr, nesFourScoreEnabled, topologyEditingEnabled)) {
                             m_emu.setNesMultitapDevice(
                                 nesFourScoreEnabled ? Settings::NesMultitapDevice::NONE : Settings::NesMultitapDevice::FOUR_SCORE
                             );
@@ -683,7 +701,7 @@ inline void GeraNESApp::menuBar() {
 
                 if (ImGui::BeginMenu("Famicom")) {
                     if (ImGui::BeginMenu("Hori Adapter")) {
-                        if(ImGui::MenuItem("Enabled", nullptr, famicomHoriEnabled, canChangeNetplayManagedInput)) {
+                        if(ImGui::MenuItem("Enabled", nullptr, famicomHoriEnabled, topologyEditingEnabled)) {
                             m_emu.setFamicomMultitapDevice(
                                 famicomHoriEnabled ? Settings::FamicomMultitapDevice::NONE : Settings::FamicomMultitapDevice::HORI_ADAPTER
                             );
@@ -704,10 +722,16 @@ inline void GeraNESApp::menuBar() {
 
             ImGui::EndMenu();
         }
-
         if(ImGui::MenuItem("System")) {
             m_inputBindingConfigWindow.show("System", m_systemInput);
-        }  
+        }
+
+        if(replayInputLocked) {
+            ImGui::Separator();
+            ImGui::TextUnformatted("Replay locks the input topology for the full session.");
+        }
+
+        ImGui::EndDisabled();
 
         const GameDatabase::System cartridgeSystem = m_emu.currentCartridgeSystem();
         const bool isFdsRom = cartridgeSystem == GameDatabase::System::FDS;
@@ -830,6 +854,12 @@ inline void GeraNESApp::menuBar() {
 
         if (beginTopMenu(withMenuIcon(FontAwesomeIcons::kWrench, "Tools").c_str()))
         {
+            if(ImGui::MenuItem(withMenuIcon(FontAwesomeIcons::kPlay, "Replay").c_str(), nullptr, m_showReplayWindow, !isReplayRestricted())) {
+                m_showReplayWindow = !m_showReplayWindow;
+            }
+
+            ImGui::Separator();
+
             if (ImGui::MenuItem(withMenuIcon(FontAwesomeIcons::kClipboard, "Log").c_str()))
             {
                 m_showLogWindow = true;

@@ -159,7 +159,7 @@ void ThreadedEmulationHost::applyPendingInputLocked()
             if(!m_frameInputResolver(targetFrame, input)) {
                 return;
             }
-            queueReplayFrameInputToEmu(m_emu, targetFrame, input);
+            notifyQueuedInputObserverLocked(queueReplayFrameInputToEmu(m_emu, targetFrame, input));
             return;
         }
     }
@@ -168,7 +168,19 @@ void ThreadedEmulationHost::applyPendingInputLocked()
         std::scoped_lock pendingInputLock(m_pendingInputMutex);
         input.state = m_pendingInput;
     }
-    applyInputStateToEmu(m_emu, input.state);
+    notifyQueuedInputObserverLocked(applyInputStateToEmu(m_emu, input.state));
+}
+
+void ThreadedEmulationHost::notifyQueuedInputObserverLocked(const InputFrame& frame)
+{
+    QueuedInputObserver observer;
+    {
+        std::scoped_lock observerLock(m_queuedInputObserverMutex);
+        observer = m_queuedInputObserver;
+    }
+    if(observer) {
+        observer(frame);
+    }
 }
 
 void ThreadedEmulationHost::onCommand(std::function<void(GeraNESEmu&)> command)
@@ -579,6 +591,16 @@ void ThreadedEmulationHost::setFrameInputResolver(FrameInputResolver resolver)
     {
         std::scoped_lock resolverLock(m_frameInputResolverMutex);
         m_frameInputResolver = std::move(resolver);
+    }
+    m_workerWakeRequested.store(true, std::memory_order_release);
+    m_presenterCv.notify_one();
+}
+
+void ThreadedEmulationHost::setQueuedInputObserver(QueuedInputObserver observer)
+{
+    {
+        std::scoped_lock observerLock(m_queuedInputObserverMutex);
+        m_queuedInputObserver = std::move(observer);
     }
     m_workerWakeRequested.store(true, std::memory_order_release);
     m_presenterCv.notify_one();

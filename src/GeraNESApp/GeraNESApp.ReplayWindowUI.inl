@@ -1,0 +1,179 @@
+#pragma once
+
+namespace
+{
+const char* replayPortDeviceLabel(const std::optional<Settings::Device>& device)
+{
+    if(!device.has_value()) {
+        return "Unassigned";
+    }
+
+    switch(*device) {
+        case Settings::Device::CONTROLLER: return "Controller";
+        case Settings::Device::ZAPPER: return "Zapper";
+        case Settings::Device::ARKANOID_CONTROLLER: return "Arkanoid Controller";
+        case Settings::Device::BANDAI_HYPERSHOT: return "Bandai Hyper Shot";
+        case Settings::Device::SNES_MOUSE: return "SNES Mouse";
+        case Settings::Device::SNES_CONTROLLER: return "SNES Controller";
+        case Settings::Device::POWER_PAD_SIDE_A: return "Power Pad Side A";
+        case Settings::Device::POWER_PAD_SIDE_B: return "Power Pad Side B";
+        case Settings::Device::FAMICOM_CONTROLLER: return "Famicom Controller";
+        case Settings::Device::SUBOR_MOUSE: return "Subor Mouse";
+        case Settings::Device::NONE: return "None";
+        case Settings::Device::VIRTUAL_BOY_CONTROLLER: return "Virtual Boy Controller";
+    }
+
+    return "Unknown";
+}
+
+const char* replayExpansionDeviceLabel(Settings::ExpansionDevice device)
+{
+    switch(device) {
+        case Settings::ExpansionDevice::NONE: return "None";
+        case Settings::ExpansionDevice::STANDARD_CONTROLLER_FAMICOM: return "Standard Controller Famicom";
+        case Settings::ExpansionDevice::BANDAI_HYPERSHOT: return "Bandai Hyper Shot";
+        case Settings::ExpansionDevice::KONAMI_HYPERSHOT: return "Konami Hyper Shot";
+        case Settings::ExpansionDevice::ARKANOID_CONTROLLER: return "Arkanoid Controller";
+        case Settings::ExpansionDevice::FAMILY_TRAINER_SIDE_A: return "Family Trainer Side A";
+        case Settings::ExpansionDevice::FAMILY_TRAINER_SIDE_B: return "Family Trainer Side B";
+        case Settings::ExpansionDevice::SUBOR_KEYBOARD: return "Subor Keyboard";
+        case Settings::ExpansionDevice::FAMILY_BASIC_KEYBOARD: return "Family Basic Keyboard";
+    }
+
+    return "Unknown";
+}
+
+const char* replayNesMultitapLabel(Settings::NesMultitapDevice device)
+{
+    switch(device) {
+        case Settings::NesMultitapDevice::NONE: return "None";
+        case Settings::NesMultitapDevice::FOUR_SCORE: return "Four Score";
+    }
+
+    return "Unknown";
+}
+
+const char* replayFamicomMultitapLabel(Settings::FamicomMultitapDevice device)
+{
+    switch(device) {
+        case Settings::FamicomMultitapDevice::NONE: return "None";
+        case Settings::FamicomMultitapDevice::HORI_ADAPTER: return "Hori Adapter";
+    }
+
+    return "Unknown";
+}
+}
+
+inline void GeraNESApp::drawReplayWindow()
+{
+    if(!m_showReplayWindow) {
+        return;
+    }
+
+    if(ImGui::Begin("Replay", &m_showReplayWindow)) {
+        const auto replayState = m_replayManager.snapshot();
+        const bool hasRomLoaded = m_emu.valid();
+        const bool recording = replayState.mode == ReplayManager::ReplayMode::Recording;
+        const bool replayLoaded = replayState.loadedReplayActive;
+        const bool playbackReady = replayState.mode == ReplayManager::ReplayMode::Playback && replayLoaded;
+        const bool netplayRestricted = isReplayRestricted();
+        const bool recordEnabled = hasRomLoaded && !replayLoaded && !netplayRestricted;
+        const bool playEnabled = playbackReady && replayState.loadedFrameCount > 0;
+        const bool pauseEnabled = recording || replayState.playing;
+
+        if(ImGui::Button("Open...", ImVec2(90.0f, 0.0f))) {
+            openReplayDialog();
+        }
+        ImGui::SameLine();
+        if(ImGui::Button("Close", ImVec2(90.0f, 0.0f))) {
+            clearReplaySession(true);
+        }
+
+        ImGui::BeginDisabled(!playEnabled);
+        if(ImGui::Button("Play", ImVec2(90.0f, 0.0f))) {
+            startReplayPlayback();
+        }
+        ImGui::EndDisabled();
+
+        ImGui::SameLine();
+        ImGui::BeginDisabled(!playbackReady);
+        if(ImGui::Button("Stop", ImVec2(90.0f, 0.0f))) {
+            (void)stopReplayToStart();
+        }
+        ImGui::EndDisabled();
+
+        ImGui::SameLine();
+        ImGui::BeginDisabled(!pauseEnabled);
+        if(ImGui::Button("Pause", ImVec2(90.0f, 0.0f))) {
+            stopReplayPlayback(true);
+        }
+        ImGui::EndDisabled();
+
+        ImGui::SameLine();
+        ImGui::BeginDisabled(!recordEnabled);
+        if(ImGui::Button(recording ? "Recording..." : "Record", ImVec2(110.0f, 0.0f))) {
+            if(recording) {
+                stopReplayRecording();
+            } else {
+                startReplayRecording();
+            }
+        }
+        ImGui::EndDisabled();
+
+        uint32_t sliderMax = recording ? replayState.loadedFrameCount : static_cast<uint32_t>(replayState.data.frames.size());
+        if(!m_replaySliderDragging) {
+            m_replaySliderValue = static_cast<int>(std::min(replayState.cursorFrame, sliderMax));
+        }
+        m_replaySliderValue = std::clamp(m_replaySliderValue, 0, static_cast<int>(sliderMax));
+        const bool canSeek = playbackReady && !replayState.playing;
+        ImGui::BeginDisabled(!canSeek || sliderMax == 0);
+        ImGui::SliderInt("Position", &m_replaySliderValue, 0, static_cast<int>(sliderMax), "%d");
+        if(ImGui::IsItemActivated()) {
+            m_replaySliderDragging = true;
+        }
+        if(ImGui::IsItemDeactivatedAfterEdit()) {
+            m_replaySliderDragging = false;
+            if(seekReplayToFrame(static_cast<uint32_t>(m_replaySliderValue))) {
+                startReplayPlayback();
+            }
+        }
+        ImGui::EndDisabled();
+
+        ImGui::Separator();
+
+        const char* modeLabel = "Idle";
+        if(recording) modeLabel = "Recording";
+        else if(playbackReady) modeLabel = replayState.playing ? "Playback" : "Replay Loaded";
+
+        ImGui::Text("Mode: %s", modeLabel);
+        ImGui::Text("ROM: %s", replayState.data.romName.empty() ? "-" : replayState.data.romName.c_str());
+        ImGui::Text("CRC: %s", replayState.data.romCrc.empty() ? "-" : replayState.data.romCrc.c_str());
+        ImGui::Text("Port 1: %s", replayPortDeviceLabel(replayState.data.inputTopology.port1Device));
+        ImGui::Text("Port 2: %s", replayPortDeviceLabel(replayState.data.inputTopology.port2Device));
+        ImGui::Text("Expansion: %s", replayExpansionDeviceLabel(replayState.data.inputTopology.expansionDevice));
+        ImGui::Text("NES Multitap: %s", replayNesMultitapLabel(replayState.data.inputTopology.nesMultitapDevice));
+        ImGui::Text("Famicom Multitap: %s", replayFamicomMultitapLabel(replayState.data.inputTopology.famicomMultitapDevice));
+        ImGui::Text("Frames: %u", recording ? replayState.loadedFrameCount : static_cast<uint32_t>(replayState.data.frames.size()));
+        ImGui::Text("Cursor: %u", replayState.cursorFrame);
+        ImGui::Text("File: %s", replayState.filePath.empty() ? "-" : replayState.filePath.string().c_str());
+
+        if(netplayRestricted) {
+            ImGui::Separator();
+            ImGui::TextUnformatted("Replay is unavailable while netplay is active.");
+        } else if(!hasRomLoaded) {
+            ImGui::Separator();
+            ImGui::TextUnformatted("Load a ROM to record or play a replay.");
+        } else if(replayLoaded) {
+            ImGui::Separator();
+            ImGui::TextUnformatted("Recording is disabled while a replay file is loaded. Close it to record again.");
+        }
+    }
+    ImGui::End();
+
+    const auto replayState = m_replayManager.snapshot();
+    if(!m_showReplayWindow && replayState.mode == ReplayManager::ReplayMode::Recording) {
+        stopReplayRecording();
+    } else if(!m_showReplayWindow && replayState.mode == ReplayManager::ReplayMode::Playback) {
+        clearReplaySession(false);
+    }
+}
