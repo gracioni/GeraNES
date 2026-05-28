@@ -1016,11 +1016,7 @@ void GeraNESApp::refreshReplayFrameInputResolver()
     if(replayState.mode == ReplayManager::ReplayMode::Recording) {
         m_emu.setFrameInputResolver({});
         m_emu.setQueuedInputObserver([this](const InputFrame& frame) {
-            if(frame.frame == 0) {
-                m_replayManager.setBootstrapFrame(frame);
-            } else {
-                m_replayManager.appendRecordedFrame(frame);
-            }
+            m_replayManager.appendRecordedFrame(frame);
         });
         return;
     }
@@ -1417,17 +1413,15 @@ bool GeraNESApp::seekReplayToFrame(uint32_t frame)
         replayState.cursorCanonicalCrc32.has_value();
 
     if(!canResumeFromCurrentState) {
-        const auto bootstrapFrame = m_replayManager.playbackFrameForFrame(0);
-        if(bootstrapFrame.has_value()) {
-            m_emu.setFrameInputResolver([bootstrap = *bootstrapFrame](uint32_t bootstrapTargetFrame, IEmulationHost::ReplayFrameInput& replayInput) {
-                if(bootstrapTargetFrame != 0) {
-                    return false;
-                }
-                replayInput.hasFrameOverride = true;
-                replayInput.frameOverride = bootstrap;
-                return true;
-            });
-        }
+        m_emu.setFrameInputResolver([replayFrames = replayState.data.frames](uint32_t targetFrame,
+                                                                             IEmulationHost::ReplayFrameInput& replayInput) {
+            if(targetFrame >= replayFrames.size()) {
+                return false;
+            }
+            replayInput.hasFrameOverride = true;
+            replayInput.frameOverride = replayFrames[static_cast<size_t>(targetFrame)];
+            return true;
+        });
         if(!openRomPath(m_loadedRomPath, false, false)) {
             m_emu.setFrameInputResolver({});
             m_replaySeekInProgress = false;

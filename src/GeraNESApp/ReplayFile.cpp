@@ -7,7 +7,8 @@
 namespace
 {
 constexpr char kReplayMagic[] = "GERANES REPLAY";
-constexpr uint32_t kReplayBinaryVersion = 1u;
+constexpr uint32_t kReplayBinaryVersion = 2u;
+constexpr uint32_t kReplayBinaryVersionLegacyBootstrap = 1u;
 constexpr uint8_t kMissingPortDevice = 0xFFu;
 
 class ByteReader
@@ -249,12 +250,6 @@ bool ReplayFile::save(const fs::path& path, const Data& data, std::string& error
 
     appendTopologyBytes(bytes, data.inputTopology);
 
-    appendU8(bytes, data.bootstrapFrame.has_value() ? 1u : 0u);
-    if(data.bootstrapFrame.has_value() &&
-       !appendBytes(bytes, data.bootstrapFrame->serializedInputData, error)) {
-        return false;
-    }
-
     std::vector<EncodedRun> runs;
     if(!buildEncodedRuns(data.frames, runs, error)) {
         return false;
@@ -316,7 +311,8 @@ bool ReplayFile::load(const fs::path& path, Data& data, std::string& error)
         error = reader.error();
         return false;
     }
-    if(version != kReplayBinaryVersion) {
+    if(version != kReplayBinaryVersion &&
+       version != kReplayBinaryVersionLegacyBootstrap) {
         error = "Unsupported replay file version";
         return false;
     }
@@ -329,24 +325,29 @@ bool ReplayFile::load(const fs::path& path, Data& data, std::string& error)
         return false;
     }
 
-    uint8_t bootstrapPresent = 0u;
-    if(!reader.readU8(bootstrapPresent)) {
-        error = reader.error();
-        return false;
-    }
-    if(bootstrapPresent != 0u) {
-        InputFrame bootstrapFrame;
-        initializeFrameTopology(bootstrapFrame, loadedData.inputTopology, 0u);
-        uint32_t bootstrapPayloadSize = 0u;
-        if(!reader.readU32(bootstrapPayloadSize)) {
+    uint32_t nextFrameNumber = 0u;
+    if(version == kReplayBinaryVersionLegacyBootstrap) {
+        uint8_t bootstrapPresent = 0u;
+        if(!reader.readU8(bootstrapPresent)) {
             error = reader.error();
             return false;
         }
-        if(!reader.readBytes(bootstrapPayloadSize, bootstrapFrame.serializedInputData)) {
-            error = reader.error();
-            return false;
+
+        InputFrame frameZero;
+        initializeFrameTopology(frameZero, loadedData.inputTopology, 0u);
+        if(bootstrapPresent != 0u) {
+            uint32_t bootstrapPayloadSize = 0u;
+            if(!reader.readU32(bootstrapPayloadSize)) {
+                error = reader.error();
+                return false;
+            }
+            if(!reader.readBytes(bootstrapPayloadSize, frameZero.serializedInputData)) {
+                error = reader.error();
+                return false;
+            }
         }
-        loadedData.bootstrapFrame = std::move(bootstrapFrame);
+        loadedData.frames.push_back(std::move(frameZero));
+        nextFrameNumber = 1u;
     }
 
     uint32_t runCount = 0u;
@@ -355,7 +356,6 @@ bool ReplayFile::load(const fs::path& path, Data& data, std::string& error)
         return false;
     }
 
-    uint32_t nextFrameNumber = 1u;
     for(uint32_t runIndex = 0u; runIndex < runCount; ++runIndex) {
         uint32_t repeatCount = 0u;
         uint32_t payloadSize = 0u;

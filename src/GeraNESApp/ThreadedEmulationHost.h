@@ -94,6 +94,28 @@ private:
         return frame;
     }
 
+    std::optional<InputFrame> queueResolvedOrPendingInputLocked(uint32_t targetFrame)
+    {
+        ReplayFrameInput input;
+        bool hasResolvedInput = false;
+        {
+            std::scoped_lock resolverLock(m_frameInputResolverMutex);
+            if(m_frameInputResolver) {
+                if(!m_frameInputResolver(targetFrame, input)) {
+                    return std::nullopt;
+                }
+                hasResolvedInput = true;
+            }
+        }
+
+        if(!hasResolvedInput) {
+            std::scoped_lock pendingInputLock(m_pendingInputMutex);
+            input.state = m_pendingInput;
+        }
+
+        return queueReplayFrameInputToEmu(m_emu, targetFrame, input);
+    }
+
     struct Snapshot
     {
         bool valid = false;
@@ -216,6 +238,7 @@ private:
 
     void runPreAdvanceHookLocked();
     void applyPendingInputLocked();
+    void applyStartupInputLocked();
     void notifyQueuedInputObserverLocked(const InputFrame& frame);
     void onCommand(std::function<void(GeraNESEmu&)> command);
     void refreshSnapshotLocked();
@@ -328,28 +351,6 @@ public:
         std::scoped_lock emuLock(m_emuMutex);
         m_hasCachedNetplayCrc = false;
         const bool opened = m_emu.openRom(path);
-        if(opened) {
-            const uint32_t bootstrapFrame = m_emu.frameCount();
-            ReplayFrameInput bootstrapInput;
-            bool queuedBootstrap = false;
-            {
-                std::scoped_lock resolverLock(m_frameInputResolverMutex);
-                if(m_frameInputResolver && m_frameInputResolver(bootstrapFrame, bootstrapInput)) {
-                    notifyQueuedInputObserverLocked(queueReplayFrameInputToEmu(m_emu, bootstrapFrame, bootstrapInput));
-                    queuedBootstrap = true;
-                }
-            }
-            if(!queuedBootstrap) {
-                InputState pendingInput;
-                {
-                    std::scoped_lock pendingInputLock(m_pendingInputMutex);
-                    pendingInput = m_pendingInput;
-                }
-                InputFrame frame = buildInputFrameForEmu(m_emu, bootstrapFrame, pendingInput);
-                m_emu.queueInputFrame(frame);
-                notifyQueuedInputObserverLocked(frame);
-            }
-        }
         refreshSnapshotLocked();
         return opened;
     }
@@ -790,11 +791,11 @@ public:
             std::scoped_lock resolverLock(m_frameInputResolverMutex);
             previousResolver = m_frameInputResolver;
             m_frameInputResolver = [&replayFrames](uint32_t nextFrame, ReplayFrameInput& input) {
-                if(nextFrame == 0 || nextFrame > replayFrames.size()) {
+                if(nextFrame >= replayFrames.size()) {
                     return false;
                 }
                 input.hasFrameOverride = true;
-                input.frameOverride = replayFrames[static_cast<size_t>(nextFrame - 1u)];
+                input.frameOverride = replayFrames[static_cast<size_t>(nextFrame)];
                 return true;
             };
         }

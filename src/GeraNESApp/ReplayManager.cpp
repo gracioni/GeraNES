@@ -39,23 +39,9 @@ void ReplayManager::beginRecording(std::string romName,
 void ReplayManager::appendRecordedFrame(const InputFrame& frame)
 {
     std::scoped_lock lock(m_mutex);
-    if(frame.frame == 0) {
-        m_state.data.bootstrapFrame = frame;
-        m_state.cursorFrame = 0;
-        return;
-    }
     m_state.data.frames.push_back(frame);
     m_state.loadedFrameCount = static_cast<uint32_t>(m_state.data.frames.size());
     m_state.cursorFrame = m_state.loadedFrameCount;
-}
-
-void ReplayManager::setBootstrapFrame(const InputFrame& frame)
-{
-    std::scoped_lock lock(m_mutex);
-    m_state.data.bootstrapFrame = frame;
-    if(m_state.data.frames.empty()) {
-        m_state.cursorFrame = 0;
-    }
 }
 
 void ReplayManager::finalizeRecordingAsPlayback(const fs::path& path)
@@ -102,13 +88,10 @@ IEmulationHost::InputTopologySnapshot ReplayManager::inputTopology() const
 std::optional<InputFrame> ReplayManager::playbackFrameForFrame(uint32_t frame) const
 {
     std::scoped_lock lock(m_mutex);
-    if(frame == 0) {
-        return m_state.data.bootstrapFrame;
-    }
-    if(frame > m_state.data.frames.size()) {
+    if(frame >= m_state.data.frames.size()) {
         return std::nullopt;
     }
-    return m_state.data.frames[static_cast<size_t>(frame - 1u)];
+    return m_state.data.frames[static_cast<size_t>(frame)];
 }
 
 void ReplayManager::setCursorFrame(uint32_t frame)

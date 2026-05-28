@@ -16,7 +16,6 @@ public:
         std::string romName;
         std::string romCrc;
         IEmulationHost::InputTopologySnapshot inputTopology = {};
-        std::optional<InputFrame> bootstrapFrame;
         std::vector<InputFrame> frames;
     };
 

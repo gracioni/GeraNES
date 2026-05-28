@@ -151,24 +151,20 @@ void ThreadedEmulationHost::applyPendingInputLocked()
         }
     }
 
-    const uint32_t targetFrame = m_emu.frameCount() + 1u;
-    ReplayFrameInput input;
-    {
-        std::scoped_lock resolverLock(m_frameInputResolverMutex);
-        if(m_frameInputResolver) {
-            if(!m_frameInputResolver(targetFrame, input)) {
-                return;
-            }
-            notifyQueuedInputObserverLocked(queueReplayFrameInputToEmu(m_emu, targetFrame, input));
-            return;
-        }
+    const std::optional<InputFrame> queuedFrame =
+        queueResolvedOrPendingInputLocked(m_emu.frameCount() + 1u);
+    if(queuedFrame.has_value()) {
+        notifyQueuedInputObserverLocked(*queuedFrame);
     }
+}
 
-    {
-        std::scoped_lock pendingInputLock(m_pendingInputMutex);
-        input.state = m_pendingInput;
+void ThreadedEmulationHost::applyStartupInputLocked()
+{
+    const std::optional<InputFrame> queuedFrame =
+        queueResolvedOrPendingInputLocked(m_emu.frameCount());
+    if(queuedFrame.has_value()) {
+        notifyQueuedInputObserverLocked(*queuedFrame);
     }
-    notifyQueuedInputObserverLocked(applyInputStateToEmu(m_emu, input.state));
 }
 
 void ThreadedEmulationHost::notifyQueuedInputObserverLocked(const InputFrame& frame)
@@ -542,6 +538,7 @@ ThreadedEmulationHost::ThreadedEmulationHost(IAudioOutput& audioOutput)
 {
     m_emu.signalResetExecuted.bind(&ThreadedEmulationHost::onResetExecutedLocked, this);
     m_emu.signalLoadExecuted.bind(&ThreadedEmulationHost::onLoadExecutedLocked, this);
+    m_emu.signalSimulationStart.bind(&ThreadedEmulationHost::applyStartupInputLocked, this);
     m_emu.signalFrameStart.bind(&ThreadedEmulationHost::applyPendingInputLocked, this);
     m_emu.signalFrameReady.bind(&ThreadedEmulationHost::onFrameReadyLocked, this);
     m_signalCommand.bind_auto(&ThreadedEmulationHost::onCommand, this);

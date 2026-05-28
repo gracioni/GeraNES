@@ -127,17 +127,12 @@ void SingleThreadEmulationHost::applyPendingInput()
         return;
     }
 
-    ReplayFrameInput input;
-    if(m_frameInputResolver) {
-        const uint32_t targetFrame = m_emu.frameCount() + 1u;
-        if(!m_frameInputResolver(targetFrame, input)) {
-            return;
-        }
-        notifyQueuedInputObserver(queueReplayFrameInputToEmu(m_emu, targetFrame, input));
-        return;
-    }
+    (void)queueResolvedOrPendingInputForFrame(m_emu.frameCount() + 1u);
+}
 
-    notifyQueuedInputObserver(applyInputStateToEmu(m_emu, m_pendingInput));
+void SingleThreadEmulationHost::applyStartupInput()
+{
+    (void)queueResolvedOrPendingInputForFrame(m_emu.frameCount());
 }
 
 void SingleThreadEmulationHost::notifyQueuedInputObserver(const InputFrame& frame)
@@ -336,6 +331,7 @@ SingleThreadEmulationHost::SingleThreadEmulationHost(IAudioOutput& audioOutput)
 {
     m_emu.signalResetExecuted.bind(&SingleThreadEmulationHost::onResetExecutedLocked, this);
     m_emu.signalLoadExecuted.bind(&SingleThreadEmulationHost::onLoadExecutedLocked, this);
+    m_emu.signalSimulationStart.bind(&SingleThreadEmulationHost::applyStartupInput, this);
     m_emu.signalFrameStart.bind(&SingleThreadEmulationHost::applyPendingInput, this);
     m_emu.signalFrameReady.bind(&SingleThreadEmulationHost::onFrameReady, this);
 }
@@ -460,17 +456,6 @@ bool SingleThreadEmulationHost::open(const std::string& path)
     resetFreeRunningPacing();
     m_hasCachedNetplayCrc = false;
     const bool opened = m_emu.openRom(path);
-    if(opened) {
-        const uint32_t bootstrapFrame = m_emu.frameCount();
-        ReplayFrameInput bootstrapInput;
-        if(m_frameInputResolver && m_frameInputResolver(bootstrapFrame, bootstrapInput)) {
-            notifyQueuedInputObserver(queueReplayFrameInputToEmu(m_emu, bootstrapFrame, bootstrapInput));
-        } else {
-            InputFrame frame = buildInputFrameForEmu(m_emu, bootstrapFrame, m_pendingInput);
-            m_emu.queueInputFrame(frame);
-            notifyQueuedInputObserver(frame);
-        }
-    }
     refreshPresentedFramebuffer();
     return opened;
 }

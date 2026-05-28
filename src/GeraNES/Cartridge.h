@@ -863,7 +863,7 @@ public:
                     return false;
                 }
 #else
-                clear();
+                closeRom();
                 if(iNesSizeMismatch) {
                     Logger::instance().log("ROM file size/header mismatch detected (iNES). Aborting load.", Logger::Type::ERROR);
                 }

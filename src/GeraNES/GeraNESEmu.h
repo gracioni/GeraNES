@@ -1542,6 +1542,7 @@ public:
     }
 
     SigSlot::Signal<const std::string&> signalError;
+    SigSlot::Signal<> signalSimulationStart;
     SigSlot::Signal<> signalFrameStart;
     SigSlot::Signal<> signalFrameReady;
     SigSlot::Signal<uint32_t> signalResetExecuted;
@@ -1878,6 +1879,7 @@ public:
             m_nsfPlayer.onOpen();
 
             resetRewindSystem();
+            signalSimulationStart();
         }
 
         return result;

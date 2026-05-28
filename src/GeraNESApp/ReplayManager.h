@@ -55,7 +55,6 @@ public:
                         std::string romCrc,
                         const IEmulationHost::InputTopologySnapshot& topology);
     void appendRecordedFrame(const InputFrame& frame);
-    void setBootstrapFrame(const InputFrame& frame);
     void finalizeRecordingAsPlayback(const fs::path& path);
     void setLoadedReplay(const fs::path& path, ReplayData data);
     uint32_t inputCount() const;

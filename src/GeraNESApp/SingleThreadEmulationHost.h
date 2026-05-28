@@ -94,6 +94,21 @@ private:
         return frame;
     }
 
+    bool queueResolvedOrPendingInputForFrame(uint32_t targetFrame)
+    {
+        ReplayFrameInput input;
+        if(m_frameInputResolver) {
+            if(!m_frameInputResolver(targetFrame, input)) {
+                return false;
+            }
+        } else {
+            input.state = m_pendingInput;
+        }
+
+        notifyQueuedInputObserver(queueReplayFrameInputToEmu(m_emu, targetFrame, input));
+        return true;
+    }
+
     struct Snapshot
     {
         bool valid = false;
@@ -187,6 +202,7 @@ private:
 
     void resetFreeRunningPacing();
     void applyPendingInput();
+    void applyStartupInput();
     void notifyQueuedInputObserver(const InputFrame& frame);
     bool runPreAdvanceHook();
     void dispatchQueuedCommands();
@@ -583,11 +599,11 @@ public:
         }
         const FrameInputResolver previousResolver = m_frameInputResolver;
         m_frameInputResolver = [&replayFrames](uint32_t nextFrame, ReplayFrameInput& input) {
-            if(nextFrame == 0 || nextFrame > replayFrames.size()) {
+            if(nextFrame >= replayFrames.size()) {
                 return false;
             }
             input.hasFrameOverride = true;
-            input.frameOverride = replayFrames[static_cast<size_t>(nextFrame - 1u)];
+            input.frameOverride = replayFrames[static_cast<size_t>(nextFrame)];
             return true;
         };
 
