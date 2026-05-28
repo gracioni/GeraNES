@@ -2821,6 +2821,10 @@ void GeraNESApp::openRom()
 
 void GeraNESApp::loadModArchive()
 {
+    if(isNetplayRomChangeRestricted()) {
+        notifyNetplayRomChangeRestrictedAction("Load mod");
+        return;
+    }
 #ifdef __EMSCRIPTEN__
     Logger::instance().log("Mod loading from disk is not available in the web build.", Logger::Type::USER);
 #else
@@ -2888,6 +2892,10 @@ void GeraNESApp::loadModArchive()
 
 void GeraNESApp::loadModFolder()
 {
+    if(isNetplayRomChangeRestricted()) {
+        notifyNetplayRomChangeRestrictedAction("Load mod");
+        return;
+    }
 #ifdef __EMSCRIPTEN__
     Logger::instance().log("Mod loading from disk is not available in the web build.", Logger::Type::USER);
 #else
@@ -2950,6 +2958,10 @@ void GeraNESApp::loadModFolder()
 
 void GeraNESApp::clearSelectedMod()
 {
+    if(isNetplayRomChangeRestricted()) {
+        notifyNetplayRomChangeRestrictedAction("Clear mod");
+        return;
+    }
     const bool hadSelectedMod = m_modManager.hasSelectedSource();
     m_emu.setModFrameCaptureHook({});
     resetShowOriginalGraphicsInsteadOfModFramebuffer();
