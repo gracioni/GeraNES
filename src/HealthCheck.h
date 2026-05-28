@@ -390,7 +390,7 @@ public:
         std::vector<nlohmann::json> events;
 
         GeraNESEmu emu(DummyAudioOutput::instance());
-        if(!emu.open(options.romPath) || !emu.valid()) {
+        if(!emu.openRom(options.romPath) || !emu.valid()) {
             nlohmann::json run = {
                 {"romPath", romPath.string()},
                 {"seed", options.seed},

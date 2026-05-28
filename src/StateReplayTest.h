@@ -188,7 +188,7 @@ private:
                                                                  std::string& failureReason)
     {
         GeraNESEmu emu(DummyAudioOutput::instance());
-        if(!emu.open(romPath) || !emu.valid()) {
+        if(!emu.openRom(romPath) || !emu.valid()) {
             failureReason = "Failed to open ROM.";
             return std::nullopt;
         }
@@ -312,15 +312,15 @@ private:
         std::unique_ptr<GeraNESEmu> dirtyEmu = std::make_unique<GeraNESEmu>(DummyAudioOutput::instance());
         std::unique_ptr<GeraNESEmu> freshEmu = std::make_unique<GeraNESEmu>(DummyAudioOutput::instance());
         std::unique_ptr<GeraNESEmu> cleanBootEmu = std::make_unique<GeraNESEmu>(DummyAudioOutput::instance());
-        if(!dirtyEmu->open(options.romPath) || !dirtyEmu->valid()) {
+        if(!dirtyEmu->openRom(options.romPath) || !dirtyEmu->valid()) {
             result.baselineFailureReason = "Failed to open dirty replay emulator.";
             return result;
         }
-        if(!freshEmu->open(options.romPath) || !freshEmu->valid()) {
+        if(!freshEmu->openRom(options.romPath) || !freshEmu->valid()) {
             result.baselineFailureReason = "Failed to open fresh replay emulator.";
             return result;
         }
-        if(!cleanBootEmu->open(options.romPath) || !cleanBootEmu->valid()) {
+        if(!cleanBootEmu->openRom(options.romPath) || !cleanBootEmu->valid()) {
             result.baselineFailureReason = "Failed to open clean-boot replay emulator.";
             return result;
         }

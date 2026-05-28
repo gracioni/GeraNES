@@ -459,7 +459,7 @@ bool SingleThreadEmulationHost::open(const std::string& path)
 {
     resetFreeRunningPacing();
     m_hasCachedNetplayCrc = false;
-    const bool opened = m_emu.open(path);
+    const bool opened = m_emu.openRom(path);
     if(opened) {
         const uint32_t bootstrapFrame = m_emu.frameCount();
         ReplayFrameInput bootstrapInput;

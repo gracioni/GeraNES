@@ -480,11 +480,11 @@ private:
 
     static bool bootstrapSession(PeerState& hostPeer, PeerState& clientPeer, const Options& options, std::string& failureReason)
     {
-        if(!hostPeer.emu.open(options.romPath) || !hostPeer.emu.valid()) {
+        if(!hostPeer.emu.openRom(options.romPath) || !hostPeer.emu.valid()) {
             failureReason = "Failed to open ROM on host.";
             return false;
         }
-        if(!clientPeer.emu.open(options.romPath) || !clientPeer.emu.valid()) {
+        if(!clientPeer.emu.openRom(options.romPath) || !clientPeer.emu.valid()) {
             failureReason = "Failed to open ROM on client.";
             return false;
         }
@@ -4208,7 +4208,8 @@ private:
                 ? (scenario.options.runtimeFlow ? runSingleCaseRuntimeFlow(scenario.options)
                                                 : runSingleCaseAppFlow(scenario.options))
                 : runSingleCase(scenario.options);
-            caseResult.report["scenario"] = scenario.name;
+
+            caseResult.report["scenario"] = scenario.name;
             aggregate.report["cases"].push_back(caseResult.report);
             aggregate.report["summary"].push_back({
                 {"scenario", scenario.name},

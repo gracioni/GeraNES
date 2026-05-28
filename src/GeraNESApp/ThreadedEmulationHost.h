@@ -327,7 +327,7 @@ public:
     {
         std::scoped_lock emuLock(m_emuMutex);
         m_hasCachedNetplayCrc = false;
-        const bool opened = m_emu.open(path);
+        const bool opened = m_emu.openRom(path);
         if(opened) {
             const uint32_t bootstrapFrame = m_emu.frameCount();
             ReplayFrameInput bootstrapInput;
@@ -554,7 +554,7 @@ public:
         m_holdPresentedFramebufferUntilFrameReady.store(false, std::memory_order_release);
         postCommand([this](GeraNESEmu& emu) {
             m_hasCachedNetplayCrc = false;
-            emu.close();
+            emu.closeRom();
             {
                 std::scoped_lock framebufferLock(m_framebufferMutex);
                 for(auto& framebuffer : m_framebuffers) {

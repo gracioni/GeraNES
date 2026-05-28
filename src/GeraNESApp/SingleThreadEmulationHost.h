@@ -397,7 +397,7 @@ public:
     {
         resetFreeRunningPacing();
         m_hasCachedNetplayCrc = false;
-        m_emu.close();
+        m_emu.closeRom();
         refreshPresentedFramebuffer();
     }
 

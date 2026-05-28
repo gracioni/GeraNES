@@ -4296,10 +4296,10 @@ TEST_CASE("Netplay ENet host observer with three clients survives repeated host 
     GeraNESEmu observerAEmu(DummyAudioOutput::instance());
     GeraNESEmu observerBEmu(DummyAudioOutput::instance());
 
-    REQUIRE(hostEmu.open(GeraNESTestSupport::romPath().string()));
-    REQUIRE(inputClientEmu.open(GeraNESTestSupport::romPath().string()));
-    REQUIRE(observerAEmu.open(GeraNESTestSupport::romPath().string()));
-    REQUIRE(observerBEmu.open(GeraNESTestSupport::romPath().string()));
+    REQUIRE(hostEmu.openRom(GeraNESTestSupport::romPath().string()));
+    REQUIRE(inputClientEmu.openRom(GeraNESTestSupport::romPath().string()));
+    REQUIRE(observerAEmu.openRom(GeraNESTestSupport::romPath().string()));
+    REQUIRE(observerBEmu.openRom(GeraNESTestSupport::romPath().string()));
     REQUIRE(hostEmu.valid());
     REQUIRE(inputClientEmu.valid());
     REQUIRE(observerAEmu.valid());
@@ -4479,8 +4479,8 @@ TEST_CASE("Netplay observer ignores stale pending resync apply when newer host l
 
     GeraNESEmu hostEmu(DummyAudioOutput::instance());
     GeraNESEmu observerEmu(DummyAudioOutput::instance());
-    REQUIRE(hostEmu.open(GeraNESTestSupport::romPath().string()));
-    REQUIRE(observerEmu.open(GeraNESTestSupport::romPath().string()));
+    REQUIRE(hostEmu.openRom(GeraNESTestSupport::romPath().string()));
+    REQUIRE(observerEmu.openRom(GeraNESTestSupport::romPath().string()));
     REQUIRE(hostEmu.valid());
     REQUIRE(observerEmu.valid());
 
@@ -5328,7 +5328,7 @@ TEST_CASE("Netplay core advances only when the exact next numbered input frame e
     GeraNESTestSupport::requireRomFixture();
 
     GeraNESEmu emu(DummyAudioOutput::instance());
-    REQUIRE(emu.open(GeraNESTestSupport::romPath().string()));
+    REQUIRE(emu.openRom(GeraNESTestSupport::romPath().string()));
     REQUIRE(emu.valid());
 
     const uint32_t frameDt = std::max<uint32_t>(1u, 1000u / std::max<uint32_t>(1u, emu.getRegionFPS()));
@@ -5398,7 +5398,7 @@ TEST_CASE("Netplay core rejects stale timeline epoch inputs after reanchor", "[n
     GeraNESTestSupport::requireRomFixture();
 
     GeraNESEmu emu(DummyAudioOutput::instance());
-    REQUIRE(emu.open(GeraNESTestSupport::romPath().string()));
+    REQUIRE(emu.openRom(GeraNESTestSupport::romPath().string()));
     REQUIRE(emu.valid());
 
     const uint32_t frameDt = std::max<uint32_t>(1u, 1000u / std::max<uint32_t>(1u, emu.getRegionFPS()));
@@ -5433,7 +5433,7 @@ TEST_CASE("Emulator input contract updates pending frames and rejects consumed f
     GeraNESTestSupport::requireRomFixture();
 
     GeraNESEmu emu(DummyAudioOutput::instance());
-    REQUIRE(emu.open(GeraNESTestSupport::romPath().string()));
+    REQUIRE(emu.openRom(GeraNESTestSupport::romPath().string()));
     REQUIRE(emu.valid());
 
     const uint32_t frameDt = std::max<uint32_t>(1u, 1000u / std::max<uint32_t>(1u, emu.getRegionFPS()));
@@ -5541,7 +5541,7 @@ TEST_CASE("Offline emulation advances with input buffer capacity one", "[emu][in
     GeraNESTestSupport::requireRomFixture();
 
     GeraNESEmu emu(DummyAudioOutput::instance());
-    REQUIRE(emu.open(GeraNESTestSupport::romPath().string()));
+    REQUIRE(emu.openRom(GeraNESTestSupport::romPath().string()));
     emu.configureInputBufferCapacity(1);
 
     constexpr uint32_t kFramesToRun = 120u;
@@ -7397,7 +7397,7 @@ TEST_CASE("Netplay state load flushes previously queued audio", "[netplay][audio
 
     RecordingAudioOutput audio;
     GeraNESEmu emu(audio);
-    REQUIRE(emu.open(GeraNESTestSupport::romPath().string()));
+    REQUIRE(emu.openRom(GeraNESTestSupport::romPath().string()));
     REQUIRE(emu.valid());
 
     queueFrameAndAdvance(emu, 0u);
@@ -7423,7 +7423,7 @@ TEST_CASE("Netplay state restore preserves live audio output", "[netplay][audio]
 
     RecordingAudioOutput audio;
     GeraNESEmu emu(audio);
-    REQUIRE(emu.open(GeraNESTestSupport::romPath().string()));
+    REQUIRE(emu.openRom(GeraNESTestSupport::romPath().string()));
     REQUIRE(emu.valid());
 
     queueFrameAndAdvance(emu, 0u);
@@ -7448,7 +7448,7 @@ TEST_CASE("Netplay clean-boot state load reopens IPS patch source", "[netplay][s
     GeraNESTestSupport::requireRomFixture();
 
     GeraNESEmu sourceFixture;
-    REQUIRE(sourceFixture.open(GeraNESTestSupport::romPath().string()));
+    REQUIRE(sourceFixture.openRom(GeraNESTestSupport::romPath().string()));
     std::vector<uint8_t> baseRom = currentRomBytes(sourceFixture);
     REQUIRE(baseRom.size() > 32u);
 
@@ -7462,7 +7462,7 @@ TEST_CASE("Netplay clean-boot state load reopens IPS patch source", "[netplay][s
     writeSingleByteIpsPatchForTest(patchPath, patchOffset, patchedValue);
 
     GeraNESEmu patchedSource;
-    REQUIRE(patchedSource.open(patchPath.string()));
+    REQUIRE(patchedSource.openRom(patchPath.string()));
     REQUIRE(patchedSource.getConsole().cartridge().romFile().fullPath() == patchPath.string());
     REQUIRE(patchedSource.getConsole().cartridge().romFile().patchBasePath() == basePath.string());
     REQUIRE(patchedSource.getConsole().cartridge().romFile().fileCrc32() != Crc32::calc(
@@ -7481,7 +7481,7 @@ TEST_CASE("Netplay clean-boot state load reopens IPS patch source", "[netplay][s
     REQUIRE_FALSE(state.empty());
 
     GeraNESEmu cleanBoot;
-    REQUIRE(cleanBoot.open(patchPath.string()));
+    REQUIRE(cleanBoot.openRom(patchPath.string()));
     REQUIRE(cleanBoot.loadStateFromMemoryOnCleanBoot(state));
     REQUIRE(cleanBoot.frameCount() == savedFrame);
     REQUIRE(cleanBoot.getConsole().cartridge().romFile().fullPath() == patchPath.string());
@@ -7495,7 +7495,7 @@ TEST_CASE("Netplay hitch recovery flushes audio backlog", "[netplay][audio][hitc
 
     RecordingAudioOutput audio;
     GeraNESEmu emu(audio);
-    REQUIRE(emu.open(GeraNESTestSupport::romPath().string()));
+    REQUIRE(emu.openRom(GeraNESTestSupport::romPath().string()));
     REQUIRE(emu.valid());
 
     InputFrame frame0 = emu.createInputFrame(0u);
@@ -7520,7 +7520,7 @@ TEST_CASE("Netplay state restore does not replay audio for frames that were alre
 
     RecordingAudioOutput audio;
     GeraNESEmu emu(audio);
-    REQUIRE(emu.open(GeraNESTestSupport::romPath().string()));
+    REQUIRE(emu.openRom(GeraNESTestSupport::romPath().string()));
     REQUIRE(emu.valid());
 
     const uint32_t frameDt = std::max<uint32_t>(1u, 1000u / std::max<uint32_t>(1u, emu.getRegionFPS()));
@@ -7559,7 +7559,7 @@ TEST_CASE("Netplay resync resets audio frame tracking for future playback", "[ne
 
     RecordingAudioOutput audio;
     GeraNESEmu emu(audio);
-    REQUIRE(emu.open(GeraNESTestSupport::romPath().string()));
+    REQUIRE(emu.openRom(GeraNESTestSupport::romPath().string()));
     REQUIRE(emu.valid());
 
     const uint32_t frameDt = std::max<uint32_t>(1u, 1000u / std::max<uint32_t>(1u, emu.getRegionFPS()));
@@ -7600,7 +7600,7 @@ TEST_CASE("Netplay state restore preserves the same final audio stream as offlin
 
     BufferedRecordingAudioOutput offlineAudio;
     GeraNESEmu offlineEmu(offlineAudio);
-    REQUIRE(offlineEmu.open(GeraNESTestSupport::romPath().string()));
+    REQUIRE(offlineEmu.openRom(GeraNESTestSupport::romPath().string()));
     REQUIRE(offlineEmu.valid());
 
     for(uint32_t frame = 0u; frame <= 3u; ++frame) {
@@ -7613,7 +7613,7 @@ TEST_CASE("Netplay state restore preserves the same final audio stream as offlin
 
     BufferedRecordingAudioOutput netplayAudio;
     GeraNESEmu netplayEmu(netplayAudio);
-    REQUIRE(netplayEmu.open(GeraNESTestSupport::romPath().string()));
+    REQUIRE(netplayEmu.openRom(GeraNESTestSupport::romPath().string()));
     REQUIRE(netplayEmu.valid());
 
     InputFrame confirmedFrame0 = netplayEmu.createInputFrame(0u);
@@ -7707,7 +7707,7 @@ TEST_CASE("Netplay audio state-load policy does not change canonical netplay CRC
     GeraNESTestSupport::requireRomFixture();
 
     GeraNESEmu source(DummyAudioOutput::instance());
-    REQUIRE(source.open(GeraNESTestSupport::romPath().string()));
+    REQUIRE(source.openRom(GeraNESTestSupport::romPath().string()));
     REQUIRE(source.valid());
 
     const uint32_t frameDt = std::max<uint32_t>(1u, 1000u / std::max<uint32_t>(1u, source.getRegionFPS()));
@@ -7722,13 +7722,13 @@ TEST_CASE("Netplay audio state-load policy does not change canonical netplay CRC
     REQUIRE_FALSE(state.empty());
 
     GeraNESEmu resetAudio(DummyAudioOutput::instance());
-    REQUIRE(resetAudio.open(GeraNESTestSupport::romPath().string()));
+    REQUIRE(resetAudio.openRom(GeraNESTestSupport::romPath().string()));
     REQUIRE(resetAudio.valid());
     resetAudio.loadStateFromMemoryWithAudioPolicy(state, GeraNESEmu::StateLoadAudioPolicy::ResetOutput);
     REQUIRE(resetAudio.valid());
 
     GeraNESEmu preservedAudio(DummyAudioOutput::instance());
-    REQUIRE(preservedAudio.open(GeraNESTestSupport::romPath().string()));
+    REQUIRE(preservedAudio.openRom(GeraNESTestSupport::romPath().string()));
     REQUIRE(preservedAudio.valid());
     preservedAudio.loadStateFromMemoryWithAudioPolicy(state, GeraNESEmu::StateLoadAudioPolicy::PreserveContinuousOutput);
     REQUIRE(preservedAudio.valid());
@@ -7744,7 +7744,7 @@ TEST_CASE("Netplay host loaded state canonicalizes local future inputs before re
     const uint32_t frameDt = std::max<uint32_t>(1u, 1000u / std::max<uint32_t>(1u, 60u));
 
     GeraNESEmu savedStateSource(DummyAudioOutput::instance());
-    REQUIRE(savedStateSource.open(GeraNESTestSupport::romPath().string()));
+    REQUIRE(savedStateSource.openRom(GeraNESTestSupport::romPath().string()));
     REQUIRE(savedStateSource.valid());
 
     InputFrame frame0 = savedStateSource.createInputFrame(0u);
@@ -7764,7 +7764,7 @@ TEST_CASE("Netplay host loaded state canonicalizes local future inputs before re
     REQUIRE_FALSE(fullLoadedState.empty());
 
     GeraNESEmu hostLoaded(DummyAudioOutput::instance());
-    REQUIRE(hostLoaded.open(GeraNESTestSupport::romPath().string()));
+    REQUIRE(hostLoaded.openRom(GeraNESTestSupport::romPath().string()));
     REQUIRE(hostLoaded.loadStateFromMemoryOnCleanBoot(fullLoadedState));
     REQUIRE(hostLoaded.valid());
     REQUIRE(hostLoaded.frameCount() == 1u);
@@ -7775,7 +7775,7 @@ TEST_CASE("Netplay host loaded state canonicalizes local future inputs before re
     REQUIRE_FALSE(canonicalPayload.empty());
 
     GeraNESEmu hostCanonicalized(DummyAudioOutput::instance());
-    REQUIRE(hostCanonicalized.open(GeraNESTestSupport::romPath().string()));
+    REQUIRE(hostCanonicalized.openRom(GeraNESTestSupport::romPath().string()));
     REQUIRE(hostCanonicalized.loadStateFromMemoryOnCleanBoot(canonicalPayload));
     REQUIRE(hostCanonicalized.valid());
     REQUIRE(hostCanonicalized.frameCount() == 1u);
@@ -7783,7 +7783,7 @@ TEST_CASE("Netplay host loaded state canonicalizes local future inputs before re
     REQUIRE(hostCanonicalized.inputBuffer().findByFrame(2u, hostCanonicalized.inputTimelineEpoch()) == nullptr);
 
     GeraNESEmu clientAfterResync(DummyAudioOutput::instance());
-    REQUIRE(clientAfterResync.open(GeraNESTestSupport::romPath().string()));
+    REQUIRE(clientAfterResync.openRom(GeraNESTestSupport::romPath().string()));
     REQUIRE(clientAfterResync.loadStateFromMemoryOnCleanBoot(canonicalPayload));
     REQUIRE(clientAfterResync.valid());
     REQUIRE(clientAfterResync.frameCount() == 1u);
@@ -8032,7 +8032,7 @@ TEST_CASE("Netplay state restore branch converges to baseline canonical CRC at l
     };
 
     GeraNESEmu baselineEmu(DummyAudioOutput::instance());
-    REQUIRE(baselineEmu.open(GeraNESTestSupport::romPath().string()));
+    REQUIRE(baselineEmu.openRom(GeraNESTestSupport::romPath().string()));
     REQUIRE(baselineEmu.valid());
 
     std::vector<uint32_t> baselineFrameCrc(targetFrame + 1u, 0u);
@@ -8049,7 +8049,7 @@ TEST_CASE("Netplay state restore branch converges to baseline canonical CRC at l
     const uint32_t baselineTargetCrc = baselineFrameCrc[targetFrame];
 
     GeraNESEmu restoreEmu(DummyAudioOutput::instance());
-    REQUIRE(restoreEmu.open(GeraNESTestSupport::romPath().string()));
+    REQUIRE(restoreEmu.openRom(GeraNESTestSupport::romPath().string()));
     REQUIRE(restoreEmu.valid());
 
     for(uint32_t frame = firstFrame; frame <= restoreFrame; ++frame) {
@@ -8276,7 +8276,7 @@ TEST_CASE("Netplay clean-boot load and dirty-instance replay produce identical f
     GeraNESTestSupport::requireRomFixture();
 
     GeraNESEmu source(DummyAudioOutput::instance());
-    REQUIRE(source.open(GeraNESTestSupport::romPath().string()));
+    REQUIRE(source.openRom(GeraNESTestSupport::romPath().string()));
     REQUIRE(source.valid());
 
     const uint32_t frameDt = std::max<uint32_t>(1u, 1000u / std::max<uint32_t>(1u, source.getRegionFPS()));
@@ -8293,12 +8293,12 @@ TEST_CASE("Netplay clean-boot load and dirty-instance replay produce identical f
     REQUIRE_FALSE(saveState.empty());
 
     GeraNESEmu cleanBoot(DummyAudioOutput::instance());
-    REQUIRE(cleanBoot.open(GeraNESTestSupport::romPath().string()));
+    REQUIRE(cleanBoot.openRom(GeraNESTestSupport::romPath().string()));
     REQUIRE(cleanBoot.loadStateFromMemoryOnCleanBoot(saveState));
     REQUIRE(cleanBoot.valid());
 
     GeraNESEmu dirtyReplay(DummyAudioOutput::instance());
-    REQUIRE(dirtyReplay.open(GeraNESTestSupport::romPath().string()));
+    REQUIRE(dirtyReplay.openRom(GeraNESTestSupport::romPath().string()));
     REQUIRE(dirtyReplay.valid());
     dirtyReplay.loadStateFromMemory(saveState);
     REQUIRE(dirtyReplay.valid());

@@ -1415,7 +1415,7 @@ private:
         }
 
         if(m_halt) {
-            close();
+            closeRom();
             return false;
         }
 
@@ -1697,20 +1697,20 @@ public:
         m_rewind.reset();
     }
 
-    void close()
+    void closeRom()
     {
-        m_cartridge.clear();
+        m_cartridge.closeRom();
         m_ppu.clearFramebuffer();
         m_ppuRegisterAccessEvents.clear();
         m_rewind.destroy();
     }
 
-    bool open(const std::string& filename)
+    bool openRom(const std::string& filename)
     {
         m_audioOutput.clearAudioBuffers();
         m_ppu.clearFramebuffer();
 
-        bool result = m_cartridge.open(filename);
+        bool result = m_cartridge.openRom(filename);
 
         if(result) { //no errors
 
@@ -2264,7 +2264,7 @@ public:
 
         const std::string romPath = m_cartridge.romFile().fullPath();
         if(romPath.empty()) return false;
-        if(!open(romPath) || !valid()) return false;
+        if(!openRom(romPath) || !valid()) return false;
 
         loadStateFromMemoryWithAudioPolicy(data, audioPolicy);
         return valid();

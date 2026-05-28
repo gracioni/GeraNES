@@ -998,7 +998,7 @@ RETRO_API void retro_init(void)
 RETRO_API void retro_deinit(void)
 {
     if(g_gameLoaded) {
-        g_emu.close();
+        g_emu.closeRom();
         g_gameLoaded = false;
     }
 
@@ -1171,7 +1171,7 @@ RETRO_API bool retro_load_game(const struct retro_game_info* game)
     }
 
     if(g_gameLoaded) {
-        g_emu.close();
+        g_emu.closeRom();
         g_gameLoaded = false;
     }
 
@@ -1186,13 +1186,13 @@ RETRO_API bool retro_load_game(const struct retro_game_info* game)
     bool loaded = false;
 
     if(game->path != nullptr && std::strlen(game->path) > 0) {
-        loaded = g_emu.open(game->path);
+        loaded = g_emu.openRom(game->path);
     }
     else if(game->data != nullptr && game->size > 0) {
         std::string tempPath;
         if(writeTempRom(game->data, game->size, tempPath)) {
             g_tempRomPath = tempPath;
-            loaded = g_emu.open(g_tempRomPath);
+            loaded = g_emu.openRom(g_tempRomPath);
         }
         else {
             frontendMessage("Failed to load content: could not create temporary ROM file.", 300);
@@ -1238,7 +1238,7 @@ RETRO_API bool retro_load_game_special(unsigned, const struct retro_game_info*, 
 RETRO_API void retro_unload_game(void)
 {
     if(g_gameLoaded) {
-        g_emu.close();
+        g_emu.closeRom();
     }
 
     g_gameLoaded = false;

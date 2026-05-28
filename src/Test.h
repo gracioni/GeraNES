@@ -395,7 +395,7 @@ public:
         BeepAudioOutput beepAudio;
         GeraNESEmu emu(beepAudio);
 
-        if(!emu.open(romPath) || !emu.valid()) {
+        if(!emu.openRom(romPath) || !emu.valid()) {
             return RESULT_ERROR;
         }
 

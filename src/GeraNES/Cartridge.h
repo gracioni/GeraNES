@@ -782,7 +782,7 @@ public:
         if(m_nesCartridgeData != NULL) delete m_nesCartridgeData;
     }
 
-    void clear()
+    void closeRom()
     {
         if(m_mapper != &m_dummyMapper) delete m_mapper;
         if(m_nesCartridgeData != NULL) delete m_nesCartridgeData;
@@ -796,9 +796,9 @@ public:
         m_isValid = false;        
     }
 
-    bool open(const std::string& filename)
+    bool openRom(const std::string& filename)
     {
-        clear();
+        closeRom();
 
         m_romFile.open(filename);
         const std::string sourceName = m_romFile.fileName().empty() ? fs::path(filename).filename().string() : m_romFile.fileName();
@@ -806,7 +806,7 @@ public:
 
         if(m_romFile.error() != "") {            
             Logger::instance().log(std::string("Error processing file '") + filename + "': " + m_romFile.error(), Logger::Type::ERROR);
-            clear();
+            closeRom();
             return false;
         }
 
@@ -830,7 +830,7 @@ public:
                 fds = nullptr;
 
                 if(sourceExtension == ".fds") {
-                    clear();
+                    closeRom();
                     Logger::instance().log(
                         fdsError.empty() ? "Invalid FDS image" : fdsError,
                         Logger::Type::ERROR
@@ -847,7 +847,7 @@ public:
                     const std::string nsfError = nsf->error();
                     delete nsf;
                     nsf = nullptr;
-                    clear();
+                    closeRom();
                     if(iNesSizeMismatch) {
                         Logger::instance().log("ROM file size/header mismatch detected (iNES). Aborting load.", Logger::Type::ERROR);
                     }
@@ -930,7 +930,7 @@ public:
 
             Logger::instance().log(msg, Logger::Type::ERROR);
 
-            clear();
+            closeRom();
 
             return false;
         }
