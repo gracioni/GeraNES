@@ -78,6 +78,14 @@ int AudioOutputBase::outputSampleRate() const
     return m_outputSampleRate;
 }
 
+int AudioOutputBase::desiredOutputChannels() const
+{
+    if(!m_externalAudioMixer) {
+        return 1;
+    }
+    return std::clamp(m_externalAudioMixer->preferredOutputChannels(), 1, 2);
+}
+
 void AudioOutputBase::setChannelVolume(Channel channel, float volume)
 {
     switch(channel) {

@@ -1575,6 +1575,21 @@ void GeraNESApp::onEmuLoadForModAssets(uint32_t frame)
     m_modManager.onStateLoaded(frame);
 }
 
+int GeraNESApp::currentModAudioPreferredChannels() const
+{
+    if(const auto mixer = m_audioOutput.getExternalAudioMixer()) {
+        return std::clamp(mixer->preferredOutputChannels(), 1, 2);
+    }
+    return 1;
+}
+
+void GeraNESApp::syncModAudioOutputChannels(int previousChannelCount)
+{
+    if(currentModAudioPreferredChannels() != previousChannelCount) {
+        m_emu.restartAudio();
+    }
+}
+
 void GeraNESApp::refreshModFrameCaptureHook()
 {
     m_emu.setModFrameCaptureHook([this](GeraNESEmu& emu, IEmulationHost::ModRenderSnapshot& snapshot, std::vector<uint32_t>& framebuffer) {
@@ -1734,6 +1749,7 @@ void GeraNESApp::updatePendingRomLoad()
 
 bool GeraNESApp::openRomPath(const fs::path& path, bool updateRecentFiles, bool clearSelectedMod)
 {
+    const int previousModAudioChannels = currentModAudioPreferredChannels();
     if(isNetplayRomChangeRestricted()) {
         notifyNetplayRomChangeRestrictedAction("Open ROM");
         return false;
@@ -1778,6 +1794,7 @@ bool GeraNESApp::openRomPath(const fs::path& path, bool updateRecentFiles, bool 
         resetShowOriginalGraphicsInsteadOfModFramebuffer();
         modDefinitionLoaded = m_modManager.loadDefinitionForCurrentMod();
     }
+    syncModAudioOutputChannels(previousModAudioChannels);
 
     if(modDefinitionLoaded && modLoad.modLoaded) {
         const ModManager::StartupAssetPreloadStatus preloadStatus = m_modManager.startupAssetPreloadStatus();

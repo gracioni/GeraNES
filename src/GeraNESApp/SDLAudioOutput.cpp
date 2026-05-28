@@ -157,13 +157,13 @@ bool SDLAudioOutput::config(const std::string& deviceName, int requestedSampleRa
     SDL_AudioSpec preferredSpec{};
     preferredSpec.freq = 44100;
     preferredSpec.format = AUDIO_S16;
-    preferredSpec.channels = 1;
+    preferredSpec.channels = static_cast<Uint8>(desiredOutputChannels());
 
     if(deviceIndex >= 0 && SDL_GetAudioDeviceSpec(deviceIndex, 0, &preferredSpec) != 0) {
         Logger::instance().log(std::string("SDL_GetAudioDeviceSpec error: ") + SDL_GetError() + ". Using fallback format.", Logger::Type::WARNING);
         preferredSpec.freq = 44100;
         preferredSpec.format = AUDIO_S16;
-        preferredSpec.channels = 1;
+        preferredSpec.channels = static_cast<Uint8>(desiredOutputChannels());
     }
 
     int newSampleRate = requestedSampleRate > 0 ? requestedSampleRate : preferredSpec.freq;
@@ -179,7 +179,7 @@ bool SDLAudioOutput::config(const std::string& deviceName, int requestedSampleRa
     }
 
     spec.freq = newSampleRate;
-    spec.channels = 1;
+    spec.channels = static_cast<Uint8>(desiredOutputChannels());
     spec.samples = static_cast<uint16_t>(newSampleRate * BUFFER_TIME);
     spec.callback = nullptr;
     spec.userdata = this;
@@ -210,6 +210,7 @@ bool SDLAudioOutput::config(const std::string& deviceName, int requestedSampleRa
     Logger::instance().log(std::string("Audio device: ") + m_currentDeviceName, Logger::Type::INFO);
     Logger::instance().log(std::string("Sample rate: ") + std::to_string(spec.freq), Logger::Type::INFO);
     Logger::instance().log(std::string("Sample size: ") + std::to_string(spec.format & 0xFF), Logger::Type::INFO);
+    Logger::instance().log(std::string("Channels: ") + std::to_string(spec.channels), Logger::Type::INFO);
 
     m_sampleFormatScale = std::exp2(static_cast<float>(sampleSize()));
 
@@ -247,31 +248,44 @@ void SDLAudioOutput::render(uint32_t dt, bool silenceFlag)
 
     const int bitsPerSample = sampleSize();
     const int bytesPerSample = bitsPerSample / 8;
+    const int outputChannels = std::max(1, static_cast<int>(spec.channels));
+    const int bytesPerFrame = bytesPerSample * outputChannels;
     float vol = std::pow(m_volume, 2.0f);
     while(sampleAcc >= 1000)
     {
-        float value = silenceFlag ? 0.0f : mix() * vol;
-        captureMixedSample(value);
-
-        if(bitsPerSample == 8) {
-            int temp = static_cast<int>((value / 2.0f + 0.5f) * 255.0f);
-            if(temp < 0) temp = 0;
-            else if(temp > 255) temp = 255;
-            m_buffer.push_back(static_cast<char>(temp));
-        }
-        else {
-            uint64_t temp = static_cast<uint64_t>(value / 2.0f * m_sampleFormatScale);
-            for(int i = 0; i < bytesPerSample; i++ ){
-                m_buffer.push_back(static_cast<char>(temp & 0xFF));
-                temp >>= 8;
+        const auto appendSample = [&](float value) {
+            if(bitsPerSample == 8) {
+                int temp = static_cast<int>((value / 2.0f + 0.5f) * 255.0f);
+                if(temp < 0) temp = 0;
+                else if(temp > 255) temp = 255;
+                m_buffer.push_back(static_cast<char>(temp));
+            } else {
+                uint64_t temp = static_cast<uint64_t>(value / 2.0f * m_sampleFormatScale);
+                for(int i = 0; i < bytesPerSample; i++ ){
+                    m_buffer.push_back(static_cast<char>(temp & 0xFF));
+                    temp >>= 8;
+                }
             }
+        };
+
+        if(outputChannels <= 1) {
+            const float mono = (silenceFlag ? 0.0f : mixMono()) * vol;
+            captureMixedSample(mono);
+            appendSample(mono);
+        } else {
+            const StereoSample mixedFrame = silenceFlag ? StereoSample{} : mixFrame();
+            const float left = mixedFrame.left * vol;
+            const float right = mixedFrame.right * vol;
+            captureMixedSample((left + right) * 0.5f);
+            appendSample(left);
+            appendSample(right);
         }
 
         sampleAcc -= 1000;
     }
 
     bool playFlag = SDL_GetQueuedAudioSize(m_device) != 0;
-    if(playFlag || m_buffer.size() >= sampleRate() * bytesPerSample * BUFFER_TIME)
+    if(playFlag || m_buffer.size() >= static_cast<size_t>(sampleRate() * bytesPerFrame * BUFFER_TIME))
     {
         SDL_QueueAudio(m_device, static_cast<void*>(m_buffer.data()), static_cast<Uint32>(m_buffer.size()));
         m_buffer.clear();

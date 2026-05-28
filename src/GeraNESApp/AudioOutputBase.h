@@ -45,6 +45,31 @@ private:
     static float clampVolume(float v);
 
     float mixExpansionAudio(float& mixWeight);
+    GERANES_INLINE_HOT float mixBaseMono()
+    {
+        float ret = 0.0f;
+        float expansionMixWeight = 0.0f;
+        const float expansionRaw = mixExpansionAudio(expansionMixWeight);
+        const float effectiveExpansionMixWeight = m_rewinding ? 0.0f : expansionMixWeight;
+        const float sum = 0.5f + 0.5f + 0.5f + 1.0f + 1.5f + 1.5f + expansionMixWeight;
+
+        ret += 0.5f / sum * m_pulseWave1.get() * m_userPulse1Volume;
+        ret += 0.5f / sum * m_pulseWave2.get() * m_userPulse2Volume;
+        ret += 0.5f / sum * m_triangleWave.get() * m_userTriangleVolume;
+        ret += 1.0f / sum * m_noise.get() * m_userNoiseVolume;
+        if(!m_rewinding) {
+            ret += 1.5f / sum * m_sample.get() * m_userSampleVolume;
+            ret += 1.5f / sum * m_sampleDirect.get() * m_userSampleVolume;
+        }
+        if(effectiveExpansionMixWeight > 0.0f) {
+            ret += effectiveExpansionMixWeight / sum * expansionRaw;
+        }
+
+        ret = m_hpFilter1.apply(ret);
+        ret = m_hpFilter2.apply(ret);
+        ret = m_lpFilter.apply(ret);
+        return ret;
+    }
 
 public:
 
@@ -55,38 +80,31 @@ public:
     void captureMixedSample(float sample);
     std::vector<float> getRecentMixedSamples(size_t maxSamples = 0) const override;
     int outputSampleRate() const override;
-
-    GERANES_INLINE_HOT float mix()
+    int desiredOutputChannels() const;
+    GERANES_INLINE_HOT float mixMono()
     {
-        float ret = 0;
-        float expansionMixWeight = 0.0f;
-        const float expansionRaw = mixExpansionAudio(expansionMixWeight);
-        const float effectiveExpansionMixWeight = m_rewinding ? 0.0f : expansionMixWeight;
-        const float sum = 0.5f + 0.5f + 0.5f + 1.0f + 1.5f + 1.5f + expansionMixWeight;
-
-        //empirical values 
-        ret += 0.5f/sum*m_pulseWave1.get()*m_userPulse1Volume;
-        ret += 0.5f/sum*m_pulseWave2.get()*m_userPulse2Volume;
-        ret += 0.5f/sum*m_triangleWave.get()*m_userTriangleVolume;
-        ret += 1.0f/sum*m_noise.get()*m_userNoiseVolume;
-        if(!m_rewinding) {
-            ret += 1.5f/sum*m_sample.get()*m_userSampleVolume;
-            ret += 1.5f/sum*m_sampleDirect.get()*m_userSampleVolume;
-        }
-        if(effectiveExpansionMixWeight > 0.0f) {
-            ret += effectiveExpansionMixWeight / sum * expansionRaw;
-        }
-
-        ret = m_hpFilter1.apply(ret);
-        ret = m_hpFilter2.apply(ret);
-        ret = m_lpFilter.apply(ret);
+        float ret = mixBaseMono();
 
         if(m_externalAudioMixer) {
-            ret += m_externalAudioMixer->mixAudioSample(m_outputSampleRate);
+            ret += m_externalAudioMixer->mixMonoSample(m_outputSampleRate);
         }
 
-        if(ret > 0.999f) ret = 0.999f;
-        else if(ret < -0.999f) ret = -0.999f;
+        return std::clamp(ret, -0.999f, 0.999f);
+    }
+
+    GERANES_INLINE_HOT StereoSample mixFrame()
+    {
+        const float mono = mixBaseMono();
+        StereoSample ret{mono, mono};
+
+        if(m_externalAudioMixer) {
+            const StereoSample external = m_externalAudioMixer->mixStereoFrame(m_outputSampleRate);
+            ret.left += external.left;
+            ret.right += external.right;
+        }
+
+        ret.left = std::clamp(ret.left, -0.999f, 0.999f);
+        ret.right = std::clamp(ret.right, -0.999f, 0.999f);
 
         return ret;
     }

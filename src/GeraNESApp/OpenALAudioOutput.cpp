@@ -132,6 +132,7 @@ bool OpenALAudioOutput::config(const std::string& deviceName, int requestedSampl
 
     m_sampleRate = requestedSampleRate > 0 ? requestedSampleRate : 44100;
     m_sampleSize = requestedSampleSize == 16 ? requestedSampleSize : 16;
+    m_outputChannels = desiredOutputChannels();
 
     m_context = alcCreateContext(m_device, nullptr);
     if(!alcMakeContextCurrent(m_context))
@@ -151,6 +152,7 @@ bool OpenALAudioOutput::config(const std::string& deviceName, int requestedSampl
     Logger::instance().log(std::string("Audio device: ") + m_currentDeviceName, Logger::Type::INFO);
     Logger::instance().log(std::string("Sample rate: ") + std::to_string(sampleRate()), Logger::Type::INFO);
     Logger::instance().log(std::string("Sample size: ") + std::to_string(sampleSize()), Logger::Type::INFO);
+    Logger::instance().log(std::string("Channels: ") + std::to_string(m_outputChannels), Logger::Type::INFO);
 
     initChannels(sampleRate());
 
@@ -187,10 +189,18 @@ void OpenALAudioOutput::render(uint32_t dt, bool silenceFlag)
 
     while(sampleAcc >= 1000)
     {
-        float value = silenceFlag ? 0.0f : mix() * vol;
-        captureMixedSample(value);
-        ALshort sample = static_cast<ALshort>(value * 32767.0f);
-        m_bufferData.push_back(sample);
+        if(m_outputChannels <= 1) {
+            const float mono = (silenceFlag ? 0.0f : mixMono()) * vol;
+            captureMixedSample(mono);
+            m_bufferData.push_back(static_cast<ALshort>(mono * 32767.0f));
+        } else {
+            const StereoSample mixedFrame = silenceFlag ? StereoSample{} : mixFrame();
+            const float left = mixedFrame.left * vol;
+            const float right = mixedFrame.right * vol;
+            captureMixedSample((left + right) * 0.5f);
+            m_bufferData.push_back(static_cast<ALshort>(left * 32767.0f));
+            m_bufferData.push_back(static_cast<ALshort>(right * 32767.0f));
+        }
         sampleAcc -= 1000;
     }
 
@@ -203,11 +213,12 @@ void OpenALAudioOutput::render(uint32_t dt, bool silenceFlag)
         m_buffersAvailable = std::min<int>(static_cast<int>(N_BUFFERS), m_buffersAvailable + numProcessed);
     }    
 
-    const size_t prebufferChunkSamples = sampleRate() * BUFFER_TIME / N_BUFFERS;
+    const size_t prebufferChunkSamples =
+        static_cast<size_t>(sampleRate() * BUFFER_TIME / N_BUFFERS) * static_cast<size_t>(std::max(1, m_outputChannels));
 
     if(m_buffersAvailable > 0 && (m_bufferData.size() >= prebufferChunkSamples)) {
         alBufferData(m_buffer[m_currentBufferIndex],
-                     AL_FORMAT_MONO16,
+                     m_outputChannels > 1 ? AL_FORMAT_STEREO16 : AL_FORMAT_MONO16,
                      m_bufferData.data(),
                      static_cast<ALsizei>(m_bufferData.size() * sizeof(ALshort)),
                      sampleRate());

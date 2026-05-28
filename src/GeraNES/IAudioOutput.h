@@ -9,13 +9,25 @@ class IAudioOutput
 {
     public:
 
+    struct StereoSample
+    {
+        float left = 0.0f;
+        float right = 0.0f;
+    };
+
     class ExternalAudioMixer
     {
     public:
         virtual ~ExternalAudioMixer() = default;
         virtual void resetRuntime() = 0;
         virtual void onOutputSampleRateChanged(int sampleRate) = 0;
-        virtual float mixAudioSample(int sampleRate) = 0;
+        virtual float mixMonoSample(int sampleRate) = 0;
+        virtual StereoSample mixStereoFrame(int sampleRate)
+        {
+            const float sample = mixMonoSample(sampleRate);
+            return { sample, sample };
+        }
+        virtual int preferredOutputChannels() const { return 1; }
     };
 
     enum class Channel { Pulse_1, Pulse_2, Triangle, Noise, Sample, Expansion };

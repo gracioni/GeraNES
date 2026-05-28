@@ -46,13 +46,16 @@ public:
 
     void resetRuntime() override;
     void onOutputSampleRateChanged(int sampleRate) override;
-    float mixAudioSample(int sampleRate) override;
+    float mixMonoSample(int sampleRate) override;
+    IAudioOutput::StereoSample mixStereoFrame(int sampleRate) override;
+    int preferredOutputChannels() const override;
 
 private:
     struct DecodedClip
     {
         int sampleRate = 44100;
-        std::vector<float> monoSamples;
+        int channelCount = 1;
+        std::vector<float> samples;
     };
 
     struct ClipCacheEntry
@@ -95,13 +98,13 @@ private:
         const std::string& assetPath,
         std::shared_ptr<const DecodedClip> clip,
         bool pinned);
-    static std::shared_ptr<const DecodedClip> decodeClipData(
+    std::shared_ptr<const DecodedClip> decodeClipData(
         const std::string& assetPath,
         const std::vector<uint8_t>& assetData);
     bool shouldPinClip(const std::string& assetPath) const;
     bool playBgmTrack(int trackId);
     bool playSfxTrack(uint8_t sfxNumber);
-    float mixClipSample(ActiveClip& clip, uint8_t volume) const;
+    IAudioOutput::StereoSample mixClipSample(ActiveClip& clip, uint8_t volume) const;
     int registerIndexForWrite(uint16_t addr) const;
     void resetRuntimeUnlocked();
 

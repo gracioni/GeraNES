@@ -34,6 +34,7 @@ private:
 
     int m_sampleRate = 44100;
     int m_sampleSize = 16;
+    int m_outputChannels = 1;
     uint32_t sampleAcc = 0;
     float m_volume = 1.0f;
 

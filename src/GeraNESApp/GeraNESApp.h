@@ -464,6 +464,8 @@ private:
     bool finishOpenRomPath(const fs::path& requestedPath, const std::string& effectivePath, const ModManager::LoadRequest& modLoad, bool modDefinitionLoaded);
     void updatePendingRomLoad();
     bool openRomPath(const fs::path& path, bool updateRecentFiles = true, bool clearSelectedMod = true);
+    int currentModAudioPreferredChannels() const;
+    void syncModAudioOutputChannels(int previousChannelCount);
     void loadModArchive();
     void loadModFolder();
     void clearSelectedMod();
