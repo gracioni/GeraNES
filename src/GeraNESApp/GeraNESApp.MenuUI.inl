@@ -855,12 +855,6 @@ inline void GeraNESApp::menuBar() {
 
         if (beginTopMenu(withMenuIcon(FontAwesomeIcons::kWrench, "Tools").c_str()))
         {
-            if(ImGui::MenuItem(withMenuIcon(FontAwesomeIcons::kPlay, "Replay").c_str(), nullptr, m_showReplayWindow, !isReplayRestricted())) {
-                m_showReplayWindow = !m_showReplayWindow;
-            }
-
-            ImGui::Separator();
-
             if (ImGui::MenuItem(withMenuIcon(FontAwesomeIcons::kClipboard, "Log").c_str()))
             {
                 m_showLogWindow = true;
@@ -871,6 +865,12 @@ inline void GeraNESApp::menuBar() {
             if (ImGui::MenuItem(withMenuIcon(FontAwesomeIcons::kWifi, "Netplay").c_str(), nullptr, false, !replayInteractionLocked))
             {
                 m_showNetplayWindow = true;
+            }
+
+            ImGui::Separator();
+
+            if(ImGui::MenuItem(withMenuIcon(FontAwesomeIcons::kPlay, "Replay").c_str(), nullptr, m_showReplayWindow, !isReplayRestricted())) {
+                m_showReplayWindow = !m_showReplayWindow;
             }
 
             ImGui::Separator();
