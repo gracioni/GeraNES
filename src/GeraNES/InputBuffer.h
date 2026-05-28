@@ -17,6 +17,136 @@
 
 struct InputFrame
 {
+    struct DecodedData {
+        bool p1A = false;
+        bool p1B = false;
+        bool p1Select = false;
+        bool p1Start = false;
+        bool p1Up = false;
+        bool p1Down = false;
+        bool p1Left = false;
+        bool p1Right = false;
+        bool p1X = false;
+        bool p1Y = false;
+        bool p1L = false;
+        bool p1R = false;
+
+        bool p2A = false;
+        bool p2B = false;
+        bool p2Select = false;
+        bool p2Start = false;
+        bool p2Up = false;
+        bool p2Down = false;
+        bool p2Left = false;
+        bool p2Right = false;
+        bool p2X = false;
+        bool p2Y = false;
+        bool p2L = false;
+        bool p2R = false;
+
+        bool p3A = false;
+        bool p3B = false;
+        bool p3Select = false;
+        bool p3Start = false;
+        bool p3Up = false;
+        bool p3Down = false;
+        bool p3Left = false;
+        bool p3Right = false;
+
+        bool p4A = false;
+        bool p4B = false;
+        bool p4Select = false;
+        bool p4Start = false;
+        bool p4Up = false;
+        bool p4Down = false;
+        bool p4Left = false;
+        bool p4Right = false;
+
+        int zapperP1X = -1;
+        int zapperP1Y = -1;
+        bool zapperP1Trigger = false;
+        int zapperP2X = -1;
+        int zapperP2Y = -1;
+        bool zapperP2Trigger = false;
+
+        bool bandaiA = false;
+        bool bandaiB = false;
+        bool bandaiSelect = false;
+        bool bandaiStart = false;
+        bool bandaiUp = false;
+        bool bandaiDown = false;
+        bool bandaiLeft = false;
+        bool bandaiRight = false;
+        int bandaiX = -1;
+        int bandaiY = -1;
+        bool bandaiTrigger = false;
+
+        float arkanoidP1Position = 0.5f;
+        bool arkanoidP1Button = false;
+        float arkanoidP2Position = 0.5f;
+        bool arkanoidP2Button = false;
+        float arkanoidFamicomPosition = 0.5f;
+        bool arkanoidFamicomButton = false;
+
+        bool konamiP1Run = false;
+        bool konamiP1Jump = false;
+        bool konamiP2Run = false;
+        bool konamiP2Jump = false;
+
+        int snesMouseP1DeltaX = 0;
+        int snesMouseP1DeltaY = 0;
+        bool snesMouseP1Left = false;
+        bool snesMouseP1Right = false;
+        int snesMouseP2DeltaX = 0;
+        int snesMouseP2DeltaY = 0;
+        bool snesMouseP2Left = false;
+        bool snesMouseP2Right = false;
+
+        bool vbP1A = false;
+        bool vbP1B = false;
+        bool vbP1Select = false;
+        bool vbP1Start = false;
+        bool vbP1Up0 = false;
+        bool vbP1Down0 = false;
+        bool vbP1Left0 = false;
+        bool vbP1Right0 = false;
+        bool vbP1Up1 = false;
+        bool vbP1Down1 = false;
+        bool vbP1Left1 = false;
+        bool vbP1Right1 = false;
+        bool vbP1L = false;
+        bool vbP1R = false;
+
+        bool vbP2A = false;
+        bool vbP2B = false;
+        bool vbP2Select = false;
+        bool vbP2Start = false;
+        bool vbP2Up0 = false;
+        bool vbP2Down0 = false;
+        bool vbP2Left0 = false;
+        bool vbP2Right0 = false;
+        bool vbP2Up1 = false;
+        bool vbP2Down1 = false;
+        bool vbP2Left1 = false;
+        bool vbP2Right1 = false;
+        bool vbP2L = false;
+        bool vbP2R = false;
+
+        int suborMouseP1DeltaX = 0;
+        int suborMouseP1DeltaY = 0;
+        bool suborMouseP1Left = false;
+        bool suborMouseP1Right = false;
+        int suborMouseP2DeltaX = 0;
+        int suborMouseP2DeltaY = 0;
+        bool suborMouseP2Left = false;
+        bool suborMouseP2Right = false;
+
+        IExpansionDevice::SuborKeyboardKeys suborKeyboardKeys = {};
+        IExpansionDevice::FamilyBasicKeyboardKeys familyBasicKeyboardKeys = {};
+        std::array<bool, 12> powerPadP1Buttons = {};
+        std::array<bool, 12> powerPadP2Buttons = {};
+    };
+
     uint32_t frame = 0;
     uint32_t timelineEpoch = 0;
 
@@ -25,150 +155,28 @@ struct InputFrame
     Settings::ExpansionDevice expansionDevice = Settings::ExpansionDevice::NONE;
     Settings::NesMultitapDevice nesMultitapDevice = Settings::NesMultitapDevice::NONE;
     Settings::FamicomMultitapDevice famicomMultitapDevice = Settings::FamicomMultitapDevice::NONE;
-
-    bool p1A = false;
-    bool p1B = false;
-    bool p1Select = false;
-    bool p1Start = false;
-    bool p1Up = false;
-    bool p1Down = false;
-    bool p1Left = false;
-    bool p1Right = false;
-    bool p1X = false;
-    bool p1Y = false;
-    bool p1L = false;
-    bool p1R = false;
-
-    bool p2A = false;
-    bool p2B = false;
-    bool p2Select = false;
-    bool p2Start = false;
-    bool p2Up = false;
-    bool p2Down = false;
-    bool p2Left = false;
-    bool p2Right = false;
-    bool p2X = false;
-    bool p2Y = false;
-    bool p2L = false;
-    bool p2R = false;
-
-    bool p3A = false;
-    bool p3B = false;
-    bool p3Select = false;
-    bool p3Start = false;
-    bool p3Up = false;
-    bool p3Down = false;
-    bool p3Left = false;
-    bool p3Right = false;
-
-    bool p4A = false;
-    bool p4B = false;
-    bool p4Select = false;
-    bool p4Start = false;
-    bool p4Up = false;
-    bool p4Down = false;
-    bool p4Left = false;
-    bool p4Right = false;
-
-    int zapperP1X = -1;
-    int zapperP1Y = -1;
-    bool zapperP1Trigger = false;
-    int zapperP2X = -1;
-    int zapperP2Y = -1;
-    bool zapperP2Trigger = false;
-
-    bool bandaiA = false;
-    bool bandaiB = false;
-    bool bandaiSelect = false;
-    bool bandaiStart = false;
-    bool bandaiUp = false;
-    bool bandaiDown = false;
-    bool bandaiLeft = false;
-    bool bandaiRight = false;
-    int bandaiX = -1;
-    int bandaiY = -1;
-    bool bandaiTrigger = false;
-
-    float arkanoidP1Position = 0.5f;
-    bool arkanoidP1Button = false;
-    float arkanoidP2Position = 0.5f;
-    bool arkanoidP2Button = false;
-    float arkanoidFamicomPosition = 0.5f;
-    bool arkanoidFamicomButton = false;
-
-    bool konamiP1Run = false;
-    bool konamiP1Jump = false;
-    bool konamiP2Run = false;
-    bool konamiP2Jump = false;
-
-    int snesMouseP1DeltaX = 0;
-    int snesMouseP1DeltaY = 0;
-    bool snesMouseP1Left = false;
-    bool snesMouseP1Right = false;
-    int snesMouseP2DeltaX = 0;
-    int snesMouseP2DeltaY = 0;
-    bool snesMouseP2Left = false;
-    bool snesMouseP2Right = false;
-
-    bool vbP1A = false;
-    bool vbP1B = false;
-    bool vbP1Select = false;
-    bool vbP1Start = false;
-    bool vbP1Up0 = false;
-    bool vbP1Down0 = false;
-    bool vbP1Left0 = false;
-    bool vbP1Right0 = false;
-    bool vbP1Up1 = false;
-    bool vbP1Down1 = false;
-    bool vbP1Left1 = false;
-    bool vbP1Right1 = false;
-    bool vbP1L = false;
-    bool vbP1R = false;
-
-    bool vbP2A = false;
-    bool vbP2B = false;
-    bool vbP2Select = false;
-    bool vbP2Start = false;
-    bool vbP2Up0 = false;
-    bool vbP2Down0 = false;
-    bool vbP2Left0 = false;
-    bool vbP2Right0 = false;
-    bool vbP2Up1 = false;
-    bool vbP2Down1 = false;
-    bool vbP2Left1 = false;
-    bool vbP2Right1 = false;
-    bool vbP2L = false;
-    bool vbP2R = false;
-
-    int suborMouseP1DeltaX = 0;
-    int suborMouseP1DeltaY = 0;
-    bool suborMouseP1Left = false;
-    bool suborMouseP1Right = false;
-    int suborMouseP2DeltaX = 0;
-    int suborMouseP2DeltaY = 0;
-    bool suborMouseP2Left = false;
-    bool suborMouseP2Right = false;
-
-    IExpansionDevice::SuborKeyboardKeys suborKeyboardKeys = {};
-    IExpansionDevice::FamilyBasicKeyboardKeys familyBasicKeyboardKeys = {};
-    std::array<bool, 12> powerPadP1Buttons = {};
-    std::array<bool, 12> powerPadP2Buttons = {};
+    std::vector<uint8_t> serializedInputData;
 
     bool operator==(const InputFrame&) const = default;
     bool operator!=(const InputFrame&) const = default;
+
+    DecodedData decodedData() const;
+    bool setDecodedData(const DecodedData& decoded);
 
     static InputFrame repeatedFrom(const InputFrame& previous, uint32_t targetFrame)
     {
         InputFrame repeated = previous;
         repeated.frame = targetFrame;
-        repeated.snesMouseP1DeltaX = 0;
-        repeated.snesMouseP1DeltaY = 0;
-        repeated.snesMouseP2DeltaX = 0;
-        repeated.snesMouseP2DeltaY = 0;
-        repeated.suborMouseP1DeltaX = 0;
-        repeated.suborMouseP1DeltaY = 0;
-        repeated.suborMouseP2DeltaX = 0;
-        repeated.suborMouseP2DeltaY = 0;
+        DecodedData decoded = repeated.decodedData();
+        decoded.snesMouseP1DeltaX = 0;
+        decoded.snesMouseP1DeltaY = 0;
+        decoded.snesMouseP2DeltaX = 0;
+        decoded.snesMouseP2DeltaY = 0;
+        decoded.suborMouseP1DeltaX = 0;
+        decoded.suborMouseP1DeltaY = 0;
+        decoded.suborMouseP2DeltaX = 0;
+        decoded.suborMouseP2DeltaY = 0;
+        (void)repeated.setDecodedData(decoded);
         return repeated;
     }
 
@@ -181,54 +189,21 @@ struct InputFrame
         SERIALIZEDATA(s, expansionDevice);
         SERIALIZEDATA(s, nesMultitapDevice);
         SERIALIZEDATA(s, famicomMultitapDevice);
-
-        SERIALIZEDATA(s, p1A); SERIALIZEDATA(s, p1B); SERIALIZEDATA(s, p1Select); SERIALIZEDATA(s, p1Start);
-        SERIALIZEDATA(s, p1Up); SERIALIZEDATA(s, p1Down); SERIALIZEDATA(s, p1Left); SERIALIZEDATA(s, p1Right);
-        SERIALIZEDATA(s, p1X); SERIALIZEDATA(s, p1Y); SERIALIZEDATA(s, p1L); SERIALIZEDATA(s, p1R);
-
-        SERIALIZEDATA(s, p2A); SERIALIZEDATA(s, p2B); SERIALIZEDATA(s, p2Select); SERIALIZEDATA(s, p2Start);
-        SERIALIZEDATA(s, p2Up); SERIALIZEDATA(s, p2Down); SERIALIZEDATA(s, p2Left); SERIALIZEDATA(s, p2Right);
-        SERIALIZEDATA(s, p2X); SERIALIZEDATA(s, p2Y); SERIALIZEDATA(s, p2L); SERIALIZEDATA(s, p2R);
-
-        SERIALIZEDATA(s, p3A); SERIALIZEDATA(s, p3B); SERIALIZEDATA(s, p3Select); SERIALIZEDATA(s, p3Start);
-        SERIALIZEDATA(s, p3Up); SERIALIZEDATA(s, p3Down); SERIALIZEDATA(s, p3Left); SERIALIZEDATA(s, p3Right);
-
-        SERIALIZEDATA(s, p4A); SERIALIZEDATA(s, p4B); SERIALIZEDATA(s, p4Select); SERIALIZEDATA(s, p4Start);
-        SERIALIZEDATA(s, p4Up); SERIALIZEDATA(s, p4Down); SERIALIZEDATA(s, p4Left); SERIALIZEDATA(s, p4Right);
-
-        SERIALIZEDATA(s, zapperP1X); SERIALIZEDATA(s, zapperP1Y); SERIALIZEDATA(s, zapperP1Trigger);
-        SERIALIZEDATA(s, zapperP2X); SERIALIZEDATA(s, zapperP2Y); SERIALIZEDATA(s, zapperP2Trigger);
-
-        SERIALIZEDATA(s, bandaiA); SERIALIZEDATA(s, bandaiB); SERIALIZEDATA(s, bandaiSelect); SERIALIZEDATA(s, bandaiStart);
-        SERIALIZEDATA(s, bandaiUp); SERIALIZEDATA(s, bandaiDown); SERIALIZEDATA(s, bandaiLeft); SERIALIZEDATA(s, bandaiRight);
-        SERIALIZEDATA(s, bandaiX); SERIALIZEDATA(s, bandaiY); SERIALIZEDATA(s, bandaiTrigger);
-
-        SERIALIZEDATA(s, arkanoidP1Position); SERIALIZEDATA(s, arkanoidP1Button);
-        SERIALIZEDATA(s, arkanoidP2Position); SERIALIZEDATA(s, arkanoidP2Button);
-        SERIALIZEDATA(s, arkanoidFamicomPosition); SERIALIZEDATA(s, arkanoidFamicomButton);
-
-        SERIALIZEDATA(s, konamiP1Run); SERIALIZEDATA(s, konamiP1Jump); SERIALIZEDATA(s, konamiP2Run); SERIALIZEDATA(s, konamiP2Jump);
-
-        SERIALIZEDATA(s, snesMouseP1DeltaX); SERIALIZEDATA(s, snesMouseP1DeltaY); SERIALIZEDATA(s, snesMouseP1Left); SERIALIZEDATA(s, snesMouseP1Right);
-        SERIALIZEDATA(s, snesMouseP2DeltaX); SERIALIZEDATA(s, snesMouseP2DeltaY); SERIALIZEDATA(s, snesMouseP2Left); SERIALIZEDATA(s, snesMouseP2Right);
-
-        SERIALIZEDATA(s, vbP1A); SERIALIZEDATA(s, vbP1B); SERIALIZEDATA(s, vbP1Select); SERIALIZEDATA(s, vbP1Start);
-        SERIALIZEDATA(s, vbP1Up0); SERIALIZEDATA(s, vbP1Down0); SERIALIZEDATA(s, vbP1Left0); SERIALIZEDATA(s, vbP1Right0);
-        SERIALIZEDATA(s, vbP1Up1); SERIALIZEDATA(s, vbP1Down1); SERIALIZEDATA(s, vbP1Left1); SERIALIZEDATA(s, vbP1Right1); SERIALIZEDATA(s, vbP1L); SERIALIZEDATA(s, vbP1R);
-
-        SERIALIZEDATA(s, vbP2A); SERIALIZEDATA(s, vbP2B); SERIALIZEDATA(s, vbP2Select); SERIALIZEDATA(s, vbP2Start);
-        SERIALIZEDATA(s, vbP2Up0); SERIALIZEDATA(s, vbP2Down0); SERIALIZEDATA(s, vbP2Left0); SERIALIZEDATA(s, vbP2Right0);
-        SERIALIZEDATA(s, vbP2Up1); SERIALIZEDATA(s, vbP2Down1); SERIALIZEDATA(s, vbP2Left1); SERIALIZEDATA(s, vbP2Right1); SERIALIZEDATA(s, vbP2L); SERIALIZEDATA(s, vbP2R);
-
-        SERIALIZEDATA(s, suborMouseP1DeltaX); SERIALIZEDATA(s, suborMouseP1DeltaY); SERIALIZEDATA(s, suborMouseP1Left); SERIALIZEDATA(s, suborMouseP1Right);
-        SERIALIZEDATA(s, suborMouseP2DeltaX); SERIALIZEDATA(s, suborMouseP2DeltaY); SERIALIZEDATA(s, suborMouseP2Left); SERIALIZEDATA(s, suborMouseP2Right);
-        SERIALIZEDATA(s, suborKeyboardKeys); SERIALIZEDATA(s, familyBasicKeyboardKeys);
-        s.array(reinterpret_cast<uint8_t*>(powerPadP1Buttons.data()), 1, powerPadP1Buttons.size());
-        s.array(reinterpret_cast<uint8_t*>(powerPadP2Buttons.data()), 1, powerPadP2Buttons.size());
+        uint32_t serializedSize = static_cast<uint32_t>(serializedInputData.size());
+        SERIALIZEDATA(s, serializedSize);
+        if(auto* deserialize = dynamic_cast<Deserialize*>(&s); deserialize != nullptr) {
+            serializedInputData.assign(serializedSize, 0u);
+            if(serializedSize != 0u) {
+                deserialize->array(serializedInputData.data(), 1, serializedSize);
+            }
+        } else if(serializedSize != 0u) {
+            s.array(serializedInputData.data(), 1, serializedSize);
+        }
     }
 
     nlohmann::json toJson() const
     {
+        const DecodedData decoded = decodedData();
         return {
             {"frame", frame},
             {"timelineEpoch", timelineEpoch},
@@ -239,71 +214,72 @@ struct InputFrame
                 {"nesMultitap", static_cast<int>(nesMultitapDevice)},
                 {"famicomMultitap", static_cast<int>(famicomMultitapDevice)}
             }},
+            {"serializedInputSize", serializedInputData.size()},
             {"p1", {
-                {"a", p1A}, {"b", p1B}, {"select", p1Select}, {"start", p1Start},
-                {"up", p1Up}, {"down", p1Down}, {"left", p1Left}, {"right", p1Right},
-                {"x", p1X}, {"y", p1Y}, {"l", p1L}, {"r", p1R}
+                {"a", decoded.p1A}, {"b", decoded.p1B}, {"select", decoded.p1Select}, {"start", decoded.p1Start},
+                {"up", decoded.p1Up}, {"down", decoded.p1Down}, {"left", decoded.p1Left}, {"right", decoded.p1Right},
+                {"x", decoded.p1X}, {"y", decoded.p1Y}, {"l", decoded.p1L}, {"r", decoded.p1R}
             }},
             {"p2", {
-                {"a", p2A}, {"b", p2B}, {"select", p2Select}, {"start", p2Start},
-                {"up", p2Up}, {"down", p2Down}, {"left", p2Left}, {"right", p2Right},
-                {"x", p2X}, {"y", p2Y}, {"l", p2L}, {"r", p2R}
+                {"a", decoded.p2A}, {"b", decoded.p2B}, {"select", decoded.p2Select}, {"start", decoded.p2Start},
+                {"up", decoded.p2Up}, {"down", decoded.p2Down}, {"left", decoded.p2Left}, {"right", decoded.p2Right},
+                {"x", decoded.p2X}, {"y", decoded.p2Y}, {"l", decoded.p2L}, {"r", decoded.p2R}
             }},
             {"p3", {
-                {"a", p3A}, {"b", p3B}, {"select", p3Select}, {"start", p3Start},
-                {"up", p3Up}, {"down", p3Down}, {"left", p3Left}, {"right", p3Right}
+                {"a", decoded.p3A}, {"b", decoded.p3B}, {"select", decoded.p3Select}, {"start", decoded.p3Start},
+                {"up", decoded.p3Up}, {"down", decoded.p3Down}, {"left", decoded.p3Left}, {"right", decoded.p3Right}
             }},
             {"p4", {
-                {"a", p4A}, {"b", p4B}, {"select", p4Select}, {"start", p4Start},
-                {"up", p4Up}, {"down", p4Down}, {"left", p4Left}, {"right", p4Right}
+                {"a", decoded.p4A}, {"b", decoded.p4B}, {"select", decoded.p4Select}, {"start", decoded.p4Start},
+                {"up", decoded.p4Up}, {"down", decoded.p4Down}, {"left", decoded.p4Left}, {"right", decoded.p4Right}
             }},
             {"zapper", {
-                {"p1", {{"x", zapperP1X}, {"y", zapperP1Y}, {"trigger", zapperP1Trigger}}},
-                {"p2", {{"x", zapperP2X}, {"y", zapperP2Y}, {"trigger", zapperP2Trigger}}}
+                {"p1", {{"x", decoded.zapperP1X}, {"y", decoded.zapperP1Y}, {"trigger", decoded.zapperP1Trigger}}},
+                {"p2", {{"x", decoded.zapperP2X}, {"y", decoded.zapperP2Y}, {"trigger", decoded.zapperP2Trigger}}}
             }},
             {"bandai", {
-                {"a", bandaiA}, {"b", bandaiB}, {"select", bandaiSelect}, {"start", bandaiStart},
-                {"up", bandaiUp}, {"down", bandaiDown}, {"left", bandaiLeft}, {"right", bandaiRight},
-                {"x", bandaiX}, {"y", bandaiY}, {"trigger", bandaiTrigger}
+                {"a", decoded.bandaiA}, {"b", decoded.bandaiB}, {"select", decoded.bandaiSelect}, {"start", decoded.bandaiStart},
+                {"up", decoded.bandaiUp}, {"down", decoded.bandaiDown}, {"left", decoded.bandaiLeft}, {"right", decoded.bandaiRight},
+                {"x", decoded.bandaiX}, {"y", decoded.bandaiY}, {"trigger", decoded.bandaiTrigger}
             }},
             {"arkanoid", {
-                {"p1", {{"position", arkanoidP1Position}, {"button", arkanoidP1Button}}},
-                {"p2", {{"position", arkanoidP2Position}, {"button", arkanoidP2Button}}},
-                {"famicom", {{"position", arkanoidFamicomPosition}, {"button", arkanoidFamicomButton}}}
+                {"p1", {{"position", decoded.arkanoidP1Position}, {"button", decoded.arkanoidP1Button}}},
+                {"p2", {{"position", decoded.arkanoidP2Position}, {"button", decoded.arkanoidP2Button}}},
+                {"famicom", {{"position", decoded.arkanoidFamicomPosition}, {"button", decoded.arkanoidFamicomButton}}}
             }},
             {"konami", {
-                {"p1Run", konamiP1Run}, {"p1Jump", konamiP1Jump},
-                {"p2Run", konamiP2Run}, {"p2Jump", konamiP2Jump}
+                {"p1Run", decoded.konamiP1Run}, {"p1Jump", decoded.konamiP1Jump},
+                {"p2Run", decoded.konamiP2Run}, {"p2Jump", decoded.konamiP2Jump}
             }},
             {"snesMouse", {
-                {"p1", {{"deltaX", snesMouseP1DeltaX}, {"deltaY", snesMouseP1DeltaY}, {"left", snesMouseP1Left}, {"right", snesMouseP1Right}}},
-                {"p2", {{"deltaX", snesMouseP2DeltaX}, {"deltaY", snesMouseP2DeltaY}, {"left", snesMouseP2Left}, {"right", snesMouseP2Right}}}
+                {"p1", {{"deltaX", decoded.snesMouseP1DeltaX}, {"deltaY", decoded.snesMouseP1DeltaY}, {"left", decoded.snesMouseP1Left}, {"right", decoded.snesMouseP1Right}}},
+                {"p2", {{"deltaX", decoded.snesMouseP2DeltaX}, {"deltaY", decoded.snesMouseP2DeltaY}, {"left", decoded.snesMouseP2Left}, {"right", decoded.snesMouseP2Right}}}
             }},
             {"virtualBoy", {
                 {"p1", {
-                    {"a", vbP1A}, {"b", vbP1B}, {"select", vbP1Select}, {"start", vbP1Start},
-                    {"up0", vbP1Up0}, {"down0", vbP1Down0}, {"left0", vbP1Left0}, {"right0", vbP1Right0},
-                    {"up1", vbP1Up1}, {"down1", vbP1Down1}, {"left1", vbP1Left1}, {"right1", vbP1Right1},
-                    {"l", vbP1L}, {"r", vbP1R}
+                    {"a", decoded.vbP1A}, {"b", decoded.vbP1B}, {"select", decoded.vbP1Select}, {"start", decoded.vbP1Start},
+                    {"up0", decoded.vbP1Up0}, {"down0", decoded.vbP1Down0}, {"left0", decoded.vbP1Left0}, {"right0", decoded.vbP1Right0},
+                    {"up1", decoded.vbP1Up1}, {"down1", decoded.vbP1Down1}, {"left1", decoded.vbP1Left1}, {"right1", decoded.vbP1Right1},
+                    {"l", decoded.vbP1L}, {"r", decoded.vbP1R}
                 }},
                 {"p2", {
-                    {"a", vbP2A}, {"b", vbP2B}, {"select", vbP2Select}, {"start", vbP2Start},
-                    {"up0", vbP2Up0}, {"down0", vbP2Down0}, {"left0", vbP2Left0}, {"right0", vbP2Right0},
-                    {"up1", vbP2Up1}, {"down1", vbP2Down1}, {"left1", vbP2Left1}, {"right1", vbP2Right1},
-                    {"l", vbP2L}, {"r", vbP2R}
+                    {"a", decoded.vbP2A}, {"b", decoded.vbP2B}, {"select", decoded.vbP2Select}, {"start", decoded.vbP2Start},
+                    {"up0", decoded.vbP2Up0}, {"down0", decoded.vbP2Down0}, {"left0", decoded.vbP2Left0}, {"right0", decoded.vbP2Right0},
+                    {"up1", decoded.vbP2Up1}, {"down1", decoded.vbP2Down1}, {"left1", decoded.vbP2Left1}, {"right1", decoded.vbP2Right1},
+                    {"l", decoded.vbP2L}, {"r", decoded.vbP2R}
                 }}
             }},
             {"suborMouse", {
-                {"p1", {{"deltaX", suborMouseP1DeltaX}, {"deltaY", suborMouseP1DeltaY}, {"left", suborMouseP1Left}, {"right", suborMouseP1Right}}},
-                {"p2", {{"deltaX", suborMouseP2DeltaX}, {"deltaY", suborMouseP2DeltaY}, {"left", suborMouseP2Left}, {"right", suborMouseP2Right}}}
+                {"p1", {{"deltaX", decoded.suborMouseP1DeltaX}, {"deltaY", decoded.suborMouseP1DeltaY}, {"left", decoded.suborMouseP1Left}, {"right", decoded.suborMouseP1Right}}},
+                {"p2", {{"deltaX", decoded.suborMouseP2DeltaX}, {"deltaY", decoded.suborMouseP2DeltaY}, {"left", decoded.suborMouseP2Left}, {"right", decoded.suborMouseP2Right}}}
             }},
             {"keyboard", {
-                {"subor", suborKeyboardKeys},
-                {"familyBasic", familyBasicKeyboardKeys}
+                {"subor", decoded.suborKeyboardKeys},
+                {"familyBasic", decoded.familyBasicKeyboardKeys}
             }},
             {"powerPad", {
-                {"p1", powerPadP1Buttons},
-                {"p2", powerPadP2Buttons}
+                {"p1", decoded.powerPadP1Buttons},
+                {"p2", decoded.powerPadP2Buttons}
             }}
         };
     }

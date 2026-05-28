@@ -430,14 +430,16 @@ public:
             const Buttons& buttons = input.buttonsForFrame(frame, fps);
             const std::string buttonsLabel = buttonsToString(buttons);
             InputFrame inputFrame = emu.createInputFrame(emu.frameCount() + 1u);
-            inputFrame.p1A = buttons.a;
-            inputFrame.p1B = buttons.b;
-            inputFrame.p1Select = buttons.select;
-            inputFrame.p1Start = buttons.start;
-            inputFrame.p1Up = buttons.up;
-            inputFrame.p1Down = buttons.down;
-            inputFrame.p1Left = buttons.left;
-            inputFrame.p1Right = buttons.right;
+            InputFrame::DecodedData decoded;
+            decoded.p1A = buttons.a;
+            decoded.p1B = buttons.b;
+            decoded.p1Select = buttons.select;
+            decoded.p1Start = buttons.start;
+            decoded.p1Up = buttons.up;
+            decoded.p1Down = buttons.down;
+            decoded.p1Left = buttons.left;
+            decoded.p1Right = buttons.right;
+            (void)inputFrame.setDecodedData(decoded);
             emu.queueInputFrame(inputFrame);
 
             const uint32_t prevFrameCount = emu.frameCount();
