@@ -1114,28 +1114,7 @@ InputFrame GeraNESApp::buildReplayRecordedFrame(const IEmulationHost::InputTopol
     frame.expansionDevice = topology.expansionDevice;
     frame.nesMultitapDevice = topology.nesMultitapDevice;
     frame.famicomMultitapDevice = topology.famicomMultitapDevice;
-    frame.setPortButtons(1, {input.p1A, input.p1B, input.p1Select, input.p1Start, input.p1Up, input.p1Down, input.p1Left, input.p1Right,
-                             input.p1X, input.p1Y, input.p1L, input.p1R, input.p1Up2, input.p1Down2, input.p1Left2, input.p1Right2});
-    frame.setPortButtons(2, {input.p2A, input.p2B, input.p2Select, input.p2Start, input.p2Up, input.p2Down, input.p2Left, input.p2Right,
-                             input.p2X, input.p2Y, input.p2L, input.p2R, input.p2Up2, input.p2Down2, input.p2Left2, input.p2Right2});
-    frame.setPortButtons(3, {input.p3A, input.p3B, input.p3Select, input.p3Start, input.p3Up, input.p3Down, input.p3Left, input.p3Right});
-    frame.setPortButtons(4, {input.p4A, input.p4B, input.p4Select, input.p4Start, input.p4Up, input.p4Down, input.p4Left, input.p4Right});
-    frame.setPowerPadButtons(1, input.p1PowerPadButtons);
-    frame.setPowerPadButtons(2, input.p2PowerPadButtons);
-    frame.setSuborKeyboardKeys(input.suborKeyboardKeys);
-    frame.setFamilyBasicKeyboardKeys(input.familyBasicKeyboardKeys);
-    frame.setBandaiButtons({input.p2A, input.p2B, input.p2Select, input.p2Start, input.p2Up, input.p2Down, input.p2Left, input.p2Right});
-    frame.setZapper(1, {input.zapperX, input.zapperY, input.zapperP1Trigger});
-    frame.setZapper(2, {input.zapperX, input.zapperY, input.zapperP2Trigger});
-    frame.setBandaiPointer({input.zapperX, input.zapperY, input.bandaiTrigger});
-    frame.setArkanoidController(1, {input.arkanoidNesPosition, input.mousePrimaryButton});
-    frame.setArkanoidController(2, {input.arkanoidNesPosition, input.mousePrimaryButton});
-    frame.setArkanoidExpansion({input.arkanoidFamicomPosition, input.mousePrimaryButton});
-    frame.setKonamiHyperShot({input.konamiP1Run, input.konamiP1Jump, input.konamiP2Run, input.konamiP2Jump});
-    frame.setSnesMouse(1, {input.mouseDeltaX, input.mouseDeltaY, input.mousePrimaryButton, input.mouseSecondaryButton});
-    frame.setSnesMouse(2, {input.mouseDeltaX, input.mouseDeltaY, input.mousePrimaryButton, input.mouseSecondaryButton});
-    frame.setSuborMouse(1, {input.mouseDeltaX, input.mouseDeltaY, input.mousePrimaryButton, input.mouseSecondaryButton});
-    frame.setSuborMouse(2, {input.mouseDeltaX, input.mouseDeltaY, input.mousePrimaryButton, input.mouseSecondaryButton});
+    frame.state.serializedInputData = input.serializedInputData;
     return frame;
 }
 
@@ -4000,82 +3979,41 @@ void GeraNESApp::pollAndPrepareInput()
         m_arkanoidFamicomPosition = std::clamp(arkanoidFamicomPosition, 0.0f, 1.0f);
 
         EmulationHost::InputState inputState;
-        inputState.p1A = p1PrimaryA;
-        inputState.p1B = p1PrimaryB;
-        inputState.p1Select = p1PrimarySelect;
-        inputState.p1Start = p1PrimaryStart;
-        inputState.p1Up = p1PrimaryUp;
-        inputState.p1Down = p1PrimaryDown;
-        inputState.p1Left = p1PrimaryLeft;
-        inputState.p1Right = p1PrimaryRight;
-        inputState.p1X = p1X;
-        inputState.p1Y = p1Y;
-        inputState.p1L = p1PrimaryL;
-        inputState.p1R = p1PrimaryR;
-        inputState.p1Up2 = p1Up2;
-        inputState.p1Down2 = p1Down2;
-        inputState.p1Left2 = p1Left2;
-        inputState.p1Right2 = p1Right2;
-        inputState.p2A = p2PrimaryA;
-        inputState.p2B = p2PrimaryB;
-        inputState.p2Select = p2PrimarySelect;
-        inputState.p2Start = p2PrimaryStart;
-        inputState.p2Up = p2PrimaryUp;
-        inputState.p2Down = p2PrimaryDown;
-        inputState.p2Left = p2PrimaryLeft;
-        inputState.p2Right = p2PrimaryRight;
-        inputState.p2X = p2X;
-        inputState.p2Y = p2Y;
-        inputState.p2L = p2PrimaryL;
-        inputState.p2R = p2PrimaryR;
-        inputState.p2Up2 = p2Up2;
-        inputState.p2Down2 = p2Down2;
-        inputState.p2Left2 = p2Left2;
-        inputState.p2Right2 = p2Right2;
-        inputState.p3A = p3A;
-        inputState.p3B = p3B;
-        inputState.p3Select = p3Select;
-        inputState.p3Start = p3Start;
-        inputState.p3Up = p3Up;
-        inputState.p3Down = p3Down;
-        inputState.p3Left = p3Left;
-        inputState.p3Right = p3Right;
-        inputState.p4A = p4A;
-        inputState.p4B = p4B;
-        inputState.p4Select = p4Select;
-        inputState.p4Start = p4Start;
-        inputState.p4Up = p4Up;
-        inputState.p4Down = p4Down;
-        inputState.p4Left = p4Left;
-        inputState.p4Right = p4Right;
-        inputState.p1PowerPadButtons = p1PowerPadButtons;
-        inputState.p2PowerPadButtons = p2PowerPadButtons;
+        inputState.port1Device = inputTopology.port1Device.value_or(Settings::Device::NONE);
+        inputState.port2Device = inputTopology.port2Device.value_or(Settings::Device::NONE);
+        inputState.expansionDevice = inputTopology.expansionDevice;
+        inputState.nesMultitapDevice = inputTopology.nesMultitapDevice;
+        inputState.famicomMultitapDevice = inputTopology.famicomMultitapDevice;
+        inputState.setPortButtons(1, {p1PrimaryA, p1PrimaryB, p1PrimarySelect, p1PrimaryStart, p1PrimaryUp, p1PrimaryDown, p1PrimaryLeft, p1PrimaryRight,
+                                      p1X, p1Y, p1PrimaryL, p1PrimaryR, p1Up2, p1Down2, p1Left2, p1Right2});
+        inputState.setPortButtons(2, {p2PrimaryA, p2PrimaryB, p2PrimarySelect, p2PrimaryStart, p2PrimaryUp, p2PrimaryDown, p2PrimaryLeft, p2PrimaryRight,
+                                      p2X, p2Y, p2PrimaryL, p2PrimaryR, p2Up2, p2Down2, p2Left2, p2Right2});
+        inputState.setPortButtons(3, {p3A, p3B, p3Select, p3Start, p3Up, p3Down, p3Left, p3Right});
+        inputState.setPortButtons(4, {p4A, p4B, p4Select, p4Start, p4Up, p4Down, p4Left, p4Right});
+        inputState.setPowerPadButtons(1, p1PowerPadButtons);
+        inputState.setPowerPadButtons(2, p2PowerPadButtons);
         if(isSuborKeyboardActive() && !m_imGuiWantsKeyboard) {
-            inputState.suborKeyboardKeys = captureSuborKeyboardState();
+            inputState.setSuborKeyboardKeys(captureSuborKeyboardState());
         }
         if(isFamilyBasicKeyboardActive() && !m_imGuiWantsKeyboard) {
-            inputState.familyBasicKeyboardKeys = captureFamilyBasicKeyboardState();
+            inputState.setFamilyBasicKeyboardKeys(captureFamilyBasicKeyboardState());
         }
-        inputState.zapperX = zapperX;
-        inputState.zapperY = zapperY;
-        inputState.mouseDeltaX = mouseDeltaX;
-        inputState.mouseDeltaY = mouseDeltaY;
-        inputState.arkanoidNesPosition = arkanoidNesPosition;
-        inputState.arkanoidFamicomPosition = arkanoidFamicomPosition;
-        inputState.zapperP1Trigger = p1ZapperTrigger;
-        inputState.zapperP2Trigger = p2ZapperTrigger;
-        inputState.bandaiTrigger = bandaiTrigger;
-        inputState.konamiP1Run = konamiP1Run;
-        inputState.konamiP1Jump = konamiP1Jump;
-        inputState.konamiP2Run = konamiP2Run;
-        inputState.konamiP2Jump = konamiP2Jump;
-        inputState.mousePrimaryButton = mousePrimaryButton;
-        inputState.mouseSecondaryButton = mouseSecondaryButton;
-        inputState.rewind = !keyboardExpansionActive && (
+        inputState.setZapper(1, {zapperX, zapperY, p1ZapperTrigger});
+        inputState.setZapper(2, {zapperX, zapperY, p2ZapperTrigger});
+        inputState.setBandaiPointer({zapperX, zapperY, bandaiTrigger});
+        inputState.setArkanoidController(1, {arkanoidNesPosition, mousePrimaryButton});
+        inputState.setArkanoidController(2, {arkanoidNesPosition, mousePrimaryButton});
+        inputState.setArkanoidExpansion({arkanoidFamicomPosition, mousePrimaryButton});
+        inputState.setKonamiHyperShot({konamiP1Run, konamiP1Jump, konamiP2Run, konamiP2Jump});
+        inputState.setSnesMouse(1, {mouseDeltaX, mouseDeltaY, mousePrimaryButton, mouseSecondaryButton});
+        inputState.setSnesMouse(2, {mouseDeltaX, mouseDeltaY, mousePrimaryButton, mouseSecondaryButton});
+        inputState.setSuborMouse(1, {mouseDeltaX, mouseDeltaY, mousePrimaryButton, mouseSecondaryButton});
+        inputState.setSuborMouse(2, {mouseDeltaX, mouseDeltaY, mousePrimaryButton, mouseSecondaryButton});
+        const bool rewindActive = !keyboardExpansionActive && (
             im.isPressed(m_systemInput.rewind) ||
             m_touch->buttons().rewind
         );
-        inputState.speedBoost = !keyboardExpansionActive && (
+        const bool speedBoostActive = !keyboardExpansionActive && (
             im.isPressed(m_systemInput.speed)
         );
         {
@@ -4084,12 +4022,15 @@ void GeraNESApp::pollAndPrepareInput()
             m_netplayLatestInputState = inputState;
         }
         m_emu.setPendingInput(inputState);
+        m_emu.setPendingRuntimeControls({rewindActive, speedBoostActive});
     } else {
         {
             std::scoped_lock stateLock(m_netplayInputStateMutex);
             m_replayLiveInputState = {};
+            m_netplayLatestInputState = {};
         }
         m_emu.setPendingInput({});
+        m_emu.setPendingRuntimeControls({});
     }
 }
 

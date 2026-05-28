@@ -14,93 +14,26 @@
 
 #include "ConsoleNetplay/NetplayRuntimeTypes.h"
 #include "GeraNES/GeraNESEmu.h"
+#include "GeraNES/InputState.h"
 #include "signal/signal.h"
 
 struct EmulationHostTypes
 {
-    struct InputState
-    {
-        bool p1A = false;
-        bool p1B = false;
-        bool p1Select = false;
-        bool p1Start = false;
-        bool p1Up = false;
-        bool p1Down = false;
-        bool p1Left = false;
-        bool p1Right = false;
-        bool p1X = false;
-        bool p1Y = false;
-        bool p1L = false;
-        bool p1R = false;
-        bool p1Up2 = false;
-        bool p1Down2 = false;
-        bool p1Left2 = false;
-        bool p1Right2 = false;
-
-        bool p2A = false;
-        bool p2B = false;
-        bool p2Select = false;
-        bool p2Start = false;
-        bool p2Up = false;
-        bool p2Down = false;
-        bool p2Left = false;
-        bool p2Right = false;
-        bool p2X = false;
-        bool p2Y = false;
-        bool p2L = false;
-        bool p2R = false;
-        bool p2Up2 = false;
-        bool p2Down2 = false;
-        bool p2Left2 = false;
-        bool p2Right2 = false;
-
-        bool p3A = false;
-        bool p3B = false;
-        bool p3Select = false;
-        bool p3Start = false;
-        bool p3Up = false;
-        bool p3Down = false;
-        bool p3Left = false;
-        bool p3Right = false;
-
-        bool p4A = false;
-        bool p4B = false;
-        bool p4Select = false;
-        bool p4Start = false;
-        bool p4Up = false;
-        bool p4Down = false;
-        bool p4Left = false;
-        bool p4Right = false;
-        std::array<bool, 12> p1PowerPadButtons = {};
-        std::array<bool, 12> p2PowerPadButtons = {};
-        IExpansionDevice::SuborKeyboardKeys suborKeyboardKeys = {};
-        IExpansionDevice::FamilyBasicKeyboardKeys familyBasicKeyboardKeys = {};
-
-        int zapperX = -1;
-        int zapperY = -1;
-        int mouseDeltaX = 0;
-        int mouseDeltaY = 0;
-        float arkanoidNesPosition = 0.5f;
-        float arkanoidFamicomPosition = 0.5f;
-        bool zapperP1Trigger = false;
-        bool zapperP2Trigger = false;
-        bool bandaiTrigger = false;
-        bool konamiP1Run = false;
-        bool konamiP1Jump = false;
-        bool konamiP2Run = false;
-        bool konamiP2Jump = false;
-        bool mousePrimaryButton = false;
-        bool mouseSecondaryButton = false;
-
-        bool rewind = false;
-        bool speedBoost = false;
-    };
+    using InputState = ::InputState;
 
     struct ReplayFrameInput
     {
         InputState state{};
+        bool rewind = false;
+        bool speedBoost = false;
         bool hasFrameOverride = false;
         InputFrame frameOverride{};
+    };
+
+    struct RuntimeControls
+    {
+        bool rewind = false;
+        bool speedBoost = false;
     };
 
     using FrameInputResolver = std::function<bool(uint32_t, ReplayFrameInput&)>;
@@ -170,6 +103,7 @@ class IEmulationHost : public SigSlot::SigSlotBase
 public:
     using InputState = EmulationHostTypes::InputState;
     using ReplayFrameInput = EmulationHostTypes::ReplayFrameInput;
+    using RuntimeControls = EmulationHostTypes::RuntimeControls;
     using FrameInputResolver = EmulationHostTypes::FrameInputResolver;
     using QueuedInputObserver = EmulationHostTypes::QueuedInputObserver;
     using ModFrameCaptureHook = EmulationHostTypes::ModFrameCaptureHook;
@@ -184,6 +118,8 @@ public:
     virtual void shutdown() = 0;
     virtual void setPendingInput(const InputState& input) = 0;
     virtual InputState pendingInputSnapshot() const = 0;
+    virtual void setPendingRuntimeControls(const RuntimeControls& controls) = 0;
+    virtual RuntimeControls pendingRuntimeControlsSnapshot() const = 0;
     virtual void setFrameInputResolver(FrameInputResolver resolver) = 0;
     virtual void setQueuedInputObserver(QueuedInputObserver observer) = 0;
     virtual void queueInputForFrame(uint32_t frameNumber, const InputState& input) = 0;

@@ -45,37 +45,7 @@ private:
                                             const InputState& input)
     {
         InputFrame frame = emu.createInputFrame(frameNumber);
-        frame.setPortButtons(1, {input.p1A, input.p1B, input.p1Select, input.p1Start, input.p1Up, input.p1Down, input.p1Left, input.p1Right,
-                                 input.p1X, input.p1Y, input.p1L, input.p1R, input.p1Up2, input.p1Down2, input.p1Left2, input.p1Right2});
-        frame.setPortButtons(2, {input.p2A, input.p2B, input.p2Select, input.p2Start, input.p2Up, input.p2Down, input.p2Left, input.p2Right,
-                                 input.p2X, input.p2Y, input.p2L, input.p2R, input.p2Up2, input.p2Down2, input.p2Left2, input.p2Right2});
-        frame.setPortButtons(3, {input.p3A, input.p3B, input.p3Select, input.p3Start, input.p3Up, input.p3Down, input.p3Left, input.p3Right});
-        frame.setPortButtons(4, {input.p4A, input.p4B, input.p4Select, input.p4Start, input.p4Up, input.p4Down, input.p4Left, input.p4Right});
-        frame.setPowerPadButtons(1, input.p1PowerPadButtons);
-        frame.setPowerPadButtons(2, input.p2PowerPadButtons);
-        frame.setSuborKeyboardKeys(input.suborKeyboardKeys);
-        frame.setFamilyBasicKeyboardKeys(input.familyBasicKeyboardKeys);
-        frame.setBandaiButtons({input.p2A, input.p2B, input.p2Select, input.p2Start, input.p2Up, input.p2Down, input.p2Left, input.p2Right});
-        frame.setZapper(1, {input.zapperX, input.zapperY, input.zapperP1Trigger});
-        frame.setZapper(2, {input.zapperX, input.zapperY, input.zapperP2Trigger});
-        frame.setBandaiPointer({input.zapperX, input.zapperY, input.bandaiTrigger});
-        frame.setArkanoidController(1, {input.arkanoidNesPosition, input.mousePrimaryButton});
-        frame.setArkanoidController(2, {input.arkanoidNesPosition, input.mousePrimaryButton});
-        frame.setArkanoidExpansion({input.arkanoidFamicomPosition, input.mousePrimaryButton});
-        frame.setKonamiHyperShot({input.konamiP1Run, input.konamiP1Jump, input.konamiP2Run, input.konamiP2Jump});
-        frame.setSnesMouse(1, {input.mouseDeltaX, input.mouseDeltaY, input.mousePrimaryButton, input.mouseSecondaryButton});
-        frame.setSnesMouse(2, {input.mouseDeltaX, input.mouseDeltaY, input.mousePrimaryButton, input.mouseSecondaryButton});
-        frame.setSuborMouse(1, {input.mouseDeltaX, input.mouseDeltaY, input.mousePrimaryButton, input.mouseSecondaryButton});
-        frame.setSuborMouse(2, {input.mouseDeltaX, input.mouseDeltaY, input.mousePrimaryButton, input.mouseSecondaryButton});
-        return frame;
-    }
-
-    static InputFrame applyInputStateToEmu(GeraNESEmu& emu, const InputState& input)
-    {
-        InputFrame frame = buildInputFrameForEmu(emu, emu.frameCount() + 1u, input);
-        emu.queueInputFrame(frame);
-        emu.setRewind(input.rewind);
-        emu.setSpeedBoost(input.speedBoost);
+        frame.state.serializedInputData = input.serializedInputData;
         return frame;
     }
 
@@ -89,8 +59,8 @@ private:
         frame.frame = targetFrame;
         frame.timelineEpoch = emu.inputTimelineEpoch();
         emu.queueInputFrame(frame);
-        emu.setRewind(input.state.rewind);
-        emu.setSpeedBoost(input.state.speedBoost);
+        emu.setRewind(input.rewind);
+        emu.setSpeedBoost(input.speedBoost);
         return frame;
     }
 
@@ -111,6 +81,8 @@ private:
         if(!hasResolvedInput) {
             std::scoped_lock pendingInputLock(m_pendingInputMutex);
             input.state = m_pendingInput;
+            input.rewind = m_pendingRuntimeControls.rewind;
+            input.speedBoost = m_pendingRuntimeControls.speedBoost;
         }
 
         return queueReplayFrameInputToEmu(m_emu, targetFrame, input);
@@ -225,6 +197,7 @@ private:
     bool m_ppuEventViewerCaptureEnabled = false;
     mutable std::mutex m_pendingInputMutex;
     InputState m_pendingInput;
+    RuntimeControls m_pendingRuntimeControls;
     mutable std::mutex m_frameInputResolverMutex;
     FrameInputResolver m_frameInputResolver;
     mutable std::mutex m_queuedInputObserverMutex;
@@ -267,6 +240,20 @@ public:
     {
         std::scoped_lock pendingInputLock(m_pendingInputMutex);
         return m_pendingInput;
+    }
+    void setPendingRuntimeControls(const RuntimeControls& controls) override
+    {
+        {
+            std::scoped_lock pendingInputLock(m_pendingInputMutex);
+            m_pendingRuntimeControls = controls;
+        }
+        m_workerWakeRequested.store(true, std::memory_order_release);
+        m_presenterCv.notify_one();
+    }
+    RuntimeControls pendingRuntimeControlsSnapshot() const override
+    {
+        std::scoped_lock pendingInputLock(m_pendingInputMutex);
+        return m_pendingRuntimeControls;
     }
     void setFrameInputResolver(FrameInputResolver resolver) override;
     void setQueuedInputObserver(QueuedInputObserver observer) override;

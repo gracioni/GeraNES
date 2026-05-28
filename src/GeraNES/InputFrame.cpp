@@ -328,7 +328,7 @@ void serializeExpansionPayload(SerializationBase& s,
 }
 
 void serializeDecodedDataForTopology(SerializationBase& s,
-                                     const InputFrame& frame,
+                                     const InputState& frame,
                                      DecodedInputData& decoded)
 {
     if(frame.multitapActive()) {
@@ -343,7 +343,7 @@ void serializeDecodedDataForTopology(SerializationBase& s,
     serializeExpansionPayload(s, frame.expansionDevice, decoded);
 }
 
-DecodedInputData decodeFrameData(const InputFrame& frame)
+DecodedInputData decodeFrameData(const InputState& frame)
 {
     DecodedInputData decoded;
     if(frame.serializedInputData.empty()) {
@@ -359,7 +359,7 @@ DecodedInputData decodeFrameData(const InputFrame& frame)
     return decoded;
 }
 
-bool encodeFrameData(InputFrame& frame, const DecodedInputData& decoded)
+bool encodeFrameData(InputState& frame, const DecodedInputData& decoded)
 {
     DecodedInputData mutableDecoded = decoded;
     Serialize s;
@@ -368,7 +368,7 @@ bool encodeFrameData(InputFrame& frame, const DecodedInputData& decoded)
     return true;
 }
 
-bool portUsesPadButtons(const InputFrame& frame, int port)
+bool portUsesPadButtons(const InputState& frame, int port)
 {
     if(frame.multitapActive()) {
         return port >= 1 && port <= 4;
@@ -392,7 +392,7 @@ bool portUsesPadButtons(const InputFrame& frame, int port)
 }
 }
 
-InputFrame::PadButtons InputFrame::portButtons(int port) const
+InputState::PadButtons InputState::portButtons(int port) const
 {
     if(!portUsesPadButtons(*this, port)) {
         return {};
@@ -420,7 +420,7 @@ InputFrame::PadButtons InputFrame::portButtons(int port) const
     return buttons;
 }
 
-void InputFrame::setPortButtons(int port, const PadButtons& buttons)
+void InputState::setPortButtons(int port, const PadButtons& buttons)
 {
     DecodedInputData decoded = decodeFrameData(*this);
     switch(port) {
@@ -456,7 +456,7 @@ void InputFrame::setPortButtons(int port, const PadButtons& buttons)
     (void)encodeFrameData(*this, decoded);
 }
 
-InputFrame::PadButtons InputFrame::bandaiButtons() const
+InputState::PadButtons InputState::bandaiButtons() const
 {
     if(expansionDevice != Settings::ExpansionDevice::BANDAI_HYPERSHOT &&
        port2Device != Settings::Device::BANDAI_HYPERSHOT) {
@@ -467,7 +467,7 @@ InputFrame::PadButtons InputFrame::bandaiButtons() const
             decoded.bandaiUp, decoded.bandaiDown, decoded.bandaiLeft, decoded.bandaiRight};
 }
 
-void InputFrame::setBandaiButtons(const PadButtons& buttons)
+void InputState::setBandaiButtons(const PadButtons& buttons)
 {
     DecodedInputData decoded = decodeFrameData(*this);
     decoded.bandaiA = buttons.a; decoded.bandaiB = buttons.b; decoded.bandaiSelect = buttons.select; decoded.bandaiStart = buttons.start;
@@ -475,7 +475,7 @@ void InputFrame::setBandaiButtons(const PadButtons& buttons)
     (void)encodeFrameData(*this, decoded);
 }
 
-InputFrame::PointerState InputFrame::zapper(int port) const
+InputState::PointerState InputState::zapper(int port) const
 {
     if((port == 1 && port1Device != Settings::Device::ZAPPER) ||
        (port == 2 && port2Device != Settings::Device::ZAPPER)) {
@@ -486,7 +486,7 @@ InputFrame::PointerState InputFrame::zapper(int port) const
                      : PointerState{decoded.zapperP2X, decoded.zapperP2Y, decoded.zapperP2Trigger};
 }
 
-void InputFrame::setZapper(int port, const PointerState& state)
+void InputState::setZapper(int port, const PointerState& state)
 {
     DecodedInputData decoded = decodeFrameData(*this);
     if(port == 1) {
@@ -499,7 +499,7 @@ void InputFrame::setZapper(int port, const PointerState& state)
     (void)encodeFrameData(*this, decoded);
 }
 
-InputFrame::PointerState InputFrame::bandaiPointer() const
+InputState::PointerState InputState::bandaiPointer() const
 {
     if(expansionDevice != Settings::ExpansionDevice::BANDAI_HYPERSHOT) {
         return {};
@@ -508,14 +508,14 @@ InputFrame::PointerState InputFrame::bandaiPointer() const
     return {decoded.bandaiX, decoded.bandaiY, decoded.bandaiTrigger};
 }
 
-void InputFrame::setBandaiPointer(const PointerState& state)
+void InputState::setBandaiPointer(const PointerState& state)
 {
     DecodedInputData decoded = decodeFrameData(*this);
     decoded.bandaiX = state.x; decoded.bandaiY = state.y; decoded.bandaiTrigger = state.trigger;
     (void)encodeFrameData(*this, decoded);
 }
 
-InputFrame::ArkanoidState InputFrame::arkanoidController(int port) const
+InputState::ArkanoidState InputState::arkanoidController(int port) const
 {
     if((port == 1 && port1Device != Settings::Device::ARKANOID_CONTROLLER) ||
        (port == 2 && port2Device != Settings::Device::ARKANOID_CONTROLLER)) {
@@ -526,7 +526,7 @@ InputFrame::ArkanoidState InputFrame::arkanoidController(int port) const
                      : ArkanoidState{decoded.arkanoidP2Position, decoded.arkanoidP2Button};
 }
 
-void InputFrame::setArkanoidController(int port, const ArkanoidState& state)
+void InputState::setArkanoidController(int port, const ArkanoidState& state)
 {
     DecodedInputData decoded = decodeFrameData(*this);
     if(port == 1) {
@@ -539,7 +539,7 @@ void InputFrame::setArkanoidController(int port, const ArkanoidState& state)
     (void)encodeFrameData(*this, decoded);
 }
 
-InputFrame::ArkanoidState InputFrame::arkanoidExpansion() const
+InputState::ArkanoidState InputState::arkanoidExpansion() const
 {
     if(expansionDevice != Settings::ExpansionDevice::ARKANOID_CONTROLLER) {
         return {};
@@ -548,14 +548,14 @@ InputFrame::ArkanoidState InputFrame::arkanoidExpansion() const
     return {decoded.arkanoidFamicomPosition, decoded.arkanoidFamicomButton};
 }
 
-void InputFrame::setArkanoidExpansion(const ArkanoidState& state)
+void InputState::setArkanoidExpansion(const ArkanoidState& state)
 {
     DecodedInputData decoded = decodeFrameData(*this);
     decoded.arkanoidFamicomPosition = state.position; decoded.arkanoidFamicomButton = state.button;
     (void)encodeFrameData(*this, decoded);
 }
 
-InputFrame::RelativePointerState InputFrame::snesMouse(int port) const
+InputState::RelativePointerState InputState::snesMouse(int port) const
 {
     if((port == 1 && port1Device != Settings::Device::SNES_MOUSE) ||
        (port == 2 && port2Device != Settings::Device::SNES_MOUSE)) {
@@ -566,7 +566,7 @@ InputFrame::RelativePointerState InputFrame::snesMouse(int port) const
                      : RelativePointerState{decoded.snesMouseP2DeltaX, decoded.snesMouseP2DeltaY, decoded.snesMouseP2Left, decoded.snesMouseP2Right};
 }
 
-void InputFrame::setSnesMouse(int port, const RelativePointerState& state)
+void InputState::setSnesMouse(int port, const RelativePointerState& state)
 {
     DecodedInputData decoded = decodeFrameData(*this);
     if(port == 1) {
@@ -579,7 +579,7 @@ void InputFrame::setSnesMouse(int port, const RelativePointerState& state)
     (void)encodeFrameData(*this, decoded);
 }
 
-InputFrame::RelativePointerState InputFrame::suborMouse(int port) const
+InputState::RelativePointerState InputState::suborMouse(int port) const
 {
     if((port == 1 && port1Device != Settings::Device::SUBOR_MOUSE) ||
        (port == 2 && port2Device != Settings::Device::SUBOR_MOUSE)) {
@@ -590,7 +590,7 @@ InputFrame::RelativePointerState InputFrame::suborMouse(int port) const
                      : RelativePointerState{decoded.suborMouseP2DeltaX, decoded.suborMouseP2DeltaY, decoded.suborMouseP2Left, decoded.suborMouseP2Right};
 }
 
-void InputFrame::setSuborMouse(int port, const RelativePointerState& state)
+void InputState::setSuborMouse(int port, const RelativePointerState& state)
 {
     DecodedInputData decoded = decodeFrameData(*this);
     if(port == 1) {
@@ -603,7 +603,7 @@ void InputFrame::setSuborMouse(int port, const RelativePointerState& state)
     (void)encodeFrameData(*this, decoded);
 }
 
-InputFrame::KonamiHyperShotState InputFrame::konamiHyperShot() const
+InputState::KonamiHyperShotState InputState::konamiHyperShot() const
 {
     if(expansionDevice != Settings::ExpansionDevice::KONAMI_HYPERSHOT) {
         return {};
@@ -612,14 +612,14 @@ InputFrame::KonamiHyperShotState InputFrame::konamiHyperShot() const
     return {decoded.konamiP1Run, decoded.konamiP1Jump, decoded.konamiP2Run, decoded.konamiP2Jump};
 }
 
-void InputFrame::setKonamiHyperShot(const KonamiHyperShotState& state)
+void InputState::setKonamiHyperShot(const KonamiHyperShotState& state)
 {
     DecodedInputData decoded = decodeFrameData(*this);
     decoded.konamiP1Run = state.p1Run; decoded.konamiP1Jump = state.p1Jump; decoded.konamiP2Run = state.p2Run; decoded.konamiP2Jump = state.p2Jump;
     (void)encodeFrameData(*this, decoded);
 }
 
-std::array<bool, 12> InputFrame::powerPadButtons(int port) const
+std::array<bool, 12> InputState::powerPadButtons(int port) const
 {
     const bool familyTrainer =
         expansionDevice == Settings::ExpansionDevice::FAMILY_TRAINER_SIDE_A ||
@@ -632,7 +632,7 @@ std::array<bool, 12> InputFrame::powerPadButtons(int port) const
     return port == 1 ? decoded.powerPadP1Buttons : decoded.powerPadP2Buttons;
 }
 
-void InputFrame::setPowerPadButtons(int port, const std::array<bool, 12>& buttons)
+void InputState::setPowerPadButtons(int port, const std::array<bool, 12>& buttons)
 {
     DecodedInputData decoded = decodeFrameData(*this);
     if(port == 1) {
@@ -645,7 +645,7 @@ void InputFrame::setPowerPadButtons(int port, const std::array<bool, 12>& button
     (void)encodeFrameData(*this, decoded);
 }
 
-IExpansionDevice::SuborKeyboardKeys InputFrame::suborKeyboardKeys() const
+IExpansionDevice::SuborKeyboardKeys InputState::suborKeyboardKeys() const
 {
     if(expansionDevice != Settings::ExpansionDevice::SUBOR_KEYBOARD) {
         return {};
@@ -653,14 +653,14 @@ IExpansionDevice::SuborKeyboardKeys InputFrame::suborKeyboardKeys() const
     return decodeFrameData(*this).suborKeyboardKeys;
 }
 
-void InputFrame::setSuborKeyboardKeys(const IExpansionDevice::SuborKeyboardKeys& keys)
+void InputState::setSuborKeyboardKeys(const IExpansionDevice::SuborKeyboardKeys& keys)
 {
     DecodedInputData decoded = decodeFrameData(*this);
     decoded.suborKeyboardKeys = keys;
     (void)encodeFrameData(*this, decoded);
 }
 
-IExpansionDevice::FamilyBasicKeyboardKeys InputFrame::familyBasicKeyboardKeys() const
+IExpansionDevice::FamilyBasicKeyboardKeys InputState::familyBasicKeyboardKeys() const
 {
     if(expansionDevice != Settings::ExpansionDevice::FAMILY_BASIC_KEYBOARD) {
         return {};
@@ -668,7 +668,7 @@ IExpansionDevice::FamilyBasicKeyboardKeys InputFrame::familyBasicKeyboardKeys() 
     return decodeFrameData(*this).familyBasicKeyboardKeys;
 }
 
-void InputFrame::setFamilyBasicKeyboardKeys(const IExpansionDevice::FamilyBasicKeyboardKeys& keys)
+void InputState::setFamilyBasicKeyboardKeys(const IExpansionDevice::FamilyBasicKeyboardKeys& keys)
 {
     DecodedInputData decoded = decodeFrameData(*this);
     decoded.familyBasicKeyboardKeys = keys;
