@@ -7,6 +7,7 @@
 
 #include "BaseMapper.h"
 #include "Audio/Sunsoft5BAudio.h"
+#include "GeraNES/util/EscapedRle.h"
 
 //Sunsoft FME-7 5A and 5B
 
@@ -59,65 +60,9 @@ private:
         m_PRGRAM = std::move(aux);
     }
 
-    std::vector<uint8_t> encodePRGRAMRle() const
-    {
-        std::vector<uint8_t> encoded;
-        if(m_currentRAMSize == 0 || !m_PRGRAM) return encoded;
-
-        encoded.reserve(m_currentRAMSize / 2);
-
-        uint32_t index = 0;
-        while(index < m_currentRAMSize) {
-            const uint8_t value = m_PRGRAM[index];
-            uint32_t runLength = 1;
-            while(index + runLength < m_currentRAMSize &&
-                  m_PRGRAM[index + runLength] == value &&
-                  runLength < 0x7FFFFFFFu) {
-                ++runLength;
-            }
-
-            encoded.push_back(value);
-            const uint32_t lengthMinusOne = runLength - 1;
-            encoded.push_back(static_cast<uint8_t>(lengthMinusOne & 0xFF));
-            encoded.push_back(static_cast<uint8_t>((lengthMinusOne >> 8) & 0xFF));
-            encoded.push_back(static_cast<uint8_t>((lengthMinusOne >> 16) & 0xFF));
-            encoded.push_back(static_cast<uint8_t>((lengthMinusOne >> 24) & 0x7F));
-
-            index += runLength;
-        }
-
-        return encoded;
-    }
-
-    bool decodePRGRAMRle(const uint8_t* encoded, uint32_t encodedSize)
-    {
-        if(m_currentRAMSize == 0 || !m_PRGRAM) return encodedSize == 0;
-        if(encoded == nullptr && encodedSize > 0) return false;
-
-        uint32_t sourceIndex = 0;
-        uint32_t destIndex = 0;
-        while(sourceIndex < encodedSize) {
-            if(encodedSize - sourceIndex < 5) return false;
-
-            const uint8_t value = encoded[sourceIndex++];
-            uint32_t runLength = encoded[sourceIndex++];
-            runLength |= static_cast<uint32_t>(encoded[sourceIndex++]) << 8;
-            runLength |= static_cast<uint32_t>(encoded[sourceIndex++]) << 16;
-            runLength |= static_cast<uint32_t>(encoded[sourceIndex++]) << 24;
-            runLength += 1;
-
-            if(runLength > m_currentRAMSize - destIndex) return false;
-
-            std::memset(m_PRGRAM.get() + destIndex, value, runLength);
-            destIndex += runLength;
-        }
-
-        return destIndex == m_currentRAMSize;
-    }
-
     void serializePRGRAM(SerializationBase& s)
     {
-        std::vector<uint8_t> encoded = encodePRGRAMRle();
+        std::vector<uint8_t> encoded = EscapedRle::encode(m_PRGRAM.get(), m_currentRAMSize);
         const bool useRle = !encoded.empty() && encoded.size() < m_currentRAMSize;
         uint8_t format = useRle ? PRGRAM_SERIALIZATION_RLE : PRGRAM_SERIALIZATION_RAW;
         uint32_t payloadSize = useRle ? static_cast<uint32_t>(encoded.size()) : m_currentRAMSize;
@@ -172,7 +117,7 @@ private:
 
         std::vector<uint8_t> encoded(payloadSize);
         s.array(encoded.data(), 1, payloadSize);
-        if(!decodePRGRAMRle(encoded.data(), payloadSize) && m_PRGRAM) {
+        if(!EscapedRle::decode(encoded.data(), payloadSize, m_PRGRAM.get(), m_currentRAMSize) && m_PRGRAM) {
             std::memset(m_PRGRAM.get(), 0, m_currentRAMSize);
         }
     }
