@@ -81,40 +81,45 @@ inline void GeraNESApp::drawReplayWindow()
         const bool recordEnabled = hasRomLoaded && !replayLoaded && !netplayRestricted;
         const bool playEnabled = playbackReady && replayState.loadedFrameCount > 0 && !seekInProgress;
         const bool pauseEnabled = (recording || replayState.playing) && !seekInProgress;
+        const bool closeEnabled = replayLoaded && !seekInProgress;
 
         ImGui::BeginDisabled(seekInProgress);
-        if(ImGui::Button("Open...", ImVec2(90.0f, 0.0f))) {
+        if(ImGui::Button((std::string(FontAwesomeIcons::kFolderOpen) + " Open...").c_str(), ImVec2(110.0f, 0.0f))) {
             openReplayDialog();
         }
         ImGui::SameLine();
-        if(ImGui::Button("Close", ImVec2(90.0f, 0.0f))) {
+        ImGui::BeginDisabled(!closeEnabled);
+        if(ImGui::Button((std::string(FontAwesomeIcons::kXmark) + " Close").c_str(), ImVec2(100.0f, 0.0f))) {
             clearReplaySession(true);
         }
         ImGui::EndDisabled();
+        ImGui::EndDisabled();
 
         ImGui::BeginDisabled(!playEnabled);
-        if(ImGui::Button("Play", ImVec2(90.0f, 0.0f))) {
+        if(ImGui::Button((std::string(FontAwesomeIcons::kPlay) + " Play").c_str(), ImVec2(90.0f, 0.0f))) {
             startReplayPlayback();
         }
         ImGui::EndDisabled();
 
         ImGui::SameLine();
         ImGui::BeginDisabled(!playbackReady);
-        if(ImGui::Button("Stop", ImVec2(90.0f, 0.0f))) {
+        if(ImGui::Button((std::string(FontAwesomeIcons::kStop) + " Stop").c_str(), ImVec2(90.0f, 0.0f))) {
             (void)stopReplayToStart();
         }
         ImGui::EndDisabled();
 
         ImGui::SameLine();
         ImGui::BeginDisabled(!pauseEnabled);
-        if(ImGui::Button("Pause", ImVec2(90.0f, 0.0f))) {
+        if(ImGui::Button((std::string(FontAwesomeIcons::kPause) + " Pause").c_str(), ImVec2(100.0f, 0.0f))) {
             stopReplayPlayback(true);
         }
         ImGui::EndDisabled();
 
         ImGui::SameLine();
         ImGui::BeginDisabled(!recordEnabled);
-        if(ImGui::Button(recording ? "Recording..." : "Record", ImVec2(110.0f, 0.0f))) {
+        const std::string recordLabel =
+            std::string(FontAwesomeIcons::kClockRotateLeft) + (recording ? " Recording..." : " Record");
+        if(ImGui::Button(recordLabel.c_str(), ImVec2(130.0f, 0.0f))) {
             if(recording) {
                 stopReplayRecording();
             } else {

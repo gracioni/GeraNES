@@ -322,6 +322,7 @@ private:
     int m_replaySliderValue = 0;
     bool m_replaySliderDragging = false;
     bool m_replaySeekInProgress = false;
+    bool m_replayAutoPlayAfterSeek = false;
     std::thread m_replaySeekThread;
     std::atomic<bool> m_replaySeekTaskRunning = false;
     std::atomic<bool> m_replaySeekTaskCompleted = false;

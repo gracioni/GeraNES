@@ -1079,11 +1079,16 @@ bool GeraNESApp::stopReplayToStart()
 void GeraNESApp::clearReplaySession(bool keepWindowOpen)
 {
     waitForReplaySeekTask();
+    const bool hadLoadedReplay = m_replayManager.hasLoadedReplay();
     stopReplayPlayback(false);
     m_replayManager.clear();
     m_replaySliderValue = 0;
     m_replaySliderDragging = false;
     m_replaySeekInProgress = false;
+    m_replayAutoPlayAfterSeek = false;
+    if(hadLoadedReplay && m_emu.valid() && m_emu.paused()) {
+        m_emu.togglePaused();
+    }
     if(!keepWindowOpen) {
         m_showReplayWindow = false;
     }
@@ -1376,10 +1381,15 @@ bool GeraNESApp::openReplayFile(const fs::path& path)
 
     m_showReplayWindow = true;
     Logger::instance().log("Replay loaded: " + path.string(), Logger::Type::USER);
+    m_replayAutoPlayAfterSeek = true;
     if(!seekReplayToFrame(0)) {
+        m_replayAutoPlayAfterSeek = false;
         return false;
     }
-    startReplayPlayback();
+    if(!m_replaySeekInProgress) {
+        startReplayPlayback();
+        m_replayAutoPlayAfterSeek = false;
+    }
     return true;
 }
 
@@ -1421,6 +1431,7 @@ bool GeraNESApp::seekReplayToFrame(uint32_t frame)
         if(!openRomPath(m_loadedRomPath, false, false)) {
             m_emu.setFrameInputResolver({});
             m_replaySeekInProgress = false;
+            m_replayAutoPlayAfterSeek = false;
             m_emu.setSimulationSuspended(false);
             return false;
         }
@@ -1480,6 +1491,7 @@ void GeraNESApp::finishReplaySeekTask()
     const bool succeeded = m_replaySeekTaskSucceeded.load();
     if(!succeeded) {
         m_replaySeekInProgress = false;
+        m_replayAutoPlayAfterSeek = false;
         m_emu.setSimulationSuspended(false);
         m_userToast.show("Replay seek failed");
         return;
@@ -1493,6 +1505,10 @@ void GeraNESApp::finishReplaySeekTask()
     }
     m_replaySeekInProgress = false;
     m_emu.setSimulationSuspended(false);
+    if(m_replayAutoPlayAfterSeek) {
+        m_replayAutoPlayAfterSeek = false;
+        startReplayPlayback();
+    }
 }
 
 void GeraNESApp::waitForReplaySeekTask()
