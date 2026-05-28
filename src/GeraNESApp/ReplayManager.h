@@ -6,20 +6,14 @@
 #include <string>
 #include <vector>
 
-#include "GeraNESApp/IEmulationHost.h"
+#include "GeraNESApp/ReplayFile.h"
 
 namespace fs = std::filesystem;
 
 class ReplayManager
 {
 public:
-    struct ReplayData {
-        std::string romName;
-        std::string romCrc;
-        IEmulationHost::InputTopologySnapshot inputTopology = {};
-        std::optional<InputFrame> bootstrapFrame;
-        std::vector<InputFrame> frames;
-    };
+    using ReplayData = ReplayFile::Data;
 
     enum class ReplayMode {
         None,
