@@ -39,7 +39,9 @@ void ReplayManager::beginRecording(std::string romName,
 void ReplayManager::beginRecordingFromLoadedReplay(uint32_t continueFromFrame)
 {
     std::scoped_lock lock(m_mutex);
-    const uint32_t preservedFrameCount = std::min(continueFromFrame, static_cast<uint32_t>(m_state.data.frames.size()));
+    const uint32_t preservedFrameCount = std::min(
+        continueFromFrame + 1u,
+        static_cast<uint32_t>(m_state.data.frames.size()));
     m_runtimeSnapshots.clear();
     m_state.mode = ReplayMode::Recording;
     m_state.filePath.clear();
@@ -62,6 +64,18 @@ void ReplayManager::appendRecordedFrame(const InputFrame& frame)
     }
     m_state.loadedFrameCount = static_cast<uint32_t>(m_state.data.frames.size());
     m_state.cursorFrame = m_state.loadedFrameCount;
+}
+
+void ReplayManager::trimRecordedFramesAfter(uint32_t frame)
+{
+    std::scoped_lock lock(m_mutex);
+    const uint32_t preservedFrameCount = std::min(
+        frame + 1u,
+        static_cast<uint32_t>(m_state.data.frames.size()));
+    m_state.data.frames.resize(preservedFrameCount);
+    m_state.loadedFrameCount = preservedFrameCount;
+    m_state.cursorFrame = std::min(frame, preservedFrameCount);
+    m_state.cursorCanonicalCrc32.reset();
 }
 
 void ReplayManager::finalizeRecordingAsPlayback(const fs::path& path)
@@ -155,6 +169,12 @@ bool ReplayManager::syncRuntimeFrame(uint32_t emuFrame)
     }
 
     if(m_state.mode == ReplayMode::Recording) {
+        if(emuFrame < m_state.cursorFrame) {
+            const uint32_t preservedFrameCount = std::min(
+                emuFrame + 1u,
+                static_cast<uint32_t>(m_state.data.frames.size()));
+            m_state.data.frames.resize(preservedFrameCount);
+        }
         m_state.cursorFrame = std::min(emuFrame, static_cast<uint32_t>(m_state.data.frames.size()));
         m_state.loadedFrameCount = static_cast<uint32_t>(m_state.data.frames.size());
         return false;

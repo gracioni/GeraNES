@@ -6,6 +6,7 @@ inline void GeraNESApp::menuBar() {
     const bool netplayClientRestricted = isNetplayClientRestricted();
     const bool netplayRomChangeRestricted = isNetplayRomChangeRestricted();
     const bool replayInteractionLocked = isReplaySessionInteractionLocked();
+    const bool replayRecordingActive = isReplayRecordingActive();
     const bool usingCustomChrome = useCustomWindowChrome();
     const ImVec4 menuBarColor = ImGuiTheme::chromeMenuBar();
     bool menuBarVisible = false;
@@ -135,7 +136,7 @@ inline void GeraNESApp::menuBar() {
             sc = m_shortcuts.get("loadState");
             if( sc != nullptr) {
 
-                if (ImGui::MenuItem(withMenuIconText(FontAwesomeIcons::kFolderOpen, sc->label).c_str(), sc->shortcut.c_str(), false, hasRomLoaded && !replayInteractionLocked))
+                if (ImGui::MenuItem(withMenuIconText(FontAwesomeIcons::kFolderOpen, sc->label).c_str(), sc->shortcut.c_str(), false, hasRomLoaded && !replayRecordingActive))
                 {
                     sc->action();
                 }
@@ -191,7 +192,7 @@ inline void GeraNESApp::menuBar() {
 
             ImGui::Separator();
 
-            if(ImGui::MenuItem(withMenuIcon(FontAwesomeIcons::kRotateRight, "Reset").c_str(), nullptr, false, hasRomLoaded && !netplayClientRestricted && !replayInteractionLocked)) {
+            if(ImGui::MenuItem(withMenuIcon(FontAwesomeIcons::kRotateRight, "Reset").c_str(), nullptr, false, hasRomLoaded && !netplayClientRestricted && !replayRecordingActive)) {
                 resetAction();
             }
 

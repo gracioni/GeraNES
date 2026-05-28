@@ -56,6 +56,7 @@ public:
                         const IEmulationHost::InputTopologySnapshot& topology);
     void beginRecordingFromLoadedReplay(uint32_t continueFromFrame);
     void appendRecordedFrame(const InputFrame& frame);
+    void trimRecordedFramesAfter(uint32_t frame);
     void finalizeRecordingAsPlayback(const fs::path& path);
     void setLoadedReplay(const fs::path& path, ReplayData data);
     uint32_t inputCount() const;

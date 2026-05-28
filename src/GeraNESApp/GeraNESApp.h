@@ -573,6 +573,7 @@ private:
     void createShortcuts();
     void updateCursor();
     bool isReplayRestricted() const;
+    bool isReplayRecordingActive() const;
     bool isReplaySessionInteractionLocked() const;
     void notifyReplaySessionInteractionLocked(const char* action);
     void refreshReplayFrameInputResolver();

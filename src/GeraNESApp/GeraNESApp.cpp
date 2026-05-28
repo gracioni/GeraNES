@@ -881,7 +881,7 @@ void GeraNESApp::togglePauseAction()
 void GeraNESApp::resetAction()
 {
     if(!m_emu.valid()) return;
-    if(isReplaySessionInteractionLocked()) {
+    if(isReplayRecordingActive()) {
         notifyReplaySessionInteractionLocked("Reset");
         return;
     }
@@ -987,6 +987,11 @@ bool GeraNESApp::isReplayRestricted() const
 {
     const auto snapshot = m_netplayRuntime.uiSnapshot();
     return snapshot.active || snapshot.hosting || snapshot.connected || snapshot.reconnecting;
+}
+
+bool GeraNESApp::isReplayRecordingActive() const
+{
+    return m_replayManager.snapshot().mode == ReplayManager::ReplayMode::Recording;
 }
 
 bool GeraNESApp::isReplaySessionInteractionLocked() const
@@ -1324,11 +1329,22 @@ bool GeraNESApp::continueReplayRecordingFromCurrentCursor()
     const uint32_t continueFromFrame =
         std::min(replayState.cursorFrame, static_cast<uint32_t>(replayState.data.frames.size()));
     const auto inputTopology = replayState.data.inputTopology;
+    const uint32_t currentFrame = m_emu.frameCount();
+    const bool continuingFromReplayEnd =
+        !replayState.data.frames.empty() &&
+        continueFromFrame >= static_cast<uint32_t>(replayState.data.frames.size()) &&
+        currentFrame >= static_cast<uint32_t>(replayState.data.frames.size());
     m_replayManager.beginRecordingFromLoadedReplay(continueFromFrame);
     m_emu.discardQueuedInputFramesAfter(continueFromFrame);
     m_emu.discardQueuedAudio();
     refreshReplayFrameInputResolver();
     applyReplayInputTopology(inputTopology);
+    if(continuingFromReplayEnd) {
+        const IEmulationHost::InputState pendingInput = m_emu.pendingInputSnapshot();
+        m_replayManager.appendRecordedFrame(
+            buildReplayRecordedFrame(inputTopology, currentFrame, pendingInput));
+        m_emu.queueInputForFrame(currentFrame, pendingInput);
+    }
     m_replaySliderValue = static_cast<int>(continueFromFrame);
     m_replaySliderDragging = false;
     m_replaySeekInProgress = false;
@@ -2680,7 +2696,7 @@ void GeraNESApp::createShortcuts()
 
     m_shortcuts.add(ShortcutManager::Data{"loadState", "Load State", "Alt+L", [this]() {
         if(!m_emu.valid()) return;
-        if(isReplaySessionInteractionLocked()) {
+        if(isReplayRecordingActive()) {
             notifyReplaySessionInteractionLocked("Load state");
             return;
         }
@@ -3938,7 +3954,7 @@ void GeraNESApp::pollAndPrepareInput()
                     }
                 }
                 if(im.isJustPressed(m_systemInput.loadState)) {
-                    if(!isReplaySessionInteractionLocked()) {
+                    if(!isReplayRecordingActive()) {
                         m_emu.loadState(static_cast<uint8_t>(AppSettings::instance().data.saveStateSlot));
                     }
                 }
