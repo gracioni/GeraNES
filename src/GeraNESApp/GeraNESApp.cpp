@@ -1167,9 +1167,11 @@ bool GeraNESApp::openReplayDialog()
 #endif
 
     bool opened = false;
+    bool replayOpened = false;
     const nfdresult_t result = NFD_OpenDialogU8_With(&outPath, &args);
     if(result == NFD_OKAY) {
         opened = openReplayFile(fs::path(outPath));
+        replayOpened = opened && m_replayManager.hasLoadedReplay();
         AppSettings::instance().data.setLastFolder(outPath);
         NFD_FreePathU8(outPath);
     } else if(result != NFD_CANCEL) {
@@ -1178,12 +1180,15 @@ bool GeraNESApp::openReplayDialog()
 
     NFD_Quit();
     setWindowsNativePumpEnabled(true);
-    m_emu.withExclusiveAccess([resumeAfterDialog](auto& emu) {
-        if(resumeAfterDialog && emu.paused()) {
+    m_emu.withExclusiveAccess([resumeAfterDialog, replayOpened](auto& emu) {
+        if(resumeAfterDialog && !replayOpened && emu.paused()) {
             emu.togglePaused();
         }
     });
     if(restoreAfterDialog) this->restoreWindow();
+    if(replayOpened && !m_replaySeekInProgress) {
+        startReplayPlayback();
+    }
     return opened;
 #endif
 }
@@ -1422,7 +1427,7 @@ bool GeraNESApp::seekReplayToFrame(uint32_t frame)
     m_emu.discardQueuedAudio();
     m_replayManager.setCursorState(targetFrame, m_emu.canonicalStateCrc32());
     m_replaySliderValue = static_cast<int>(targetFrame);
-    if(m_emu.valid() && !m_emu.paused()) {
+    if(!m_replayAutoPlayAfterSeek && m_emu.valid() && !m_emu.paused()) {
         m_emu.togglePaused();
     }
     m_replaySeekInProgress = false;
@@ -1473,7 +1478,7 @@ void GeraNESApp::finishReplaySeekTask()
     m_emu.discardQueuedAudio();
     m_replayManager.setCursorState(m_replaySeekTargetFrame, m_emu.canonicalStateCrc32());
     m_replaySliderValue = static_cast<int>(m_replaySeekTargetFrame);
-    if(m_emu.valid() && !m_emu.paused()) {
+    if(!m_replayAutoPlayAfterSeek && m_emu.valid() && !m_emu.paused()) {
         m_emu.togglePaused();
     }
     m_replaySeekInProgress = false;

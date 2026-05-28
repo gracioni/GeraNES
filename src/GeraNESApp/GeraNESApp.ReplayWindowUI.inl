@@ -62,6 +62,19 @@ const char* replayFamicomMultitapLabel(Settings::FamicomMultitapDevice device)
 
     return "Unknown";
 }
+
+std::string replayFormatTimeHms(uint32_t frameCount, uint32_t fps)
+{
+    const uint32_t safeFps = std::max<uint32_t>(1u, fps);
+    const uint32_t totalSeconds = frameCount / safeFps;
+    const uint32_t hours = totalSeconds / 3600u;
+    const uint32_t minutes = (totalSeconds / 60u) % 60u;
+    const uint32_t seconds = totalSeconds % 60u;
+
+    char buffer[16];
+    std::snprintf(buffer, sizeof(buffer), "%02u:%02u:%02u", hours, minutes, seconds);
+    return buffer;
+}
 }
 
 inline void GeraNESApp::drawReplayWindow()
@@ -70,7 +83,7 @@ inline void GeraNESApp::drawReplayWindow()
         return;
     }
 
-    if(ImGui::Begin("Replay", &m_showReplayWindow)) {
+    if(ImGui::Begin("Replay", &m_showReplayWindow, ImGuiWindowFlags_MenuBar)) {
         const auto replayState = m_replayManager.snapshot();
         const bool hasRomLoaded = m_emu.valid();
         const bool recording = replayState.mode == ReplayManager::ReplayMode::Recording;
@@ -79,21 +92,26 @@ inline void GeraNESApp::drawReplayWindow()
         const bool seekInProgress = m_replaySeekInProgress;
         const bool netplayRestricted = isReplayRestricted();
         const bool recordEnabled = hasRomLoaded && !replayLoaded && !netplayRestricted;
-        const bool playEnabled = playbackReady && replayState.loadedFrameCount > 0 && !seekInProgress;
+        const bool playEnabled = playbackReady && replayState.loadedFrameCount > 0 && !seekInProgress && !replayState.playing;
         const bool pauseEnabled = (recording || replayState.playing) && !seekInProgress;
         const bool closeEnabled = replayLoaded && !seekInProgress;
+        const uint32_t replayFrameCount =
+            recording ? replayState.loadedFrameCount : static_cast<uint32_t>(replayState.data.frames.size());
+        const uint32_t replayCursorFrame = std::min(replayState.cursorFrame, replayFrameCount);
+        const uint32_t replayFps = hasRomLoaded ? std::max<uint32_t>(1u, m_emu.getRegionFPS()) : 60u;
 
-        ImGui::BeginDisabled(seekInProgress);
-        if(ImGui::Button((std::string(FontAwesomeIcons::kFolderOpen) + " Open...").c_str(), ImVec2(110.0f, 0.0f))) {
-            openReplayDialog();
+        if(ImGui::BeginMenuBar()) {
+            if(ImGui::BeginMenu("File")) {
+                if(ImGui::MenuItem((std::string(FontAwesomeIcons::kFolderOpen) + " Load").c_str(), nullptr, false, !seekInProgress)) {
+                    openReplayDialog();
+                }
+                if(ImGui::MenuItem((std::string(FontAwesomeIcons::kXmark) + " Close").c_str(), nullptr, false, closeEnabled)) {
+                    clearReplaySession(true);
+                }
+                ImGui::EndMenu();
+            }
+            ImGui::EndMenuBar();
         }
-        ImGui::SameLine();
-        ImGui::BeginDisabled(!closeEnabled);
-        if(ImGui::Button((std::string(FontAwesomeIcons::kXmark) + " Close").c_str(), ImVec2(100.0f, 0.0f))) {
-            clearReplaySession(true);
-        }
-        ImGui::EndDisabled();
-        ImGui::EndDisabled();
 
         ImGui::BeginDisabled(!playEnabled);
         if(ImGui::Button((std::string(FontAwesomeIcons::kPlay) + " Play").c_str(), ImVec2(90.0f, 0.0f))) {
@@ -118,7 +136,7 @@ inline void GeraNESApp::drawReplayWindow()
         ImGui::SameLine();
         ImGui::BeginDisabled(!recordEnabled);
         const std::string recordLabel =
-            std::string(FontAwesomeIcons::kClockRotateLeft) + (recording ? " Recording..." : " Record");
+            std::string(FontAwesomeIcons::kRecordVinyl) + (recording ? " Recording..." : " Record");
         if(ImGui::Button(recordLabel.c_str(), ImVec2(130.0f, 0.0f))) {
             if(recording) {
                 stopReplayRecording();
@@ -128,7 +146,7 @@ inline void GeraNESApp::drawReplayWindow()
         }
         ImGui::EndDisabled();
 
-        uint32_t sliderMax = recording ? replayState.loadedFrameCount : static_cast<uint32_t>(replayState.data.frames.size());
+        uint32_t sliderMax = replayFrameCount;
         if(!m_replaySliderDragging) {
             m_replaySliderValue = static_cast<int>(std::min(replayState.cursorFrame, sliderMax));
         }
@@ -136,6 +154,12 @@ inline void GeraNESApp::drawReplayWindow()
         const bool canSeek = playbackReady && !replayState.playing && !seekInProgress;
         ImGui::BeginDisabled(!canSeek || sliderMax == 0);
         ImGui::SliderInt("Position", &m_replaySliderValue, 0, static_cast<int>(sliderMax), "%d");
+        if(ImGui::IsItemActive()) {
+            ImGui::BeginTooltip();
+            ImGui::TextUnformatted(
+                replayFormatTimeHms(static_cast<uint32_t>(m_replaySliderValue), replayFps).c_str());
+            ImGui::EndTooltip();
+        }
         if(ImGui::IsItemActivated()) {
             m_replaySliderDragging = true;
         }
@@ -159,7 +183,10 @@ inline void GeraNESApp::drawReplayWindow()
         ImGui::Text("Expansion: %s", replayExpansionDeviceLabel(replayState.data.inputTopology.expansionDevice));
         ImGui::Text("NES Multitap: %s", replayNesMultitapLabel(replayState.data.inputTopology.nesMultitapDevice));
         ImGui::Text("Famicom Multitap: %s", replayFamicomMultitapLabel(replayState.data.inputTopology.famicomMultitapDevice));
-        ImGui::Text("Frames: %u", recording ? replayState.loadedFrameCount : static_cast<uint32_t>(replayState.data.frames.size()));
+        ImGui::Text("Time: %s/%s",
+                    replayFormatTimeHms(replayCursorFrame, replayFps).c_str(),
+                    replayFormatTimeHms(replayFrameCount, replayFps).c_str());
+        ImGui::Text("Frames: %u", replayFrameCount);
         ImGui::Text("Cursor: %u", replayState.cursorFrame);
         ImGui::Text("File: %s", replayState.filePath.empty() ? "-" : replayState.filePath.string().c_str());
         if(seekInProgress) {
