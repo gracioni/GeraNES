@@ -36,10 +36,30 @@ void ReplayManager::beginRecording(std::string romName,
     m_state.playing = true;
 }
 
+void ReplayManager::beginRecordingFromLoadedReplay(uint32_t continueFromFrame)
+{
+    std::scoped_lock lock(m_mutex);
+    const uint32_t preservedFrameCount = std::min(continueFromFrame, static_cast<uint32_t>(m_state.data.frames.size()));
+    m_runtimeSnapshots.clear();
+    m_state.mode = ReplayMode::Recording;
+    m_state.filePath.clear();
+    m_state.data.frames.resize(preservedFrameCount);
+    m_state.cursorFrame = preservedFrameCount;
+    m_state.cursorCanonicalCrc32.reset();
+    m_state.loadedFrameCount = preservedFrameCount;
+    m_state.playing = true;
+    m_state.pendingStopAtEnd = false;
+    m_state.loadedReplayActive = false;
+}
+
 void ReplayManager::appendRecordedFrame(const InputFrame& frame)
 {
     std::scoped_lock lock(m_mutex);
-    m_state.data.frames.push_back(frame);
+    if(frame.frame < m_state.data.frames.size()) {
+        m_state.data.frames[static_cast<size_t>(frame.frame)] = frame;
+    } else {
+        m_state.data.frames.push_back(frame);
+    }
     m_state.loadedFrameCount = static_cast<uint32_t>(m_state.data.frames.size());
     m_state.cursorFrame = m_state.loadedFrameCount;
 }

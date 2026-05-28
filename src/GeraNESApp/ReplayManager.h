@@ -54,6 +54,7 @@ public:
     void beginRecording(std::string romName,
                         std::string romCrc,
                         const IEmulationHost::InputTopologySnapshot& topology);
+    void beginRecordingFromLoadedReplay(uint32_t continueFromFrame);
     void appendRecordedFrame(const InputFrame& frame);
     void finalizeRecordingAsPlayback(const fs::path& path);
     void setLoadedReplay(const fs::path& path, ReplayData data);

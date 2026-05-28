@@ -39,6 +39,7 @@ inline constexpr const char* kWandMagicSparkles = "\xee\x8b\x8a";
 inline constexpr const char* kXmark = "\xef\x80\x8d";
 inline constexpr const char* kCalculator = "\xef\x87\xac";
 inline constexpr const char* kFile = "\xef\x85\x9b";
+inline constexpr const char* kRecordVinyl = "\xef\xa3\x99";
 
 inline const ImWchar* glyphRanges()
 {

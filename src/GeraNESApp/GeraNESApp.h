@@ -586,6 +586,7 @@ private:
     bool openReplayDialog();
     bool saveReplayDialog(fs::path& path);
     bool startReplayRecording();
+    bool continueReplayRecordingFromCurrentCursor();
     void stopReplayRecording();
     bool openReplayFile(const fs::path& path);
     bool seekReplayToFrame(uint32_t frame);

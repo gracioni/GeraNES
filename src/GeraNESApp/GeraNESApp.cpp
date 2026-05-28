@@ -1301,6 +1301,55 @@ bool GeraNESApp::startReplayRecording()
     return true;
 }
 
+bool GeraNESApp::continueReplayRecordingFromCurrentCursor()
+{
+    if(!m_emu.valid() || m_loadedRomPath.empty()) {
+        m_userToast.show("Load a ROM before recording a replay");
+        return false;
+    }
+    if(isReplayRestricted()) {
+        m_userToast.show("Replay is unavailable while netplay is active");
+        return false;
+    }
+
+    const auto replayState = m_replayManager.snapshot();
+    if(replayState.mode != ReplayManager::ReplayMode::Playback ||
+       !replayState.loadedReplayActive ||
+       replayState.playing ||
+       m_replaySeekInProgress) {
+        m_userToast.show("Pause the replay before continuing recording");
+        return false;
+    }
+
+    const uint32_t continueFromFrame =
+        std::min(replayState.cursorFrame, static_cast<uint32_t>(replayState.data.frames.size()));
+    const auto inputTopology = replayState.data.inputTopology;
+    m_replayManager.beginRecordingFromLoadedReplay(continueFromFrame);
+    m_emu.discardQueuedInputFramesAfter(continueFromFrame);
+    m_emu.discardQueuedAudio();
+    refreshReplayFrameInputResolver();
+    applyReplayInputTopology(inputTopology);
+    m_replaySliderValue = static_cast<int>(continueFromFrame);
+    m_replaySliderDragging = false;
+    m_replaySeekInProgress = false;
+    m_replayAutoPlayAfterSeek = false;
+    m_showReplayWindow = true;
+    m_imGuiWindowFocusBlocksEmulator = false;
+    if(ImGui::GetCurrentContext() != nullptr) {
+        ImGui::SetWindowFocus(nullptr);
+    }
+
+    if(m_emu.paused()) {
+        m_emu.togglePaused();
+    }
+
+    Logger::instance().log(
+        "Replay recording continued from frame " + std::to_string(continueFromFrame),
+        Logger::Type::USER
+    );
+    return true;
+}
+
 void GeraNESApp::stopReplayRecording()
 {
     if(!m_replayManager.isRecording()) {

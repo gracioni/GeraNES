@@ -75,6 +75,8 @@ std::string replayFormatTimeHms(uint32_t frameCount, uint32_t fps)
     std::snprintf(buffer, sizeof(buffer), "%02u:%02u:%02u", hours, minutes, seconds);
     return buffer;
 }
+
+constexpr const char* kReplayContinueRecordingPopupId = "Continue Replay Recording";
 }
 
 inline void GeraNESApp::drawReplayWindow()
@@ -91,7 +93,10 @@ inline void GeraNESApp::drawReplayWindow()
         const bool playbackReady = replayState.mode == ReplayManager::ReplayMode::Playback && replayLoaded;
         const bool seekInProgress = m_replaySeekInProgress;
         const bool netplayRestricted = isReplayRestricted();
-        const bool recordEnabled = hasRomLoaded && !replayLoaded && !netplayRestricted;
+        const bool canContinueRecordingFromReplay =
+            playbackReady && !replayState.playing && !seekInProgress;
+        const bool recordEnabled =
+            hasRomLoaded && !netplayRestricted && (!replayLoaded || canContinueRecordingFromReplay);
         const bool playEnabled = playbackReady && replayState.loadedFrameCount > 0 && !seekInProgress && !replayState.playing;
         const bool pauseEnabled = (recording || replayState.playing) && !seekInProgress;
         const bool closeEnabled = replayLoaded && !seekInProgress;
@@ -140,6 +145,8 @@ inline void GeraNESApp::drawReplayWindow()
         if(ImGui::Button(recordLabel.c_str(), ImVec2(130.0f, 0.0f))) {
             if(recording) {
                 stopReplayRecording();
+            } else if(canContinueRecordingFromReplay) {
+                ImGui::OpenPopup(kReplayContinueRecordingPopupId);
             } else {
                 startReplayRecording();
             }
@@ -193,15 +200,36 @@ inline void GeraNESApp::drawReplayWindow()
             ImGui::Text("Seeking to frame: %d", m_replaySliderValue);
         }
 
+        if(ImGui::BeginPopupModal(kReplayContinueRecordingPopupId, nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+            ImGui::TextUnformatted("Close the loaded replay and continue recording from the current replay position?");
+            ImGui::Separator();
+            if(ImGui::Button("Yes", ImVec2(120.0f, 0.0f))) {
+                (void)continueReplayRecordingFromCurrentCursor();
+                ImGui::CloseCurrentPopup();
+            }
+            ImGui::SameLine();
+            if(ImGui::Button("No", ImVec2(120.0f, 0.0f))) {
+                ImGui::CloseCurrentPopup();
+            }
+            ImGui::EndPopup();
+        }
+
         if(netplayRestricted) {
             ImGui::Separator();
             ImGui::TextUnformatted("Replay is unavailable while netplay is active.");
         } else if(!hasRomLoaded) {
             ImGui::Separator();
             ImGui::TextUnformatted("Load a ROM to record or play a replay.");
-        } else if(replayLoaded) {
+        } else if(replayLoaded && !canContinueRecordingFromReplay) {
             ImGui::Separator();
-            ImGui::TextUnformatted("Recording is disabled while a replay file is loaded. Close it to record again.");
+            ImGui::TextUnformatted(
+                replayState.playing
+                    ? "Pause the replay to continue recording from the current position."
+                    : "Recording is unavailable while the replay is seeking."
+            );
+        } else if(canContinueRecordingFromReplay) {
+            ImGui::Separator();
+            ImGui::TextUnformatted("Paused replay can continue as a new recording from the current position.");
         }
     }
     ImGui::End();
