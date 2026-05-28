@@ -319,6 +319,7 @@ private:
     ReplayManager m_replayManager;
     int m_replaySliderValue = 0;
     bool m_replaySliderDragging = false;
+    bool m_replaySeekInProgress = false;
 
     struct RomDatabaseEditorData {
         bool loaded = false;

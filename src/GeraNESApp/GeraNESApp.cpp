@@ -979,6 +979,10 @@ bool GeraNESApp::isReplayRestricted() const
 
 void GeraNESApp::refreshReplayFrameInputResolver()
 {
+    if(m_replaySeekInProgress) {
+        return;
+    }
+
     const auto replayState = m_replayManager.snapshot();
     if(replayState.mode == ReplayManager::ReplayMode::Recording) {
         m_emu.setFrameInputResolver({});
@@ -1017,6 +1021,9 @@ void GeraNESApp::stopReplayPlayback(bool pauseEmulation)
     refreshReplayFrameInputResolver();
     if(pauseEmulation && m_emu.valid() && !m_emu.paused()) {
         m_emu.togglePaused();
+    }
+    if(m_replayManager.isPlayback() && m_emu.valid()) {
+        m_replayManager.setCursorState(m_emu.frameCount(), m_emu.canonicalStateCrc32());
     }
 }
 
@@ -1366,59 +1373,62 @@ bool GeraNESApp::seekReplayToFrame(uint32_t frame)
     }
 
     stopReplayPlayback(false);
+    const auto replayState = m_replayManager.snapshot();
     m_emu.setSimulationSuspended(true);
+    m_replaySeekInProgress = true;
     const uint32_t targetFrame = m_replayManager.clampedFrame(frame);
     const auto replayTopology = m_replayManager.inputTopology();
-    const auto snapshot = m_replayManager.runtimeSnapshotAtOrBefore(targetFrame);
-    const auto bootstrapFrame = m_replayManager.playbackFrameForFrame(0);
     applyReplayInputTopology(replayTopology);
-    if(snapshot.has_value()) {
-        m_emu.setFrameInputResolver({});
-    } else if(bootstrapFrame.has_value()) {
-        m_emu.setFrameInputResolver([bootstrap = *bootstrapFrame](uint32_t targetFrame, IEmulationHost::ReplayFrameInput& replayInput) {
-            if(targetFrame != 0) {
-                return false;
-            }
-            replayInput.hasFrameOverride = true;
-            replayInput.frameOverride = bootstrap;
-            return true;
-        });
-    }
-    if(!openRomPath(m_loadedRomPath, false, false)) {
-        m_emu.setFrameInputResolver({});
-        m_emu.setSimulationSuspended(false);
-        return false;
-    }
-    m_emu.setFrameInputResolver({});
 
-    uint32_t resumeFrame = 0;
-    if(snapshot.has_value()) {
-        if(!m_emu.loadStateFromMemory(snapshot->second)) {
+    const uint32_t currentFrame = m_emu.frameCount();
+    bool canResumeFromCurrentState =
+        replayState.loadedReplayActive &&
+        !replayState.playing &&
+        currentFrame > 0 &&
+        currentFrame <= targetFrame &&
+        replayState.cursorFrame == currentFrame &&
+        replayState.cursorCanonicalCrc32.has_value();
+
+    if(canResumeFromCurrentState &&
+       !m_emu.fastForwardReplayToFrame(targetFrame, replayState.data.frames, replayState.cursorCanonicalCrc32)) {
+        canResumeFromCurrentState = false;
+    }
+
+    if(!canResumeFromCurrentState) {
+        const auto bootstrapFrame = m_replayManager.playbackFrameForFrame(0);
+        if(bootstrapFrame.has_value()) {
+            m_emu.setFrameInputResolver([bootstrap = *bootstrapFrame](uint32_t bootstrapTargetFrame, IEmulationHost::ReplayFrameInput& replayInput) {
+                if(bootstrapTargetFrame != 0) {
+                    return false;
+                }
+                replayInput.hasFrameOverride = true;
+                replayInput.frameOverride = bootstrap;
+                return true;
+            });
+        }
+        if(!openRomPath(m_loadedRomPath, false, false)) {
+            m_emu.setFrameInputResolver({});
+            m_replaySeekInProgress = false;
             m_emu.setSimulationSuspended(false);
             return false;
         }
-        m_emu.discardQueuedAudio();
-        resumeFrame = snapshot->first;
-    }
-    if(targetFrame > resumeFrame) {
-        m_emu.resimulateToFrame(targetFrame, [this](uint32_t nextFrame) {
-            IEmulationHost::ReplayFrameInput input;
-            const auto replayFrame = m_replayManager.playbackFrameForFrame(nextFrame);
-            if(!replayFrame.has_value()) {
-                return input;
-            }
-            input.hasFrameOverride = true;
-            input.frameOverride = *replayFrame;
-            return input;
-        });
+        m_emu.setFrameInputResolver({});
+        m_emu.setSimulationSuspended(true);
+        if(targetFrame > m_emu.frameCount() &&
+           !m_emu.fastForwardReplayToFrame(targetFrame, replayState.data.frames, std::nullopt)) {
+            m_replaySeekInProgress = false;
+            m_emu.setSimulationSuspended(false);
+            return false;
+        }
     }
 
     m_emu.discardQueuedAudio();
-    if(m_replayManager.shouldCaptureRuntimeSnapshot(m_emu.frameCount())) {
-        m_replayManager.storeRuntimeSnapshot(m_emu.frameCount(), m_emu.saveStateToMemory());
-    }
-    m_replayManager.setCursorFrame(targetFrame);
+    m_replayManager.setCursorState(targetFrame, m_emu.canonicalStateCrc32());
     m_replaySliderValue = static_cast<int>(targetFrame);
+    if(m_emu.valid() && !m_emu.paused()) {
+        m_emu.togglePaused();
+    }
+    m_replaySeekInProgress = false;
     m_emu.setSimulationSuspended(false);
     return true;
 }

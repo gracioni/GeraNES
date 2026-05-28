@@ -587,11 +587,49 @@ public:
     bool loadStateFromMemory(const std::vector<uint8_t>& data) override;
     bool loadStateFromMemoryOnCleanBoot(const std::vector<uint8_t>& data) override;
     bool loadStateFromMemoryAsManualStateChange(const std::vector<uint8_t>& data) override;
+    bool fastForwardReplayToFrame(uint32_t targetFrame,
+                                  const std::vector<InputFrame>& replayFrames,
+                                  std::optional<uint32_t> expectedCurrentStateCrc32) override
+    {
+        if(expectedCurrentStateCrc32.has_value() && canonicalStateCrc32() != *expectedCurrentStateCrc32) {
+            return false;
+        }
+        const FrameInputResolver previousResolver = m_frameInputResolver;
+        m_frameInputResolver = [&replayFrames](uint32_t nextFrame, ReplayFrameInput& input) {
+            if(nextFrame == 0 || nextFrame > replayFrames.size()) {
+                return false;
+            }
+            input.hasFrameOverride = true;
+            input.frameOverride = replayFrames[static_cast<size_t>(nextFrame - 1u)];
+            return true;
+        };
+
+        const bool wasPaused = m_emu.paused();
+        if(wasPaused) {
+            m_emu.togglePaused();
+        }
+
+        const uint32_t frameDt = std::max<uint32_t>(1, 1000u / std::max<uint32_t>(1, m_emu.getRegionFPS()));
+        while(m_emu.valid() && m_emu.frameCount() < targetFrame) {
+            m_emu.updateUntilFrame(frameDt, false);
+        }
+
+        if(wasPaused && !m_emu.paused()) {
+            m_emu.togglePaused();
+        }
+        m_frameInputResolver = previousResolver;
+        return m_emu.valid();
+    }
 
     template<typename InputProvider>
     bool resimulateToFrame(uint32_t targetFrame, InputProvider&& inputProvider)
     {
         if(!m_emu.valid()) return false;
+
+        const bool wasPaused = m_emu.paused();
+        if(wasPaused) {
+            m_emu.togglePaused();
+        }
 
         const uint32_t frameDt = std::max<uint32_t>(1, 1000u / std::max<uint32_t>(1, m_emu.getRegionFPS()));
         ReplayFrameInput lastReplayInput{};
@@ -607,6 +645,9 @@ public:
         }
         if(hasLastReplayInput) {
             m_pendingInput = lastReplayInput.state;
+        }
+        if(wasPaused && !m_emu.paused()) {
+            m_emu.togglePaused();
         }
         return true;
     }

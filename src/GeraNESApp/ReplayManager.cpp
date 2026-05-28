@@ -889,6 +889,14 @@ void ReplayManager::setCursorFrame(uint32_t frame)
 {
     std::scoped_lock lock(m_mutex);
     m_state.cursorFrame = frame;
+    m_state.cursorCanonicalCrc32.reset();
+}
+
+void ReplayManager::setCursorState(uint32_t frame, std::optional<uint32_t> canonicalCrc32)
+{
+    std::scoped_lock lock(m_mutex);
+    m_state.cursorFrame = frame;
+    m_state.cursorCanonicalCrc32 = frame == 0 ? std::nullopt : canonicalCrc32;
 }
 
 void ReplayManager::beginPlayback()

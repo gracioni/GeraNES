@@ -276,6 +276,9 @@ public:
     virtual bool loadStateFromMemory(const std::vector<uint8_t>& data) = 0;
     virtual bool loadStateFromMemoryOnCleanBoot(const std::vector<uint8_t>& data) = 0;
     virtual bool loadStateFromMemoryAsManualStateChange(const std::vector<uint8_t>& data) = 0;
+    virtual bool fastForwardReplayToFrame(uint32_t targetFrame,
+                                          const std::vector<InputFrame>& replayFrames,
+                                          std::optional<uint32_t> expectedCurrentStateCrc32) = 0;
     virtual uint32_t canonicalStateCrc32() = 0;
     virtual uint32_t canonicalNetplayStateCrc32() = 0;
     virtual uint32_t lastFrameReadyFrame() const = 0;

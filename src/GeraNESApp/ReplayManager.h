@@ -32,6 +32,7 @@ public:
         fs::path filePath;
         ReplayData data;
         uint32_t cursorFrame = 0;
+        std::optional<uint32_t> cursorCanonicalCrc32;
         uint32_t loadedFrameCount = 0;
         bool playing = false;
         bool pendingStopAtEnd = false;
@@ -68,6 +69,7 @@ public:
     IEmulationHost::InputTopologySnapshot inputTopology() const;
     std::optional<InputFrame> playbackFrameForFrame(uint32_t frame) const;
     void setCursorFrame(uint32_t frame);
+    void setCursorState(uint32_t frame, std::optional<uint32_t> canonicalCrc32);
     void beginPlayback();
     void markPlaybackReachedEnd();
     void notePlaybackFrame(uint32_t frame);

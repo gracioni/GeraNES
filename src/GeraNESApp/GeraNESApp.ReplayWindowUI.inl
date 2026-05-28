@@ -133,9 +133,7 @@ inline void GeraNESApp::drawReplayWindow()
         }
         if(ImGui::IsItemDeactivatedAfterEdit()) {
             m_replaySliderDragging = false;
-            if(seekReplayToFrame(static_cast<uint32_t>(m_replaySliderValue))) {
-                startReplayPlayback();
-            }
+            (void)seekReplayToFrame(static_cast<uint32_t>(m_replaySliderValue));
         }
         ImGui::EndDisabled();
 
