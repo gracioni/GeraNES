@@ -26,8 +26,10 @@ namespace fs = std::filesystem;
 
 #include <vector>
 #include <array>
+#include <atomic>
 #include <deque>
 #include <mutex>
+#include <thread>
 #include <unordered_map>
 #include <unordered_set>
 
@@ -320,6 +322,11 @@ private:
     int m_replaySliderValue = 0;
     bool m_replaySliderDragging = false;
     bool m_replaySeekInProgress = false;
+    std::thread m_replaySeekThread;
+    std::atomic<bool> m_replaySeekTaskRunning = false;
+    std::atomic<bool> m_replaySeekTaskCompleted = false;
+    std::atomic<bool> m_replaySeekTaskSucceeded = false;
+    uint32_t m_replaySeekTargetFrame = 0;
 
     struct RomDatabaseEditorData {
         bool loaded = false;
@@ -565,6 +572,8 @@ private:
     void createShortcuts();
     void updateCursor();
     bool isReplayRestricted() const;
+    bool isReplaySessionInteractionLocked() const;
+    void notifyReplaySessionInteractionLocked(const char* action);
     void refreshReplayFrameInputResolver();
     void stopReplayPlayback(bool pauseEmulation);
     void clearReplaySession(bool keepWindowOpen = true);
@@ -581,6 +590,11 @@ private:
     bool seekReplayToFrame(uint32_t frame);
     bool stopReplayToStart();
     void startReplayPlayback();
+    bool beginReplaySeekCatchup(uint32_t targetFrame,
+                                std::vector<InputFrame> replayFrames,
+                                std::optional<uint32_t> expectedCurrentStateCrc32);
+    void finishReplaySeekTask();
+    void waitForReplaySeekTask();
     void syncReplayRuntimeState();
 
 public:

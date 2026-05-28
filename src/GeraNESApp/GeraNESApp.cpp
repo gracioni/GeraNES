@@ -860,6 +860,10 @@ void GeraNESApp::notifyNetplayPauseRestrictedAction()
 void GeraNESApp::togglePauseAction()
 {
     if(!m_emu.valid()) return;
+    if(isReplaySessionInteractionLocked()) {
+        notifyReplaySessionInteractionLocked("Pause");
+        return;
+    }
     if(AppSettings::instance().data.debug.cpuDebuggerEnabled) {
         return;
     }
@@ -877,6 +881,10 @@ void GeraNESApp::togglePauseAction()
 void GeraNESApp::resetAction()
 {
     if(!m_emu.valid()) return;
+    if(isReplaySessionInteractionLocked()) {
+        notifyReplaySessionInteractionLocked("Reset");
+        return;
+    }
     if(isNetplayClientRestricted()) {
         notifyNetplayClientRestrictedAction("Reset");
         return;
@@ -948,6 +956,10 @@ bool GeraNESApp::openDocumentation()
 void GeraNESApp::closeRomAction()
 {
     if(!m_emu.valid()) return;
+    if(isReplaySessionInteractionLocked()) {
+        notifyReplaySessionInteractionLocked("Close ROM");
+        return;
+    }
     if(isNetplayRomChangeRestricted()) {
         notifyNetplayRomChangeRestrictedAction("Close ROM");
         return;
@@ -975,6 +987,23 @@ bool GeraNESApp::isReplayRestricted() const
 {
     const auto snapshot = m_netplayRuntime.uiSnapshot();
     return snapshot.active || snapshot.hosting || snapshot.connected || snapshot.reconnecting;
+}
+
+bool GeraNESApp::isReplaySessionInteractionLocked() const
+{
+    return m_replayManager.snapshot().mode != ReplayManager::ReplayMode::None;
+}
+
+void GeraNESApp::notifyReplaySessionInteractionLocked(const char* action)
+{
+    if(!isReplaySessionInteractionLocked()) {
+        return;
+    }
+
+    const std::string message =
+        std::string(action) + " is disabled while recording or replay playback is active";
+    m_userToast.show(message);
+    Logger::instance().log(message, Logger::Type::USER);
 }
 
 void GeraNESApp::refreshReplayFrameInputResolver()
@@ -1049,10 +1078,12 @@ bool GeraNESApp::stopReplayToStart()
 
 void GeraNESApp::clearReplaySession(bool keepWindowOpen)
 {
+    waitForReplaySeekTask();
     stopReplayPlayback(false);
     m_replayManager.clear();
     m_replaySliderValue = 0;
     m_replaySliderDragging = false;
+    m_replaySeekInProgress = false;
     if(!keepWindowOpen) {
         m_showReplayWindow = false;
     }
@@ -1368,7 +1399,7 @@ bool GeraNESApp::openReplayFile(const fs::path& path)
 
 bool GeraNESApp::seekReplayToFrame(uint32_t frame)
 {
-    if(!m_replayManager.isPlayback() || m_loadedRomPath.empty()) {
+    if(!m_replayManager.isPlayback() || m_loadedRomPath.empty() || m_replaySeekTaskRunning.load()) {
         return false;
     }
 
@@ -1388,11 +1419,6 @@ bool GeraNESApp::seekReplayToFrame(uint32_t frame)
         currentFrame <= targetFrame &&
         replayState.cursorFrame == currentFrame &&
         replayState.cursorCanonicalCrc32.has_value();
-
-    if(canResumeFromCurrentState &&
-       !m_emu.fastForwardReplayToFrame(targetFrame, replayState.data.frames, replayState.cursorCanonicalCrc32)) {
-        canResumeFromCurrentState = false;
-    }
 
     if(!canResumeFromCurrentState) {
         const auto bootstrapFrame = m_replayManager.playbackFrameForFrame(0);
@@ -1414,12 +1440,13 @@ bool GeraNESApp::seekReplayToFrame(uint32_t frame)
         }
         m_emu.setFrameInputResolver({});
         m_emu.setSimulationSuspended(true);
-        if(targetFrame > m_emu.frameCount() &&
-           !m_emu.fastForwardReplayToFrame(targetFrame, replayState.data.frames, std::nullopt)) {
-            m_replaySeekInProgress = false;
-            m_emu.setSimulationSuspended(false);
-            return false;
+        if(targetFrame > m_emu.frameCount()) {
+            return beginReplaySeekCatchup(targetFrame, replayState.data.frames, std::nullopt);
         }
+    }
+
+    if(canResumeFromCurrentState && targetFrame > currentFrame) {
+        return beginReplaySeekCatchup(targetFrame, replayState.data.frames, replayState.cursorCanonicalCrc32);
     }
 
     m_emu.discardQueuedAudio();
@@ -1431,6 +1458,64 @@ bool GeraNESApp::seekReplayToFrame(uint32_t frame)
     m_replaySeekInProgress = false;
     m_emu.setSimulationSuspended(false);
     return true;
+}
+
+bool GeraNESApp::beginReplaySeekCatchup(uint32_t targetFrame,
+                                        std::vector<InputFrame> replayFrames,
+                                        std::optional<uint32_t> expectedCurrentStateCrc32)
+{
+    waitForReplaySeekTask();
+    m_replaySeekTargetFrame = targetFrame;
+    m_replaySeekTaskSucceeded = false;
+    m_replaySeekTaskCompleted = false;
+    m_replaySeekTaskRunning = true;
+    m_replaySeekThread = std::thread(
+        [this,
+         targetFrame,
+         replayFrames = std::move(replayFrames),
+         expectedCurrentStateCrc32]() mutable {
+            const bool succeeded =
+                m_emu.fastForwardReplayToFrame(targetFrame, replayFrames, expectedCurrentStateCrc32);
+            m_replaySeekTaskSucceeded = succeeded;
+            m_replaySeekTaskCompleted = true;
+            m_replaySeekTaskRunning = false;
+        }
+    );
+    return true;
+}
+
+void GeraNESApp::finishReplaySeekTask()
+{
+    if(!m_replaySeekTaskCompleted.load()) {
+        return;
+    }
+
+    waitForReplaySeekTask();
+    const bool succeeded = m_replaySeekTaskSucceeded.load();
+    if(!succeeded) {
+        m_replaySeekInProgress = false;
+        m_emu.setSimulationSuspended(false);
+        m_userToast.show("Replay seek failed");
+        return;
+    }
+
+    m_emu.discardQueuedAudio();
+    m_replayManager.setCursorState(m_replaySeekTargetFrame, m_emu.canonicalStateCrc32());
+    m_replaySliderValue = static_cast<int>(m_replaySeekTargetFrame);
+    if(m_emu.valid() && !m_emu.paused()) {
+        m_emu.togglePaused();
+    }
+    m_replaySeekInProgress = false;
+    m_emu.setSimulationSuspended(false);
+}
+
+void GeraNESApp::waitForReplaySeekTask()
+{
+    if(m_replaySeekThread.joinable()) {
+        m_replaySeekThread.join();
+    }
+    m_replaySeekTaskRunning = false;
+    m_replaySeekTaskCompleted = false;
 }
 
 void GeraNESApp::startReplayPlayback()
@@ -1449,6 +1534,11 @@ void GeraNESApp::startReplayPlayback()
 
 void GeraNESApp::syncReplayRuntimeState()
 {
+    finishReplaySeekTask();
+    if(m_replaySeekInProgress) {
+        return;
+    }
+
     const uint32_t emuFrame = m_emu.frameCount();
     if(m_replayManager.shouldCaptureRuntimeSnapshot(emuFrame)) {
         m_replayManager.storeRuntimeSnapshot(emuFrame, m_emu.saveStateToMemory());
@@ -2051,6 +2141,10 @@ void GeraNESApp::setSnesMouseGrab(bool active)
 
 void GeraNESApp::openFile(const char* path)
 {
+    if(isReplaySessionInteractionLocked()) {
+        notifyReplaySessionInteractionLocked("Open ROM");
+        return;
+    }
     clearReplaySession(true);
     openRomPath(fs::path(path), true);
 }
@@ -2510,6 +2604,10 @@ void GeraNESApp::createShortcuts()
     }});
 
     m_shortcuts.add(ShortcutManager::Data{"openRom", "Open ROM", "Alt+O", [this]() {
+        if(isReplaySessionInteractionLocked()) {
+            notifyReplaySessionInteractionLocked("Open ROM");
+            return;
+        }
         if(isNetplayRomChangeRestricted()) {
             notifyNetplayRomChangeRestrictedAction("Open ROM");
             return;
@@ -2540,6 +2638,10 @@ void GeraNESApp::createShortcuts()
 
     m_shortcuts.add(ShortcutManager::Data{"saveState", "Save State", "Alt+S", [this]() {
         if(!m_emu.valid()) return;
+        if(isReplaySessionInteractionLocked()) {
+            notifyReplaySessionInteractionLocked("Save state");
+            return;
+        }
         if(isNetplayClientRestricted()) {
             notifyNetplayClientRestrictedAction("Save state");
             return;
@@ -2549,6 +2651,10 @@ void GeraNESApp::createShortcuts()
 
     m_shortcuts.add(ShortcutManager::Data{"loadState", "Load State", "Alt+L", [this]() {
         if(!m_emu.valid()) return;
+        if(isReplaySessionInteractionLocked()) {
+            notifyReplaySessionInteractionLocked("Load state");
+            return;
+        }
         if(isNetplayClientRestricted()) {
             notifyNetplayClientRestrictedAction("Load state");
             return;
@@ -2561,6 +2667,10 @@ void GeraNESApp::createShortcuts()
     }});
 
     m_shortcuts.add(ShortcutManager::Data{"cpuDebugger", "CPU Debugger", "Alt+D", [this]() {
+        if(isReplaySessionInteractionLocked()) {
+            notifyReplaySessionInteractionLocked("CPU debugger");
+            return;
+        }
         m_showCpuDebuggerWindow = !m_showCpuDebuggerWindow;
         AppSettings::instance().data.debug.showCpuDebugger = m_showCpuDebuggerWindow;
         if(m_showCpuDebuggerWindow) {
@@ -3217,6 +3327,7 @@ void GeraNESApp::onQuitRequested()
 GeraNESApp::~GeraNESApp()
 {
     persistSettingsForShutdown();
+    waitForReplaySeekTask();
     m_emu.shutdown();
     m_netplayRuntime.shutdownForUnload();
     destroyPostProcessTargets();
@@ -3247,6 +3358,10 @@ GeraNESApp::~GeraNESApp()
 
 void GeraNESApp::openRom()
 {
+    if(isReplaySessionInteractionLocked()) {
+        notifyReplaySessionInteractionLocked("Open ROM");
+        return;
+    }
     if(isNetplayRomChangeRestricted()) {
         notifyNetplayRomChangeRestrictedAction("Open ROM");
         return;
@@ -3327,6 +3442,10 @@ void GeraNESApp::openRom()
 
 void GeraNESApp::loadModArchive()
 {
+    if(isReplaySessionInteractionLocked()) {
+        notifyReplaySessionInteractionLocked("Load mod");
+        return;
+    }
     if(isNetplayRomChangeRestricted()) {
         notifyNetplayRomChangeRestrictedAction("Load mod");
         return;
@@ -3398,6 +3517,10 @@ void GeraNESApp::loadModArchive()
 
 void GeraNESApp::loadModFolder()
 {
+    if(isReplaySessionInteractionLocked()) {
+        notifyReplaySessionInteractionLocked("Load mod");
+        return;
+    }
     if(isNetplayRomChangeRestricted()) {
         notifyNetplayRomChangeRestrictedAction("Load mod");
         return;
@@ -3464,6 +3587,10 @@ void GeraNESApp::loadModFolder()
 
 void GeraNESApp::clearSelectedMod()
 {
+    if(isReplaySessionInteractionLocked()) {
+        notifyReplaySessionInteractionLocked("Clear mod");
+        return;
+    }
     if(isNetplayRomChangeRestricted()) {
         notifyNetplayRomChangeRestrictedAction("Clear mod");
         return;
@@ -3777,10 +3904,14 @@ void GeraNESApp::pollAndPrepareInput()
         if(!keyboardExpansionActive) {
             if(!isNetplayClientRestricted()) {
                 if(im.isJustPressed(m_systemInput.saveState)) {
-                    m_emu.saveState(static_cast<uint8_t>(AppSettings::instance().data.saveStateSlot));
+                    if(!isReplaySessionInteractionLocked()) {
+                        m_emu.saveState(static_cast<uint8_t>(AppSettings::instance().data.saveStateSlot));
+                    }
                 }
                 if(im.isJustPressed(m_systemInput.loadState)) {
-                    m_emu.loadState(static_cast<uint8_t>(AppSettings::instance().data.saveStateSlot));
+                    if(!isReplaySessionInteractionLocked()) {
+                        m_emu.loadState(static_cast<uint8_t>(AppSettings::instance().data.saveStateSlot));
+                    }
                 }
             }
         }

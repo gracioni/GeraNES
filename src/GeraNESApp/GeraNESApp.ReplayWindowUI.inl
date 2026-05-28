@@ -76,11 +76,13 @@ inline void GeraNESApp::drawReplayWindow()
         const bool recording = replayState.mode == ReplayManager::ReplayMode::Recording;
         const bool replayLoaded = replayState.loadedReplayActive;
         const bool playbackReady = replayState.mode == ReplayManager::ReplayMode::Playback && replayLoaded;
+        const bool seekInProgress = m_replaySeekInProgress;
         const bool netplayRestricted = isReplayRestricted();
         const bool recordEnabled = hasRomLoaded && !replayLoaded && !netplayRestricted;
-        const bool playEnabled = playbackReady && replayState.loadedFrameCount > 0;
-        const bool pauseEnabled = recording || replayState.playing;
+        const bool playEnabled = playbackReady && replayState.loadedFrameCount > 0 && !seekInProgress;
+        const bool pauseEnabled = (recording || replayState.playing) && !seekInProgress;
 
+        ImGui::BeginDisabled(seekInProgress);
         if(ImGui::Button("Open...", ImVec2(90.0f, 0.0f))) {
             openReplayDialog();
         }
@@ -88,6 +90,7 @@ inline void GeraNESApp::drawReplayWindow()
         if(ImGui::Button("Close", ImVec2(90.0f, 0.0f))) {
             clearReplaySession(true);
         }
+        ImGui::EndDisabled();
 
         ImGui::BeginDisabled(!playEnabled);
         if(ImGui::Button("Play", ImVec2(90.0f, 0.0f))) {
@@ -125,7 +128,7 @@ inline void GeraNESApp::drawReplayWindow()
             m_replaySliderValue = static_cast<int>(std::min(replayState.cursorFrame, sliderMax));
         }
         m_replaySliderValue = std::clamp(m_replaySliderValue, 0, static_cast<int>(sliderMax));
-        const bool canSeek = playbackReady && !replayState.playing;
+        const bool canSeek = playbackReady && !replayState.playing && !seekInProgress;
         ImGui::BeginDisabled(!canSeek || sliderMax == 0);
         ImGui::SliderInt("Position", &m_replaySliderValue, 0, static_cast<int>(sliderMax), "%d");
         if(ImGui::IsItemActivated()) {
@@ -141,7 +144,7 @@ inline void GeraNESApp::drawReplayWindow()
 
         const char* modeLabel = "Idle";
         if(recording) modeLabel = "Recording";
-        else if(playbackReady) modeLabel = replayState.playing ? "Playback" : "Replay Loaded";
+        else if(playbackReady) modeLabel = seekInProgress ? "Seeking" : (replayState.playing ? "Playback" : "Replay Loaded");
 
         ImGui::Text("Mode: %s", modeLabel);
         ImGui::Text("ROM: %s", replayState.data.romName.empty() ? "-" : replayState.data.romName.c_str());
@@ -154,6 +157,9 @@ inline void GeraNESApp::drawReplayWindow()
         ImGui::Text("Frames: %u", recording ? replayState.loadedFrameCount : static_cast<uint32_t>(replayState.data.frames.size()));
         ImGui::Text("Cursor: %u", replayState.cursorFrame);
         ImGui::Text("File: %s", replayState.filePath.empty() ? "-" : replayState.filePath.string().c_str());
+        if(seekInProgress) {
+            ImGui::Text("Seeking to frame: %d", m_replaySliderValue);
+        }
 
         if(netplayRestricted) {
             ImGui::Separator();
@@ -169,6 +175,11 @@ inline void GeraNESApp::drawReplayWindow()
     ImGui::End();
 
     const auto replayState = m_replayManager.snapshot();
+    if(m_replaySeekInProgress) {
+        m_showReplayWindow = true;
+        return;
+    }
+
     if(!m_showReplayWindow && replayState.mode == ReplayManager::ReplayMode::Recording) {
         stopReplayRecording();
     } else if(!m_showReplayWindow && replayState.mode == ReplayManager::ReplayMode::Playback) {
