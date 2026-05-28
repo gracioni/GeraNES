@@ -3,6 +3,7 @@
 #include <memory>
 #include <algorithm>
 #include <cstring>
+#include <vector>
 
 #include "BaseMapper.h"
 #include "Audio/Sunsoft5BAudio.h"
@@ -39,6 +40,9 @@ private:
 
     Sunsoft5BAudio m_audio;
 
+    static constexpr uint8_t PRGRAM_SERIALIZATION_RAW = 0;
+    static constexpr uint8_t PRGRAM_SERIALIZATION_RLE = 1;
+
     void setPRGRAMSize(uint32_t newSize) {
         if(newSize == 0) newSize = 0x2000;
         if(newSize == m_currentRAMSize && m_PRGRAM) return;
@@ -53,6 +57,124 @@ private:
 
         m_currentRAMSize = newSize;
         m_PRGRAM = std::move(aux);
+    }
+
+    std::vector<uint8_t> encodePRGRAMRle() const
+    {
+        std::vector<uint8_t> encoded;
+        if(m_currentRAMSize == 0 || !m_PRGRAM) return encoded;
+
+        encoded.reserve(m_currentRAMSize / 2);
+
+        uint32_t index = 0;
+        while(index < m_currentRAMSize) {
+            const uint8_t value = m_PRGRAM[index];
+            uint32_t runLength = 1;
+            while(index + runLength < m_currentRAMSize &&
+                  m_PRGRAM[index + runLength] == value &&
+                  runLength < 0x7FFFFFFFu) {
+                ++runLength;
+            }
+
+            encoded.push_back(value);
+            const uint32_t lengthMinusOne = runLength - 1;
+            encoded.push_back(static_cast<uint8_t>(lengthMinusOne & 0xFF));
+            encoded.push_back(static_cast<uint8_t>((lengthMinusOne >> 8) & 0xFF));
+            encoded.push_back(static_cast<uint8_t>((lengthMinusOne >> 16) & 0xFF));
+            encoded.push_back(static_cast<uint8_t>((lengthMinusOne >> 24) & 0x7F));
+
+            index += runLength;
+        }
+
+        return encoded;
+    }
+
+    bool decodePRGRAMRle(const uint8_t* encoded, uint32_t encodedSize)
+    {
+        if(m_currentRAMSize == 0 || !m_PRGRAM) return encodedSize == 0;
+        if(encoded == nullptr && encodedSize > 0) return false;
+
+        uint32_t sourceIndex = 0;
+        uint32_t destIndex = 0;
+        while(sourceIndex < encodedSize) {
+            if(encodedSize - sourceIndex < 5) return false;
+
+            const uint8_t value = encoded[sourceIndex++];
+            uint32_t runLength = encoded[sourceIndex++];
+            runLength |= static_cast<uint32_t>(encoded[sourceIndex++]) << 8;
+            runLength |= static_cast<uint32_t>(encoded[sourceIndex++]) << 16;
+            runLength |= static_cast<uint32_t>(encoded[sourceIndex++]) << 24;
+            runLength += 1;
+
+            if(runLength > m_currentRAMSize - destIndex) return false;
+
+            std::memset(m_PRGRAM.get() + destIndex, value, runLength);
+            destIndex += runLength;
+        }
+
+        return destIndex == m_currentRAMSize;
+    }
+
+    void serializePRGRAM(SerializationBase& s)
+    {
+        std::vector<uint8_t> encoded = encodePRGRAMRle();
+        const bool useRle = !encoded.empty() && encoded.size() < m_currentRAMSize;
+        uint8_t format = useRle ? PRGRAM_SERIALIZATION_RLE : PRGRAM_SERIALIZATION_RAW;
+        uint32_t payloadSize = useRle ? static_cast<uint32_t>(encoded.size()) : m_currentRAMSize;
+
+        SERIALIZEDATA(s, format);
+        SERIALIZEDATA(s, payloadSize);
+
+        if(payloadSize == 0) return;
+
+        if(useRle) {
+            s.array(encoded.data(), 1, payloadSize);
+            return;
+        }
+
+        s.array(m_PRGRAM.get(), 1, payloadSize);
+    }
+
+    void deserializePRGRAM(SerializationBase& s)
+    {
+        uint8_t format = PRGRAM_SERIALIZATION_RAW;
+        uint32_t payloadSize = 0;
+        SERIALIZEDATA(s, format);
+        SERIALIZEDATA(s, payloadSize);
+
+        if(payloadSize == 0) {
+            if(m_currentRAMSize > 0 && m_PRGRAM) {
+                std::memset(m_PRGRAM.get(), 0, m_currentRAMSize);
+            }
+            return;
+        }
+
+        if(format == PRGRAM_SERIALIZATION_RAW) {
+            if(payloadSize != m_currentRAMSize) {
+                // Fall back to a bounded read to avoid desyncing the remaining state.
+                const uint32_t copySize = std::min(payloadSize, m_currentRAMSize);
+                if(copySize > 0) s.array(m_PRGRAM.get(), 1, copySize);
+
+                if(payloadSize > copySize) {
+                    std::vector<uint8_t> discard(payloadSize - copySize);
+                    s.array(discard.data(), 1, discard.size());
+                }
+
+                if(m_currentRAMSize > copySize && m_PRGRAM) {
+                    std::memset(m_PRGRAM.get() + copySize, 0, m_currentRAMSize - copySize);
+                }
+                return;
+            }
+
+            s.array(m_PRGRAM.get(), 1, payloadSize);
+            return;
+        }
+
+        std::vector<uint8_t> encoded(payloadSize);
+        s.array(encoded.data(), 1, payloadSize);
+        if(!decodePRGRAMRle(encoded.data(), payloadSize) && m_PRGRAM) {
+            std::memset(m_PRGRAM.get(), 0, m_currentRAMSize);
+        }
     }
 
     template<BankSize bs>
@@ -279,7 +401,8 @@ public:
 
         SERIALIZEDATA(s, m_currentRAMSize);
         setPRGRAMSize(m_currentRAMSize);
-        s.array(m_PRGRAM.get(), 1, m_currentRAMSize);
+        if(dynamic_cast<Deserialize*>(&s) != nullptr) deserializePRGRAM(s);
+        else serializePRGRAM(s);
 
         SERIALIZEDATA(s, command);
 
