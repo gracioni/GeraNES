@@ -3506,11 +3506,15 @@ bool GeraNESApp::initGL()
             auto iconFile = fs.open(iconFontPath);
             m_embeddedIconFontData.assign(iconFile.begin(), iconFile.end());
 
+            // Font Awesome solids sit slightly high when merged into the default ImGui font.
+            // Nudge the merged glyphs down so mixed icon/text labels align in menus and buttons.
+            constexpr float kFontAwesomeGlyphOffsetY = 2.0f;
             ImFontConfig iconCfg{};
             iconCfg.FontDataOwnedByAtlas = false;
             iconCfg.MergeMode = true;
             iconCfg.PixelSnapH = true;
             iconCfg.GlyphMinAdvanceX = 13.0f;
+            iconCfg.GlyphOffset.y = kFontAwesomeGlyphOffsetY;
 
             m_fontAwesomeIconsLoaded = io.Fonts->AddFontFromMemoryTTF(
                 m_embeddedIconFontData.data(),

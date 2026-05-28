@@ -602,6 +602,7 @@ public:
     void applyAudioChannelVolume(const AudioChannelControl& c, float value);
     void drawAudioChannelDebugControls();
 #ifdef ENABLE_NSF_PLAYER
+    void drawNsfPlayerWindow();
     void drawNsfPlayerVisualizer();
 #endif
 

@@ -828,49 +828,6 @@ inline void GeraNESApp::menuBar() {
             ImGui::EndMenu();
         }
 
-#ifdef ENABLE_NSF_PLAYER
-        if (beginTopMenu(withMenuIcon(FontAwesomeIcons::kMusic, "NSF").c_str(), m_emu.isNsfLoaded()))
-        {
-            const bool isPlaying = m_emu.nsfIsPlaying();
-            const bool isPaused = m_emu.nsfIsPaused();
-            const bool hasEnded = m_emu.nsfHasEnded();
-            const int totalSongs = m_emu.nsfTotalSongs();
-            const int currentSong = m_emu.nsfCurrentSong();
-            const bool canPlay = !isPlaying || isPaused || hasEnded;
-            const bool canPause = isPlaying && !isPaused && !hasEnded;
-            const bool canStop = (isPlaying || isPaused) && !hasEnded;
-
-            if(ImGui::MenuItem(withMenuIcon(FontAwesomeIcons::kPlay, "Play").c_str(), nullptr, false, canPlay)) {
-                m_emu.nsfPlay();
-            }
-            if(ImGui::MenuItem(withMenuIcon(FontAwesomeIcons::kPause, "Pause").c_str(), nullptr, false, canPause)) {
-                m_emu.nsfPause();
-            }
-            if(ImGui::MenuItem(withMenuIcon(FontAwesomeIcons::kStop, "Stop").c_str(), nullptr, false, canStop)) {
-                m_emu.nsfStop();
-            }
-
-            ImGui::Separator();
-            ImGui::Text("Song %d / %d", currentSong, totalSongs);
-            int selectedSong = currentSong;
-            if(ImGui::InputInt("Song", &selectedSong, 1, 1)) {
-                if(selectedSong == currentSong + 1 || (currentSong == totalSongs && selectedSong > totalSongs)) {
-                    m_emu.nsfNextSong();
-                }
-                else if(selectedSong == currentSong - 1 || (currentSong == 1 && selectedSong < 1)) {
-                    m_emu.nsfPrevSong();
-                }
-                else {
-                    if(selectedSong < 1) selectedSong = totalSongs;
-                    if(selectedSong > totalSongs) selectedSong = 1;
-                    m_emu.nsfSetSong(selectedSong);
-                }
-            }
-
-            ImGui::EndMenu();
-        }
-#endif
-
         if (beginTopMenu(withMenuIcon(FontAwesomeIcons::kWrench, "Tools").c_str()))
         {
             if (ImGui::MenuItem(withMenuIcon(FontAwesomeIcons::kClipboard, "Log").c_str()))

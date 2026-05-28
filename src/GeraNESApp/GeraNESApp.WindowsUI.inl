@@ -1,6 +1,7 @@
 #pragma once
 
 #include "GeraNESApp/GeraNESApp.CustomWindowChromeUI.inl"
+#include "GeraNESApp/GeraNESApp.NsfPlayerWindowUI.inl"
 #include "GeraNESApp/GeraNESApp.NsfPlayerVisualizerUI.inl"
 #include "GeraNESApp/GeraNESApp.CpuDebugSharedUI.inl"
 #include "GeraNESApp/GeraNESApp.ImprovementsWindowUI.inl"
@@ -31,7 +32,10 @@ inline void GeraNESApp::showGui()
     m_imGuiWindowFocusBlocksEmulator = false;
 
 #ifdef ENABLE_NSF_PLAYER
-    if(m_emu.isNsfLoaded()) drawNsfPlayerVisualizer();
+    if(m_emu.isNsfLoaded()) {
+        drawNsfPlayerVisualizer();
+        drawNsfPlayerWindow();
+    }
 #endif
 
     m_inputBindingConfigWindow.update();
