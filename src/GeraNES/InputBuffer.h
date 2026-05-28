@@ -8,8 +8,6 @@
 #include <unordered_map>
 #include <vector>
 
-#include <nlohmann/json.hpp>
-
 #include "InputState.h"
 #include "Serialization.h"
 #include "util/CircularBuffer.h"
@@ -132,19 +130,6 @@ struct InputFrame
         state.serialization(s);
     }
 
-    nlohmann::json toJson() const
-    {
-        nlohmann::json j = state.toJson();
-        j["frame"] = frame;
-        j["timelineEpoch"] = timelineEpoch;
-        return j;
-    }
-
-    std::string toJsonString(int indent = 2) const
-    {
-        return toJson().dump(indent);
-    }
-
 };
 
 class InputBuffer
@@ -181,7 +166,7 @@ public:
     };
 
 private:
-    size_t m_capacity = 1000;
+    size_t m_capacity = 64;
     CircularBuffer<Entry> m_frames;
     EnqueueCounters m_enqueueCounters;
     mutable bool m_indexDirty = true;
@@ -225,7 +210,7 @@ private:
     }
 
 public:
-    explicit InputBuffer(size_t capacity = 1000)
+    explicit InputBuffer(size_t capacity = 64)
         : m_capacity(std::max<size_t>(1, capacity))
         , m_frames(m_capacity, CircularBuffer<Entry>::REPLACE)
     {
