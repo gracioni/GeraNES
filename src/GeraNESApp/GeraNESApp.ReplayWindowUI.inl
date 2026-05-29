@@ -175,7 +175,7 @@ inline void GeraNESApp::drawReplayWindow()
         ImGui::EndDisabled();
 
         uint32_t sliderMax = replayFrameCount;
-        if(!m_replaySliderDragging) {
+        if(!m_replaySliderDragging && !seekInProgress) {
             m_replaySliderValue = static_cast<int>(std::min(replayState.cursorFrame, sliderMax));
         }
         m_replaySliderValue = std::clamp(m_replaySliderValue, 0, static_cast<int>(sliderMax));

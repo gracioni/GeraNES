@@ -1592,6 +1592,7 @@ bool GeraNESApp::seekReplayToFrame(uint32_t frame)
     }
     m_replaySeekInProgress = false;
     m_emu.setSimulationSuspended(false);
+    render();
     return true;
 }
 
@@ -1643,6 +1644,7 @@ void GeraNESApp::finishReplaySeekTask()
     }
     m_replaySeekInProgress = false;
     m_emu.setSimulationSuspended(false);
+    render();
     if(m_replayAutoPlayAfterSeek) {
         m_replayAutoPlayAfterSeek = false;
         startReplayPlayback();
@@ -4934,7 +4936,7 @@ void GeraNESApp::mainLoop()
             netplayPacingOverrideActive,
             false
         );
-        if(framesToAdvance > 0u) {
+        if(framesToAdvance > 0u && !m_replaySeekInProgress) {
             render();
         }
     } else {
@@ -4960,7 +4962,9 @@ void GeraNESApp::mainLoop()
             stepDtMs = std::max<uint32_t>(1u, stepDtMs);
             m_presenterFrameAccumScaled = 0;
             m_emu.updateUntilFrame(stepDtMs);
-            render();
+            if(!m_replaySeekInProgress) {
+                render();
+            }
             m_netplayRuntime.recordFramePacing(
                 pacingDtMs,
                 1u,
@@ -4982,7 +4986,7 @@ void GeraNESApp::mainLoop()
                 netplayPacingOverrideActive,
                 false
             );
-            if(framesToAdvance > 0u) {
+            if(framesToAdvance > 0u && !m_replaySeekInProgress) {
                 render();
             }
         }
