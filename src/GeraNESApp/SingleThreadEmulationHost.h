@@ -60,7 +60,6 @@ private:
         frame.timelineEpoch = emu.inputTimelineEpoch();
         emu.queueInputFrame(frame);
         emu.setRewind(input.rewind);
-        emu.setSpeedBoost(input.speedBoost);
         return frame;
     }
 
@@ -74,7 +73,6 @@ private:
         } else {
             input.state = m_pendingInput;
             input.rewind = m_pendingRuntimeControls.rewind;
-            input.speedBoost = m_pendingRuntimeControls.speedBoost;
         }
 
         notifyQueuedInputObserver(queueReplayFrameInputToEmu(m_emu, targetFrame, input));
@@ -274,6 +272,22 @@ public:
     std::string getAudioChannelsJson() const override
     {
         return m_audioOutput.getAudioChannelsJson();
+    }
+
+    void setAudioPlaybackSpeed(double speed) override
+    {
+        m_audioOutput.setPlaybackSpeed(speed);
+        m_audioOutput.discardQueuedAudio();
+        m_audioOutput.clearAudioBuffers();
+    }
+
+    void setForceSilentAudio(bool silent) override
+    {
+        m_emu.setForceSilentAudio(silent);
+        if(silent) {
+            m_audioOutput.discardQueuedAudio();
+            m_audioOutput.clearAudioBuffers();
+        }
     }
 
     void configAudioDevice(const std::string& deviceName)
