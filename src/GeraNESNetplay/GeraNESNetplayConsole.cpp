@@ -75,19 +75,16 @@ void GeraNESNetplayConsole::applyRemoteInputTopology(const RoomState& room)
 void GeraNESNetplayConsole::publishCurrentInputTopology(NetplayCoordinator& coordinator)
 {
     const RoomState room = coordinator.session().roomState();
-    const Settings::Device roomPort1Device = geraNESPortDeviceFromTopology(room, kPort1PlayerSlot);
-    const Settings::Device roomPort2Device = geraNESPortDeviceFromTopology(room, kPort2PlayerSlot);
-    const Settings::ExpansionDevice roomExpansionDevice = geraNESExpansionDeviceFromTopology(room);
-    const Settings::NesMultitapDevice roomNesMultitapDevice = geraNESNesMultitapDeviceFromTopology(room);
-    const Settings::FamicomMultitapDevice roomFamicomMultitapDevice = geraNESFamicomMultitapDeviceFromTopology(room);
+    InputTopology inputTopology;
+    inputTopology.port1Device = geraNESPortDeviceFromTopology(room, kPort1PlayerSlot);
+    inputTopology.port2Device = geraNESPortDeviceFromTopology(room, kPort2PlayerSlot);
+    inputTopology.expansionDevice = geraNESExpansionDeviceFromTopology(room);
+    inputTopology.nesMultitapDevice = geraNESNesMultitapDeviceFromTopology(room);
+    inputTopology.famicomMultitapDevice = geraNESFamicomMultitapDeviceFromTopology(room);
 
     setGeraNESRoomInputTopology(
         coordinator,
-        roomPort1Device,
-        roomPort2Device,
-        roomExpansionDevice,
-        roomNesMultitapDevice,
-        roomFamicomMultitapDevice
+        inputTopology
     );
 }
 

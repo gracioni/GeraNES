@@ -4,6 +4,7 @@
 #include <vector>
 
 #include "GeraNES/InputBuffer.h"
+#include "GeraNES/InputTopology.h"
 #include "GeraNES/Settings.h"
 #include "GeraNESNetplay/GeraNESInputState.h"
 #include "GeraNESNetplay/GeraNESNetplaySlots.h"
@@ -25,11 +26,7 @@ using ConsoleNetplay::PlayerSlot;
 using ConsoleNetplay::RoomState;
 
 RoomState roomWithGeraNESInputTopology(RoomState room,
-                                       std::optional<Settings::Device> port1Device,
-                                       std::optional<Settings::Device> port2Device,
-                                       Settings::ExpansionDevice expansionDevice,
-                                       Settings::NesMultitapDevice nesMultitapDevice,
-                                       Settings::FamicomMultitapDevice famicomMultitapDevice);
+                                       const InputTopology& inputTopology);
 bool canAssignGeraNESInputCandidate(const RoomState& room,
                                     ParticipantId participantId,
                                     std::optional<Settings::Device> port1Device,
@@ -46,11 +43,7 @@ std::optional<PlayerSlot> remapGeraNESAssignmentForTopologyChange(PlayerSlot ass
                                                                   const RoomState& currentRoom,
                                                                   const std::vector<ConsoleNetplay::InputSlotDescriptor>& candidateTopology);
 void setGeraNESRoomInputTopology(NetplayCoordinator& coordinator,
-                                 std::optional<Settings::Device> port1Device,
-                                 std::optional<Settings::Device> port2Device,
-                                 Settings::ExpansionDevice expansionDevice,
-                                 Settings::NesMultitapDevice nesMultitapDevice,
-                                 Settings::FamicomMultitapDevice famicomMultitapDevice,
+                                 const InputTopology& inputTopology,
                                  std::optional<ParticipantId> preservedParticipantId = std::nullopt,
                                  PlayerSlot preservedAssignment = kObserverPlayerSlot);
 

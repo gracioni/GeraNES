@@ -154,16 +154,54 @@ std::vector<InputSlotDescriptor> makeGeraNESInputTopology(
     return topology;
 }
 
+std::vector<InputSlotDescriptor> makeGeraNESInputTopology(const InputTopology& inputTopology)
+{
+    return makeGeraNESInputTopology(
+        inputTopology.port1Device,
+        inputTopology.port2Device,
+        inputTopology.expansionDevice,
+        inputTopology.nesMultitapDevice,
+        inputTopology.famicomMultitapDevice
+    );
+}
+
+InputTopology roomInputTopology(const RoomState& room)
+{
+    InputTopology inputTopology;
+    inputTopology.port1Device = geraNESPortDeviceFromTopology(room, kPort1PlayerSlot);
+    inputTopology.port2Device = geraNESPortDeviceFromTopology(room, kPort2PlayerSlot);
+    inputTopology.expansionDevice = geraNESExpansionDeviceFromTopology(room);
+    inputTopology.nesMultitapDevice = geraNESNesMultitapDeviceFromTopology(room);
+    inputTopology.famicomMultitapDevice = geraNESFamicomMultitapDeviceFromTopology(room);
+    return inputTopology;
+}
+
+InputTopology frameInputTopology(const InputFrame& inputFrame)
+{
+    InputTopology inputTopology;
+    inputTopology.port1Device = inputFrame.port1Device;
+    inputTopology.port2Device = inputFrame.port2Device;
+    inputTopology.expansionDevice = inputFrame.expansionDevice;
+    inputTopology.nesMultitapDevice = inputFrame.nesMultitapDevice;
+    inputTopology.famicomMultitapDevice = inputFrame.famicomMultitapDevice;
+    return inputTopology;
+}
+
+void applyInputTopology(InputFrame& inputFrame, const InputTopology& inputTopology)
+{
+    inputFrame.port1Device = inputTopology.port1Device.value_or(Settings::Device::NONE);
+    inputFrame.port2Device = inputTopology.port2Device.value_or(Settings::Device::NONE);
+    inputFrame.expansionDevice = inputTopology.expansionDevice;
+    inputFrame.nesMultitapDevice = inputTopology.nesMultitapDevice;
+    inputFrame.famicomMultitapDevice = inputTopology.famicomMultitapDevice;
+}
+
 } // namespace
 
 RoomState roomWithGeraNESInputTopology(RoomState room,
-                                       std::optional<Settings::Device> port1Device,
-                                       std::optional<Settings::Device> port2Device,
-                                       Settings::ExpansionDevice expansionDevice,
-                                       Settings::NesMultitapDevice nesMultitapDevice,
-                                       Settings::FamicomMultitapDevice famicomMultitapDevice)
+                                       const InputTopology& inputTopology)
 {
-    room.inputTopology = makeGeraNESInputTopology(port1Device, port2Device, expansionDevice, nesMultitapDevice, famicomMultitapDevice);
+    room.inputTopology = makeGeraNESInputTopology(inputTopology);
     return room;
 }
 
@@ -226,23 +264,12 @@ bool canAssignGeraNESInputCandidate(const RoomState& room,
 }
 
 void setGeraNESRoomInputTopology(NetplayCoordinator& coordinator,
-                                 std::optional<Settings::Device> port1Device,
-                                 std::optional<Settings::Device> port2Device,
-                                 Settings::ExpansionDevice expansionDevice,
-                                 Settings::NesMultitapDevice nesMultitapDevice,
-                                 Settings::FamicomMultitapDevice famicomMultitapDevice,
+                                 const InputTopology& inputTopology,
                                  std::optional<ParticipantId> preservedParticipantId,
                                  PlayerSlot preservedAssignment)
 {
     const RoomState currentRoom = coordinator.session().roomState();
-    std::vector<InputSlotDescriptor> candidateTopology =
-        makeGeraNESInputTopology(
-            port1Device,
-            port2Device,
-            expansionDevice,
-            nesMultitapDevice,
-            famicomMultitapDevice
-        );
+    std::vector<InputSlotDescriptor> candidateTopology = makeGeraNESInputTopology(inputTopology);
     const std::vector<InputSlotDescriptor> remapTopology = candidateTopology;
     coordinator.setRoomInputTopology(
         candidateTopology,
@@ -318,22 +345,19 @@ enum class AdapterSlotPayloadKind : uint8_t
 struct AdapterFramePayload
 {
     uint8_t version = kAdapterFramePayloadVersion;
-    Settings::Device port1Device = Settings::Device::NONE;
-    Settings::Device port2Device = Settings::Device::NONE;
-    Settings::ExpansionDevice expansionDevice = Settings::ExpansionDevice::NONE;
-    Settings::NesMultitapDevice nesMultitapDevice = Settings::NesMultitapDevice::NONE;
-    Settings::FamicomMultitapDevice famicomMultitapDevice = Settings::FamicomMultitapDevice::NONE;
+    InputTopology inputTopology = {};
 };
 
 std::vector<uint8_t> makeAdapterFramePayload(const InputFrame& inputFrame)
 {
     PacketWriter writer;
     writer.writePod(kAdapterFramePayloadVersion);
-    writer.writePod(static_cast<uint8_t>(inputFrame.port1Device));
-    writer.writePod(static_cast<uint8_t>(inputFrame.port2Device));
-    writer.writePod(static_cast<uint8_t>(inputFrame.expansionDevice));
-    writer.writePod(static_cast<uint8_t>(inputFrame.nesMultitapDevice));
-    writer.writePod(static_cast<uint8_t>(inputFrame.famicomMultitapDevice));
+    const InputTopology inputTopology = frameInputTopology(inputFrame);
+    writer.writePod(static_cast<uint8_t>(inputTopology.port1Device.value_or(Settings::Device::NONE)));
+    writer.writePod(static_cast<uint8_t>(inputTopology.port2Device.value_or(Settings::Device::NONE)));
+    writer.writePod(static_cast<uint8_t>(inputTopology.expansionDevice));
+    writer.writePod(static_cast<uint8_t>(inputTopology.nesMultitapDevice));
+    writer.writePod(static_cast<uint8_t>(inputTopology.famicomMultitapDevice));
     return writer.data();
 }
 
@@ -355,11 +379,11 @@ bool readAdapterFramePayload(const NetplayInputFrame& inputFrame, AdapterFramePa
         return false;
     }
     if(payload.version != kAdapterFramePayloadVersion || reader.remaining() != 0) return false;
-    payload.port1Device = static_cast<Settings::Device>(port1Device);
-    payload.port2Device = static_cast<Settings::Device>(port2Device);
-    payload.expansionDevice = static_cast<Settings::ExpansionDevice>(expansionDevice);
-    payload.nesMultitapDevice = static_cast<Settings::NesMultitapDevice>(nesMultitapDevice);
-    payload.famicomMultitapDevice = static_cast<Settings::FamicomMultitapDevice>(famicomMultitapDevice);
+    payload.inputTopology.port1Device = static_cast<Settings::Device>(port1Device);
+    payload.inputTopology.port2Device = static_cast<Settings::Device>(port2Device);
+    payload.inputTopology.expansionDevice = static_cast<Settings::ExpansionDevice>(expansionDevice);
+    payload.inputTopology.nesMultitapDevice = static_cast<Settings::NesMultitapDevice>(nesMultitapDevice);
+    payload.inputTopology.famicomMultitapDevice = static_cast<Settings::FamicomMultitapDevice>(famicomMultitapDevice);
     return true;
 }
 
@@ -672,11 +696,13 @@ bool applySlotPayload(InputFrame& frame,
             break;
         case AdapterSlotPayloadKind::Mouse:
             if(!reader.readPod(x) || !reader.readPod(y) || !reader.readPod(flags)) return false;
-            if(slot == kPort1PlayerSlot && adapterPayload.port1Device == Settings::Device::SUBOR_MOUSE) {
+            if(slot == kPort1PlayerSlot &&
+               adapterPayload.inputTopology.port1Device == std::optional<Settings::Device>(Settings::Device::SUBOR_MOUSE)) {
                 frame.setSuborMouse(1, {x, y, (flags & 1u) != 0, (flags & 2u) != 0});
             } else if(slot == kPort1PlayerSlot) {
                 frame.setSnesMouse(1, {x, y, (flags & 1u) != 0, (flags & 2u) != 0});
-            } else if(slot == kPort2PlayerSlot && adapterPayload.port2Device == Settings::Device::SUBOR_MOUSE) {
+            } else if(slot == kPort2PlayerSlot &&
+                      adapterPayload.inputTopology.port2Device == std::optional<Settings::Device>(Settings::Device::SUBOR_MOUSE)) {
                 frame.setSuborMouse(2, {x, y, (flags & 1u) != 0, (flags & 2u) != 0});
             } else if(slot == kPort2PlayerSlot) {
                 frame.setSnesMouse(2, {x, y, (flags & 1u) != 0, (flags & 2u) != 0});
@@ -797,15 +823,11 @@ InputFrame toGeraNESInputFrame(const NetplayInputFrame& inputFrame)
     frame.timelineEpoch = inputFrame.timelineEpoch;
     AdapterFramePayload adapterPayload;
     if(readAdapterFramePayload(inputFrame, adapterPayload)) {
-        frame.port1Device = adapterPayload.port1Device;
-        frame.port2Device = adapterPayload.port2Device;
-        frame.expansionDevice = adapterPayload.expansionDevice;
-        frame.nesMultitapDevice = adapterPayload.nesMultitapDevice;
-        frame.famicomMultitapDevice = adapterPayload.famicomMultitapDevice;
+        applyInputTopology(frame, adapterPayload.inputTopology);
     }
     const bool multitapActive =
-        adapterPayload.nesMultitapDevice != Settings::NesMultitapDevice::NONE ||
-        adapterPayload.famicomMultitapDevice != Settings::FamicomMultitapDevice::NONE;
+        adapterPayload.inputTopology.nesMultitapDevice != Settings::NesMultitapDevice::NONE ||
+        adapterPayload.inputTopology.famicomMultitapDevice != Settings::FamicomMultitapDevice::NONE;
     if(multitapActive) {
         applyMask(frame, kMultitapP1PlayerSlot, inputFrame.buttonMaskLo[kMultitapP1PlayerSlot]);
         applyMask(frame, kMultitapP2PlayerSlot, inputFrame.buttonMaskLo[kMultitapP2PlayerSlot]);
@@ -816,7 +838,7 @@ InputFrame toGeraNESInputFrame(const NetplayInputFrame& inputFrame)
         applyMask(frame, kPort2PlayerSlot, inputFrame.buttonMaskLo[kPort2PlayerSlot]);
         applyMask(frame, kExpansionPlayerSlot, inputFrame.buttonMaskLo[kExpansionPlayerSlot]);
     }
-    if(adapterPayload.port2Device == Settings::Device::BANDAI_HYPERSHOT) {
+    if(adapterPayload.inputTopology.port2Device == std::optional<Settings::Device>(Settings::Device::BANDAI_HYPERSHOT)) {
         applyBandaiPadMask(frame, inputFrame.buttonMaskLo[kPort2PlayerSlot]);
     }
     for(PlayerSlot slot : kAllGeraNESPlayerSlots) {
@@ -830,11 +852,7 @@ InputFrame makeRoomTopologyBaseFrame(FrameNumber frame, const RoomState& room)
     InputFrame inputFrame{};
     inputFrame.frame = frame;
     inputFrame.timelineEpoch = room.timelineEpoch;
-    inputFrame.port1Device = geraNESPortDeviceFromTopology(room, kPort1PlayerSlot);
-    inputFrame.port2Device = geraNESPortDeviceFromTopology(room, kPort2PlayerSlot);
-    inputFrame.expansionDevice = geraNESExpansionDeviceFromTopology(room);
-    inputFrame.nesMultitapDevice = geraNESNesMultitapDeviceFromTopology(room);
-    inputFrame.famicomMultitapDevice = geraNESFamicomMultitapDeviceFromTopology(room);
+    applyInputTopology(inputFrame, roomInputTopology(room));
     return inputFrame;
 }
 

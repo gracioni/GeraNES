@@ -21,13 +21,15 @@ void configureInputAssignments(NetplayAppRuntime& runtime,
         [=](NetplayCoordinator& coordinator,
             std::optional<ParticipantId> preservedParticipantId,
             PlayerSlot preservedSlot) {
+            InputTopology inputTopology;
+            inputTopology.port1Device = port1Device;
+            inputTopology.port2Device = port2Device;
+            inputTopology.expansionDevice = expansionDevice;
+            inputTopology.nesMultitapDevice = nesMultitapDevice;
+            inputTopology.famicomMultitapDevice = famicomMultitapDevice;
             setGeraNESRoomInputTopology(
                 coordinator,
-                port1Device,
-                port2Device,
-                expansionDevice,
-                nesMultitapDevice,
-                famicomMultitapDevice,
+                inputTopology,
                 preservedParticipantId,
                 preservedSlot
             );
