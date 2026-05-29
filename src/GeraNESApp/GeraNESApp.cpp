@@ -989,9 +989,69 @@ bool GeraNESApp::isReplayRestricted() const
     return snapshot.active || snapshot.hosting || snapshot.connected || snapshot.reconnecting;
 }
 
+bool GeraNESApp::isNetplaySpeedRestricted() const
+{
+    const auto snapshot = m_netplayRuntime.uiSnapshot();
+    return snapshot.active || snapshot.hosting || snapshot.connected || snapshot.reconnecting;
+}
+
 bool GeraNESApp::isReplayRecordingActive() const
 {
     return m_replayManager.snapshot().mode == ReplayManager::ReplayMode::Recording;
+}
+
+const char* GeraNESApp::emulationSpeedLabel(size_t index)
+{
+    static constexpr std::array<const char*, emulationSpeedOptionCount()> kLabels = {
+        "0.25x", "0.5x", "1x", "2x", "3x", "Max"
+    };
+    return kLabels[std::min(index, kLabels.size() - 1u)];
+}
+
+bool GeraNESApp::emulationSpeedIsMax(size_t index)
+{
+    return index >= (emulationSpeedOptionCount() - 1u);
+}
+
+double GeraNESApp::emulationSpeedMultiplier(size_t index)
+{
+    static constexpr std::array<double, emulationSpeedOptionCount()> kMultipliers = {
+        0.25, 0.5, 1.0, 2.0, 3.0, 1.0
+    };
+    return kMultipliers[std::min(index, kMultipliers.size() - 1u)];
+}
+
+size_t GeraNESApp::effectiveEmulationSpeedIndex(bool maxSpeedRequested) const
+{
+    if(isNetplaySpeedRestricted()) {
+        return 2u;
+    }
+    if(maxSpeedRequested) {
+        return emulationSpeedOptionCount() - 1u;
+    }
+    return std::min(m_selectedEmulationSpeedIndex, emulationSpeedOptionCount() - 1u);
+}
+
+void GeraNESApp::resetEmulationSpeedPacing()
+{
+    m_emulationSpeedFrameAccumulator = 0.0;
+    m_presenterFrameAccumScaled = 0;
+    m_presenterStepRemainder = 0;
+}
+
+void GeraNESApp::cycleEmulationSpeedSelection(int direction)
+{
+    if(isNetplaySpeedRestricted()) {
+        m_selectedEmulationSpeedIndex = 2u;
+        resetEmulationSpeedPacing();
+        return;
+    }
+
+    const int optionCount = static_cast<int>(emulationSpeedOptionCount());
+    const int currentIndex = static_cast<int>(std::min(m_selectedEmulationSpeedIndex, emulationSpeedOptionCount() - 1u));
+    const int wrappedIndex = (currentIndex + direction + optionCount) % optionCount;
+    m_selectedEmulationSpeedIndex = static_cast<size_t>(wrappedIndex);
+    resetEmulationSpeedPacing();
 }
 
 bool GeraNESApp::isReplaySessionInteractionLocked() const
@@ -4083,7 +4143,7 @@ void GeraNESApp::pollAndPrepareInput()
             im.isPressed(m_systemInput.rewind) ||
             m_touch->buttons().rewind
         );
-        const bool speedBoostActive = !keyboardExpansionActive && (
+        const bool speedBoostActive = !isNetplaySpeedRestricted() && !keyboardExpansionActive && (
             im.isPressed(m_systemInput.speed)
         );
         {
@@ -4752,26 +4812,68 @@ void GeraNESApp::mainLoop()
 
     bool netplayPacingOverrideActive = false;
     netplayPacingOverrideActive = m_netplayRuntime.uiSnapshot().active;
+    const IEmulationHost::RuntimeControls runtimeControls = m_emu.pendingRuntimeControlsSnapshot();
+    const size_t effectiveSpeedIndex = effectiveEmulationSpeedIndex(runtimeControls.speedBoost);
+    if(effectiveSpeedIndex != m_lastEffectiveEmulationSpeedIndex) {
+        resetEmulationSpeedPacing();
+        m_lastEffectiveEmulationSpeedIndex = effectiveSpeedIndex;
+    }
+    const bool maxSpeedActive = emulationSpeedIsMax(effectiveSpeedIndex);
+    const double speedMultiplier = emulationSpeedMultiplier(effectiveSpeedIndex);
     const uint32_t pacingDtMs = static_cast<uint32_t>(std::min<Uint64>(dt, UINT32_MAX));
     const bool minimized = isMinimized();
     const bool allowPresenterPacing =
         !minimized &&
         !isWindowsTitleBarInteractionActive();
+    const auto advanceFrames = [this, maxSpeedActive, speedMultiplier, dt](uint32_t emuFps) {
+        const int maxFramesToAdvance = maxSpeedActive ? 120 : 30;
+        if(maxSpeedActive) {
+            m_emulationSpeedFrameAccumulator = 0.0;
+            uint32_t framesToAdvance = 0u;
+            for(int i = 0; i < maxFramesToAdvance; ++i) {
+                const uint32_t stepNumerator = m_presenterStepRemainder + 1000u;
+                uint32_t stepDtMs = stepNumerator / emuFps;
+                m_presenterStepRemainder = stepNumerator % emuFps;
+                stepDtMs = std::max<uint32_t>(1u, stepDtMs);
+                m_emu.updateUntilFrame(stepDtMs);
+                ++framesToAdvance;
+            }
+            return framesToAdvance;
+        }
+
+        m_emulationSpeedFrameAccumulator +=
+            static_cast<double>(dt) * speedMultiplier * static_cast<double>(emuFps) / 1000.0;
+        uint32_t framesToAdvance = static_cast<uint32_t>(
+            std::min<double>(m_emulationSpeedFrameAccumulator, static_cast<double>(maxFramesToAdvance)));
+        m_emulationSpeedFrameAccumulator -= framesToAdvance;
+        if(framesToAdvance == static_cast<uint32_t>(maxFramesToAdvance) && m_emulationSpeedFrameAccumulator > 1.0) {
+            m_emulationSpeedFrameAccumulator = 1.0;
+        }
+
+        for(uint32_t i = 0u; i < framesToAdvance; ++i) {
+            const uint32_t stepNumerator = m_presenterStepRemainder + 1000u;
+            uint32_t stepDtMs = stepNumerator / emuFps;
+            m_presenterStepRemainder = stepNumerator % emuFps;
+            stepDtMs = std::max<uint32_t>(1u, stepDtMs);
+            m_emu.updateUntilFrame(stepDtMs);
+        }
+        return framesToAdvance;
+    };
     if(!allowPresenterPacing) {
         m_presenterFrameAccumScaled = 0;
-        m_presenterStepRemainder = 0;
         if(!netplayPacingOverrideActive) {
             m_emu.setSimulationSuspended(false);
         }
-        const bool advanced = m_emu.update(dt);
+        const uint32_t emuFps = std::max<uint32_t>(1u, m_emu.getRegionFPS());
+        const uint32_t framesToAdvance = advanceFrames(emuFps);
         m_netplayRuntime.recordFramePacing(
             pacingDtMs,
-            advanced ? 1u : 0u,
-            0u,
+            framesToAdvance,
+            framesToAdvance > 1u ? framesToAdvance : 0u,
             netplayPacingOverrideActive,
             false
         );
-        if(advanced) {
+        if(framesToAdvance > 0u) {
             render();
         }
     } else {
@@ -4788,7 +4890,8 @@ void GeraNESApp::mainLoop()
         monitorCadenceMatchesEmu = false;
 #endif
 
-        if(monitorCadenceMatchesEmu) {
+        if(monitorCadenceMatchesEmu && !maxSpeedActive && std::abs(speedMultiplier - 1.0) < 0.001) {
+            m_emulationSpeedFrameAccumulator = 0.0;
             const uint32_t stepNumerator = m_presenterStepRemainder + 1000u;
             uint32_t stepDtMs = stepNumerator / emuFps;
             m_presenterStepRemainder = stepNumerator % emuFps;
@@ -4808,27 +4911,8 @@ void GeraNESApp::mainLoop()
                 syncCpuDebugRuntimeState();
             }
         } else {
-            const uint64_t pacingScaleDenominator = std::max<uint64_t>(1u, m_mainLoopCounterFrequency);
-            m_presenterFrameAccumScaled += counterDelta * static_cast<uint64_t>(emuFps);
-
-            const int MAX_FRAMES_TO_ADVANCE = 30;
-            uint32_t framesToAdvance = 0u;
-            while(m_presenterFrameAccumScaled >= pacingScaleDenominator && framesToAdvance < MAX_FRAMES_TO_ADVANCE) {
-                ++framesToAdvance;
-                m_presenterFrameAccumScaled -= pacingScaleDenominator;
-            }
-
-            if(framesToAdvance == MAX_FRAMES_TO_ADVANCE && m_presenterFrameAccumScaled > pacingScaleDenominator) {
-                m_presenterFrameAccumScaled = pacingScaleDenominator;
-            }
-
-            for(uint32_t i = 0u; i < framesToAdvance; ++i) {
-                const uint32_t stepNumerator = m_presenterStepRemainder + 1000u;
-                uint32_t stepDtMs = stepNumerator / emuFps;
-                m_presenterStepRemainder = stepNumerator % emuFps;
-                stepDtMs = std::max<uint32_t>(1u, stepDtMs);
-                m_emu.updateUntilFrame(stepDtMs);
-            }
+            m_presenterFrameAccumScaled = 0;
+            const uint32_t framesToAdvance = advanceFrames(emuFps);
             m_netplayRuntime.recordFramePacing(
                 pacingDtMs,
                 framesToAdvance,

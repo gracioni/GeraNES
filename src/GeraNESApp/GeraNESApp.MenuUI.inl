@@ -196,6 +196,19 @@ inline void GeraNESApp::menuBar() {
                 resetAction();
             }
 
+            if(ImGui::BeginMenu(withMenuIcon(FontAwesomeIcons::kSliders, "Speed").c_str(), hasRomLoaded)) {
+                const bool speedRestricted = isNetplaySpeedRestricted();
+                const size_t currentSpeedIndex = effectiveEmulationSpeedIndex(false);
+                for(size_t i = 0; i < emulationSpeedOptionCount(); ++i) {
+                    const bool optionEnabled = !speedRestricted || i == 2u;
+                    if(ImGui::MenuItem(emulationSpeedLabel(i), nullptr, currentSpeedIndex == i, optionEnabled)) {
+                        m_selectedEmulationSpeedIndex = i;
+                        resetEmulationSpeedPacing();
+                    }
+                }
+                ImGui::EndMenu();
+            }
+
             ImGui::EndMenu();
         }
 

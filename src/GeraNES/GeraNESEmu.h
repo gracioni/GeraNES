@@ -197,7 +197,6 @@ private:
     bool m_runningLoop;
     bool m_speedBoost;
     bool m_paused;
-    static constexpr int SPEED_BOOST_MULTIPLIER = 3;
 
     DebugBreakpointConfig m_debugBreakpointConfig;
     DebugBreakpointHit m_debugBreakpointHit;
@@ -1965,9 +1964,9 @@ public:
         dt = std::min(dt, (uint32_t)1000/10);  //0.1s
 
         if constexpr(!waitForNewFrame)
-            m_updateCyclesAcc += (m_cyclesPerSecond * (m_speedBoost ? SPEED_BOOST_MULTIPLIER : 1)) * dt;
+            m_updateCyclesAcc += m_cyclesPerSecond * dt;
 
-        const uint32_t audioRenderCycles = (m_cyclesPerSecond * (m_speedBoost ? SPEED_BOOST_MULTIPLIER : 1)) * AUDIO_RENDER_TIME_STEP;
+        const uint32_t audioRenderCycles = m_cyclesPerSecond * AUDIO_RENDER_TIME_STEP;
 
         bool ret = false;
         uint32_t renderedAudioMs = 0;
@@ -2036,22 +2035,11 @@ public:
         applyPendingNsfControllerActions();
         if(m_paused) return true;
 
-        if(!m_speedBoost) {
-            const bool ret = _update<true>(dt, renderAudio);
-            if(renderAudio && ret) {
-                compensateVsyncAudioDrift(dt);
-            }
-            return ret;
+        const bool ret = _update<true>(dt, renderAudio);
+        if(renderAudio && ret) {
+            compensateVsyncAudioDrift(dt);
         }
-
-        // In frame-locked mode (vsync path), run extra emulated frames while held.
-        _update<true>(dt, renderAudio);
-        for(int i = 1; i < SPEED_BOOST_MULTIPLIER; ++i) {
-            _update<true>(0, renderAudio);
-        }
-        m_vsyncAudioCompMsAcc = 0.0;
-        m_vsyncAudioSkipMsDebt = 0;
-        return true;
+        return ret;
     }
 
     bool debugStepInstruction()

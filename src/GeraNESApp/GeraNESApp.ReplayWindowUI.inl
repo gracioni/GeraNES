@@ -104,6 +104,9 @@ inline void GeraNESApp::drawReplayWindow()
             recording ? replayState.loadedFrameCount : static_cast<uint32_t>(replayState.data.frames.size());
         const uint32_t replayCursorFrame = std::min(replayState.cursorFrame, replayFrameCount);
         const uint32_t replayFps = hasRomLoaded ? std::max<uint32_t>(1u, m_emu.getRegionFPS()) : 60u;
+        const bool speedRestricted = isNetplaySpeedRestricted();
+        const size_t currentSpeedIndex =
+            effectiveEmulationSpeedIndex(m_emu.pendingRuntimeControlsSnapshot().speedBoost);
 
         if(ImGui::BeginMenuBar()) {
             if(ImGui::BeginMenu("File")) {
@@ -150,6 +153,25 @@ inline void GeraNESApp::drawReplayWindow()
             } else {
                 startReplayRecording();
             }
+        }
+        ImGui::EndDisabled();
+
+        ImGui::SameLine();
+        ImGui::TextUnformatted("Speed");
+        ImGui::SameLine();
+        ImGui::BeginDisabled(speedRestricted);
+        if(ImGui::Button("<", ImVec2(28.0f, 0.0f))) {
+            cycleEmulationSpeedSelection(-1);
+        }
+        ImGui::EndDisabled();
+        ImGui::SameLine();
+        ImGui::BeginDisabled();
+        ImGui::Button(emulationSpeedLabel(currentSpeedIndex), ImVec2(70.0f, 0.0f));
+        ImGui::EndDisabled();
+        ImGui::SameLine();
+        ImGui::BeginDisabled(speedRestricted);
+        if(ImGui::Button(">", ImVec2(28.0f, 0.0f))) {
+            cycleEmulationSpeedSelection(1);
         }
         ImGui::EndDisabled();
 
