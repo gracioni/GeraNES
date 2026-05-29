@@ -40,6 +40,7 @@ inline constexpr const char* kXmark = "\xef\x80\x8d";
 inline constexpr const char* kCalculator = "\xef\x87\xac";
 inline constexpr const char* kFile = "\xef\x85\x9b";
 inline constexpr const char* kRecordVinyl = "\xef\xa3\x99";
+inline constexpr const char* kVideo = "\xef\x80\xbd";
 
 inline const ImWchar* glyphRanges()
 {

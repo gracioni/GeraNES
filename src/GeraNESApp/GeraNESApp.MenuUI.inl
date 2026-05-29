@@ -981,7 +981,7 @@ inline void GeraNESApp::menuBar() {
 
             ImGui::Separator();
 
-            if(ImGui::MenuItem(withMenuIcon(FontAwesomeIcons::kPlay, "Replay").c_str(), nullptr, m_showReplayWindow, !isReplayRestricted())) {
+            if(ImGui::MenuItem(withMenuIcon(FontAwesomeIcons::kVideo, "Replay").c_str(), nullptr, m_showReplayWindow, !isReplayRestricted())) {
                 m_showReplayWindow = !m_showReplayWindow;
             }
 
