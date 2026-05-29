@@ -1705,7 +1705,7 @@ public:
         m_rewind.destroy();
     }
 
-    bool openRom(const std::string& filename)
+    bool openRom(const std::string& filename, bool autoConfigureInputTopologyOnRomLoad = true)
     {
         m_audioOutput.clearAudioBuffers();
         m_ppu.clearFramebuffer();
@@ -1741,125 +1741,127 @@ public:
             setNesMultitapDevice(Settings::NesMultitapDevice::NONE);
             setFamicomMultitapDevice(Settings::FamicomMultitapDevice::NONE);
 
-            switch(m_cartridge.inputType()) {
+            if(autoConfigureInputTopologyOnRomLoad) {
+                switch(m_cartridge.inputType()) {
 
-                case GameDatabase::InputType::FourScore:
-                    setNesMultitapDevice(Settings::NesMultitapDevice::FOUR_SCORE);
-                    break;
+                    case GameDatabase::InputType::FourScore:
+                        setNesMultitapDevice(Settings::NesMultitapDevice::FOUR_SCORE);
+                        break;
 
-                case GameDatabase::InputType::FourPlayerAdapter:
-                    setFamicomMultitapDevice(Settings::FamicomMultitapDevice::HORI_ADAPTER);
-                    break;
+                    case GameDatabase::InputType::FourPlayerAdapter:
+                        setFamicomMultitapDevice(Settings::FamicomMultitapDevice::HORI_ADAPTER);
+                        break;
 
-                case GameDatabase::InputType::VsZapper:
-                case GameDatabase::InputType::Zapper:
-                    setPortDevice(Settings::Port::P_1, standardPortDeviceForCurrentSystem());
-                    setPortDevice(Settings::Port::P_2, Settings::Device::ZAPPER);
-                    setExpansionDevice(Settings::ExpansionDevice::NONE);
-                    break;
+                    case GameDatabase::InputType::VsZapper:
+                    case GameDatabase::InputType::Zapper:
+                        setPortDevice(Settings::Port::P_1, standardPortDeviceForCurrentSystem());
+                        setPortDevice(Settings::Port::P_2, Settings::Device::ZAPPER);
+                        setExpansionDevice(Settings::ExpansionDevice::NONE);
+                        break;
 
-                case GameDatabase::InputType::TwoZappers:
-                    setPortDevice(Settings::Port::P_1, Settings::Device::ZAPPER);
-                    setPortDevice(Settings::Port::P_2, Settings::Device::ZAPPER);
-                    setExpansionDevice(Settings::ExpansionDevice::NONE);
-                    break;
+                    case GameDatabase::InputType::TwoZappers:
+                        setPortDevice(Settings::Port::P_1, Settings::Device::ZAPPER);
+                        setPortDevice(Settings::Port::P_2, Settings::Device::ZAPPER);
+                        setExpansionDevice(Settings::ExpansionDevice::NONE);
+                        break;
 
-                case GameDatabase::InputType::BandaiHypershot:
-                    setPortDevice(Settings::Port::P_1, standardPortDeviceForCurrentSystem());
-                    setPortDevice(Settings::Port::P_2, standardPortDeviceForCurrentSystem());
-                    setExpansionDevice(Settings::ExpansionDevice::BANDAI_HYPERSHOT);
-                    break;
+                    case GameDatabase::InputType::BandaiHypershot:
+                        setPortDevice(Settings::Port::P_1, standardPortDeviceForCurrentSystem());
+                        setPortDevice(Settings::Port::P_2, standardPortDeviceForCurrentSystem());
+                        setExpansionDevice(Settings::ExpansionDevice::BANDAI_HYPERSHOT);
+                        break;
 
-                case GameDatabase::InputType::KonamiHyperShot:
-                    setPortDevice(Settings::Port::P_1, standardPortDeviceForCurrentSystem());
-                    setPortDevice(Settings::Port::P_2, standardPortDeviceForCurrentSystem());
-                    setExpansionDevice(Settings::ExpansionDevice::KONAMI_HYPERSHOT);
-                    break;
+                    case GameDatabase::InputType::KonamiHyperShot:
+                        setPortDevice(Settings::Port::P_1, standardPortDeviceForCurrentSystem());
+                        setPortDevice(Settings::Port::P_2, standardPortDeviceForCurrentSystem());
+                        setExpansionDevice(Settings::ExpansionDevice::KONAMI_HYPERSHOT);
+                        break;
 
-                case GameDatabase::InputType::StandardControllers:
-                    setPortDevice(Settings::Port::P_1, standardPortDeviceForCurrentSystem());
-                    setPortDevice(Settings::Port::P_2, standardPortDeviceForCurrentSystem());
-                    setExpansionDevice(Settings::ExpansionDevice::NONE);
-                    break;
+                    case GameDatabase::InputType::StandardControllers:
+                        setPortDevice(Settings::Port::P_1, standardPortDeviceForCurrentSystem());
+                        setPortDevice(Settings::Port::P_2, standardPortDeviceForCurrentSystem());
+                        setExpansionDevice(Settings::ExpansionDevice::NONE);
+                        break;
 
-                case GameDatabase::InputType::PowerPadSideA:
-                    setPortDevice(Settings::Port::P_1, standardPortDeviceForCurrentSystem());
-                    setPortDevice(Settings::Port::P_2, Settings::Device::POWER_PAD_SIDE_A);
-                    setExpansionDevice(Settings::ExpansionDevice::NONE);
-                    break;
+                    case GameDatabase::InputType::PowerPadSideA:
+                        setPortDevice(Settings::Port::P_1, standardPortDeviceForCurrentSystem());
+                        setPortDevice(Settings::Port::P_2, Settings::Device::POWER_PAD_SIDE_A);
+                        setExpansionDevice(Settings::ExpansionDevice::NONE);
+                        break;
 
-                case GameDatabase::InputType::PowerPadSideB:
-                    setPortDevice(Settings::Port::P_1, standardPortDeviceForCurrentSystem());
-                    setPortDevice(Settings::Port::P_2, Settings::Device::POWER_PAD_SIDE_B);
-                    setExpansionDevice(Settings::ExpansionDevice::NONE);
-                    break;
+                    case GameDatabase::InputType::PowerPadSideB:
+                        setPortDevice(Settings::Port::P_1, standardPortDeviceForCurrentSystem());
+                        setPortDevice(Settings::Port::P_2, Settings::Device::POWER_PAD_SIDE_B);
+                        setExpansionDevice(Settings::ExpansionDevice::NONE);
+                        break;
 
-                case GameDatabase::InputType::FamilyTrainerSideA:
-                    setPortDevice(Settings::Port::P_1, standardPortDeviceForCurrentSystem());
-                    setPortDevice(Settings::Port::P_2, standardPortDeviceForCurrentSystem());
-                    setExpansionDevice(Settings::ExpansionDevice::FAMILY_TRAINER_SIDE_A);
-                    break;
+                    case GameDatabase::InputType::FamilyTrainerSideA:
+                        setPortDevice(Settings::Port::P_1, standardPortDeviceForCurrentSystem());
+                        setPortDevice(Settings::Port::P_2, standardPortDeviceForCurrentSystem());
+                        setExpansionDevice(Settings::ExpansionDevice::FAMILY_TRAINER_SIDE_A);
+                        break;
 
-                case GameDatabase::InputType::FamilyTrainerSideB:
-                    setPortDevice(Settings::Port::P_1, standardPortDeviceForCurrentSystem());
-                    setPortDevice(Settings::Port::P_2, standardPortDeviceForCurrentSystem());
-                    setExpansionDevice(Settings::ExpansionDevice::FAMILY_TRAINER_SIDE_B);
-                    break;
+                    case GameDatabase::InputType::FamilyTrainerSideB:
+                        setPortDevice(Settings::Port::P_1, standardPortDeviceForCurrentSystem());
+                        setPortDevice(Settings::Port::P_2, standardPortDeviceForCurrentSystem());
+                        setExpansionDevice(Settings::ExpansionDevice::FAMILY_TRAINER_SIDE_B);
+                        break;
 
-                case GameDatabase::InputType::ArkanoidControllerNes:
-                    setPortDevice(Settings::Port::P_1, standardPortDeviceForCurrentSystem());
-                    setPortDevice(Settings::Port::P_2, Settings::Device::ARKANOID_CONTROLLER);
-                    setExpansionDevice(Settings::ExpansionDevice::NONE);
-                    break;
+                    case GameDatabase::InputType::ArkanoidControllerNes:
+                        setPortDevice(Settings::Port::P_1, standardPortDeviceForCurrentSystem());
+                        setPortDevice(Settings::Port::P_2, Settings::Device::ARKANOID_CONTROLLER);
+                        setExpansionDevice(Settings::ExpansionDevice::NONE);
+                        break;
 
-                case GameDatabase::InputType::ArkanoidControllerFamicom:
-                    setPortDevice(Settings::Port::P_1, standardPortDeviceForCurrentSystem());
-                    setPortDevice(Settings::Port::P_2, standardPortDeviceForCurrentSystem());
-                    setExpansionDevice(Settings::ExpansionDevice::ARKANOID_CONTROLLER);
-                    break;
+                    case GameDatabase::InputType::ArkanoidControllerFamicom:
+                        setPortDevice(Settings::Port::P_1, standardPortDeviceForCurrentSystem());
+                        setPortDevice(Settings::Port::P_2, standardPortDeviceForCurrentSystem());
+                        setExpansionDevice(Settings::ExpansionDevice::ARKANOID_CONTROLLER);
+                        break;
 
-                case GameDatabase::InputType::SnesMouse:
-                    setPortDevice(Settings::Port::P_1, Settings::Device::SNES_MOUSE);
-                    setPortDevice(Settings::Port::P_2, standardPortDeviceForCurrentSystem());
-                    setExpansionDevice(Settings::ExpansionDevice::NONE);
-                    break;
+                    case GameDatabase::InputType::SnesMouse:
+                        setPortDevice(Settings::Port::P_1, Settings::Device::SNES_MOUSE);
+                        setPortDevice(Settings::Port::P_2, standardPortDeviceForCurrentSystem());
+                        setExpansionDevice(Settings::ExpansionDevice::NONE);
+                        break;
 
-                case GameDatabase::InputType::SuborKeyboard:
-                    setPortDevice(Settings::Port::P_1, standardPortDeviceForCurrentSystem());
-                    setPortDevice(Settings::Port::P_2, standardPortDeviceForCurrentSystem());
-                    setExpansionDevice(Settings::ExpansionDevice::SUBOR_KEYBOARD);
-                    break;
+                    case GameDatabase::InputType::SuborKeyboard:
+                        setPortDevice(Settings::Port::P_1, standardPortDeviceForCurrentSystem());
+                        setPortDevice(Settings::Port::P_2, standardPortDeviceForCurrentSystem());
+                        setExpansionDevice(Settings::ExpansionDevice::SUBOR_KEYBOARD);
+                        break;
 
-                case GameDatabase::InputType::FamilyBasicKeyboard:
-                    setPortDevice(Settings::Port::P_1, standardPortDeviceForCurrentSystem());
-                    setPortDevice(Settings::Port::P_2, standardPortDeviceForCurrentSystem());
-                    setExpansionDevice(Settings::ExpansionDevice::FAMILY_BASIC_KEYBOARD);
-                    break;
+                    case GameDatabase::InputType::FamilyBasicKeyboard:
+                        setPortDevice(Settings::Port::P_1, standardPortDeviceForCurrentSystem());
+                        setPortDevice(Settings::Port::P_2, standardPortDeviceForCurrentSystem());
+                        setExpansionDevice(Settings::ExpansionDevice::FAMILY_BASIC_KEYBOARD);
+                        break;
 
-                case GameDatabase::InputType::SuborKeyboardMouse1:
-                case GameDatabase::InputType::SuborKeyboardMouse2:
-                    setPortDevice(Settings::Port::P_1, standardPortDeviceForCurrentSystem());
-                    setPortDevice(Settings::Port::P_2, Settings::Device::SUBOR_MOUSE);
-                    setExpansionDevice(Settings::ExpansionDevice::SUBOR_KEYBOARD);
-                    break;
+                    case GameDatabase::InputType::SuborKeyboardMouse1:
+                    case GameDatabase::InputType::SuborKeyboardMouse2:
+                        setPortDevice(Settings::Port::P_1, standardPortDeviceForCurrentSystem());
+                        setPortDevice(Settings::Port::P_2, Settings::Device::SUBOR_MOUSE);
+                        setExpansionDevice(Settings::ExpansionDevice::SUBOR_KEYBOARD);
+                        break;
 
-                case GameDatabase::InputType::SnesControllers:
-                    setPortDevice(Settings::Port::P_1, Settings::Device::SNES_CONTROLLER);
-                    setPortDevice(Settings::Port::P_2, Settings::Device::SNES_CONTROLLER);
-                    setExpansionDevice(Settings::ExpansionDevice::NONE);
-                    break;
+                    case GameDatabase::InputType::SnesControllers:
+                        setPortDevice(Settings::Port::P_1, Settings::Device::SNES_CONTROLLER);
+                        setPortDevice(Settings::Port::P_2, Settings::Device::SNES_CONTROLLER);
+                        setExpansionDevice(Settings::ExpansionDevice::NONE);
+                        break;
 
-                case GameDatabase::InputType::DoubleArkanoidController:
-                    setPortDevice(Settings::Port::P_1, standardPortDeviceForCurrentSystem());
-                    setPortDevice(Settings::Port::P_2, Settings::Device::ARKANOID_CONTROLLER);
-                    setExpansionDevice(Settings::ExpansionDevice::ARKANOID_CONTROLLER);
-                    break;
+                    case GameDatabase::InputType::DoubleArkanoidController:
+                        setPortDevice(Settings::Port::P_1, standardPortDeviceForCurrentSystem());
+                        setPortDevice(Settings::Port::P_2, Settings::Device::ARKANOID_CONTROLLER);
+                        setExpansionDevice(Settings::ExpansionDevice::ARKANOID_CONTROLLER);
+                        break;
 
-                default:
-                    setPortDevice(Settings::Port::P_1, standardPortDeviceForCurrentSystem());
-                    setPortDevice(Settings::Port::P_2, standardPortDeviceForCurrentSystem());
-                    setExpansionDevice(Settings::ExpansionDevice::NONE);
-            }
+                    default:
+                        setPortDevice(Settings::Port::P_1, standardPortDeviceForCurrentSystem());
+                        setPortDevice(Settings::Port::P_2, standardPortDeviceForCurrentSystem());
+                        setExpansionDevice(Settings::ExpansionDevice::NONE);
+                }
+            } 
 
             updateCyclesPerSecond();
 

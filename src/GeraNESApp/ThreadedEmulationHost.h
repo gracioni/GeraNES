@@ -333,11 +333,11 @@ public:
         return std::forward<Fn>(fn)(m_emu);
     }
 
-    bool open(const std::string& path) override
+    bool open(const std::string& path, bool autoConfigureInputTopologyOnRomLoad = true) override
     {
         std::scoped_lock emuLock(m_emuMutex);
         m_hasCachedNetplayCrc = false;
-        const bool opened = m_emu.openRom(path);
+        const bool opened = m_emu.openRom(path, autoConfigureInputTopologyOnRomLoad);
         refreshSnapshotLocked();
         return opened;
     }

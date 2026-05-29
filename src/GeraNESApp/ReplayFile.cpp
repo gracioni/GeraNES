@@ -152,7 +152,7 @@ uint8_t portDeviceToByte(const std::optional<Settings::Device>& value)
     return value.has_value() ? static_cast<uint8_t>(*value) : kMissingPortDevice;
 }
 
-void appendTopologyBytes(std::vector<uint8_t>& bytes, const IEmulationHost::InputTopologySnapshot& topology)
+void appendTopologyBytes(std::vector<uint8_t>& bytes, const InputTopology& topology)
 {
     appendU8(bytes, portDeviceToByte(topology.port1Device));
     appendU8(bytes, portDeviceToByte(topology.port2Device));
@@ -161,7 +161,7 @@ void appendTopologyBytes(std::vector<uint8_t>& bytes, const IEmulationHost::Inpu
     appendU8(bytes, static_cast<uint8_t>(topology.famicomMultitapDevice));
 }
 
-bool readTopologyBytes(ByteReader& reader, IEmulationHost::InputTopologySnapshot& topology)
+bool readTopologyBytes(ByteReader& reader, InputTopology& topology)
 {
     uint8_t port1Device = 0u;
     uint8_t port2Device = 0u;
@@ -184,7 +184,7 @@ bool readTopologyBytes(ByteReader& reader, IEmulationHost::InputTopologySnapshot
 }
 
 void initializeFrameTopology(InputFrame& frame,
-                             const IEmulationHost::InputTopologySnapshot& topology,
+                             const InputTopology& topology,
                              uint32_t frameNumber)
 {
     frame = {};

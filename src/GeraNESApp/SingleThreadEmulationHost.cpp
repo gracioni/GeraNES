@@ -451,11 +451,11 @@ void SingleThreadEmulationHost::postCommand(std::function<void(GeraNESEmu&)> com
     }
 }
 
-bool SingleThreadEmulationHost::open(const std::string& path)
+bool SingleThreadEmulationHost::open(const std::string& path, bool autoConfigureInputTopologyOnRomLoad)
 {
     resetFreeRunningPacing();
     m_hasCachedNetplayCrc = false;
-    const bool opened = m_emu.openRom(path);
+    const bool opened = m_emu.openRom(path, autoConfigureInputTopologyOnRomLoad);
     refreshPresentedFramebuffer();
     return opened;
 }

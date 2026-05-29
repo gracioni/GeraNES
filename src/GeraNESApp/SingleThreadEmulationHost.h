@@ -239,7 +239,7 @@ public:
         return std::forward<Fn>(fn)(m_emu);
     }
 
-    bool open(const std::string& path) override;
+    bool open(const std::string& path, bool autoConfigureInputTopologyOnRomLoad = true) override;
 
     std::vector<std::string> getAudioList() const override
     {

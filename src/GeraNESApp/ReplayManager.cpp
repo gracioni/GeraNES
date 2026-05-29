@@ -24,7 +24,7 @@ void ReplayManager::stopPlayback()
 
 void ReplayManager::beginRecording(std::string romName,
                                    std::string romCrc,
-                                   const IEmulationHost::InputTopologySnapshot& topology)
+                                   const InputTopology& topology)
 {
     std::scoped_lock lock(m_mutex);
     m_state = {};
@@ -113,7 +113,7 @@ uint32_t ReplayManager::clampedFrame(uint32_t frame) const
     return std::min(frame, static_cast<uint32_t>(m_state.data.frames.size()));
 }
 
-IEmulationHost::InputTopologySnapshot ReplayManager::inputTopology() const
+InputTopology ReplayManager::inputTopology() const
 {
     std::scoped_lock lock(m_mutex);
     return m_state.data.inputTopology;

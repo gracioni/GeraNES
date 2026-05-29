@@ -15,6 +15,7 @@
 #include "ConsoleNetplay/NetplayRuntimeTypes.h"
 #include "GeraNES/GeraNESEmu.h"
 #include "GeraNES/InputState.h"
+#include "GeraNES/InputTopology.h"
 #include "signal/signal.h"
 
 struct EmulationHostTypes
@@ -41,14 +42,8 @@ struct EmulationHostTypes
     struct ModRenderSnapshot;
     using ModFrameCaptureHook = std::function<bool(GeraNESEmu&, ModRenderSnapshot&, std::vector<uint32_t>&)>;
 
-    struct InputTopologySnapshot
-    {
-        std::optional<Settings::Device> port1Device = Settings::Device::CONTROLLER;
-        std::optional<Settings::Device> port2Device = Settings::Device::CONTROLLER;
-        Settings::ExpansionDevice expansionDevice = Settings::ExpansionDevice::NONE;
-        Settings::NesMultitapDevice nesMultitapDevice = Settings::NesMultitapDevice::NONE;
-        Settings::FamicomMultitapDevice famicomMultitapDevice = Settings::FamicomMultitapDevice::NONE;
-    };
+    using InputTopology = ::InputTopology;
+    using InputTopologySnapshot = ::InputTopology;
 
     struct PpuViewerSnapshot
     {
@@ -110,6 +105,7 @@ public:
     using NetplayDiagnosticsSnapshot = ConsoleNetplay::NetplayRuntimeDiagnostics;
     using ManualStateChangeKind = ConsoleNetplay::NetplayManualStateChangeKind;
     using ManualStateChangeRecord = ConsoleNetplay::NetplayManualStateChangeRecord;
+    using InputTopology = EmulationHostTypes::InputTopology;
     using InputTopologySnapshot = EmulationHostTypes::InputTopologySnapshot;
     using ModRenderSnapshot = EmulationHostTypes::ModRenderSnapshot;
 
@@ -129,7 +125,7 @@ public:
     virtual void setPreAdvanceHook(std::function<void(GeraNESEmu&)> hook) = 0;
     virtual void setModFrameCaptureHook(ModFrameCaptureHook hook) = 0;
     virtual void postCommand(std::function<void(GeraNESEmu&)> command) = 0;
-    virtual bool open(const std::string& path) = 0;
+    virtual bool open(const std::string& path, bool autoConfigureInputTopologyOnRomLoad = true) = 0;
     virtual std::vector<std::string> getAudioList() const = 0;
     virtual IAudioOutput::AudioFormatOptions getAudioFormatOptions(const std::string& deviceName) const = 0;
     virtual std::string currentAudioDeviceName() const = 0;
@@ -165,7 +161,7 @@ public:
     virtual Settings::ExpansionDevice getExpansionDevice() const = 0;
     virtual Settings::NesMultitapDevice getNesMultitapDevice() const = 0;
     virtual Settings::FamicomMultitapDevice getFamicomMultitapDevice() const = 0;
-    virtual InputTopologySnapshot getInputTopologySnapshot() const = 0;
+    virtual InputTopology getInputTopologySnapshot() const = 0;
     virtual GameDatabase::System currentCartridgeSystem() const = 0;
     virtual void setExpansionDevice(Settings::ExpansionDevice device) = 0;
     virtual void setNesMultitapDevice(Settings::NesMultitapDevice device) = 0;

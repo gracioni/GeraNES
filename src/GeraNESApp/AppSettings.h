@@ -239,6 +239,8 @@ public:
 
     struct Input {
 
+        bool automaticOnRomLoad = true;
+
         struct Arkanoid {
 
             float sensitivity = 0.5f;
@@ -282,7 +284,7 @@ public:
 
         void sanitizeDefaults();
 
-        NLOHMANN_DEFINE_TYPE_INTRUSIVE_WITH_DEFAULT(Input, touchControls, arkanoid, snesMouse, powerPad, konamiHyperShot, system, controller, snesController, virtualBoyController)
+        NLOHMANN_DEFINE_TYPE_INTRUSIVE_WITH_DEFAULT(Input, touchControls, automaticOnRomLoad, arkanoid, snesMouse, powerPad, konamiHyperShot, system, controller, snesController, virtualBoyController)
     };
 
     struct Audio {

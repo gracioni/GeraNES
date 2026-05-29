@@ -53,7 +53,7 @@ public:
 
     void beginRecording(std::string romName,
                         std::string romCrc,
-                        const IEmulationHost::InputTopologySnapshot& topology);
+                        const InputTopology& topology);
     void beginRecordingFromLoadedReplay(uint32_t continueFromFrame);
     void appendRecordedFrame(const InputFrame& frame);
     void trimRecordedFramesAfter(uint32_t frame);
@@ -61,7 +61,7 @@ public:
     void setLoadedReplay(const fs::path& path, ReplayData data);
     uint32_t inputCount() const;
     uint32_t clampedFrame(uint32_t frame) const;
-    IEmulationHost::InputTopologySnapshot inputTopology() const;
+    InputTopology inputTopology() const;
     std::optional<InputFrame> playbackFrameForFrame(uint32_t frame) const;
     void setCursorFrame(uint32_t frame);
     void setCursorState(uint32_t frame, std::optional<uint32_t> canonicalCrc32);

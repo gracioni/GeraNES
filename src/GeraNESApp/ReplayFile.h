@@ -5,7 +5,8 @@
 #include <string>
 #include <vector>
 
-#include "GeraNESApp/IEmulationHost.h"
+#include "GeraNES/InputBuffer.h"
+#include "GeraNES/InputTopology.h"
 
 namespace fs = std::filesystem;
 
@@ -15,7 +16,7 @@ public:
     struct Data {
         std::string romName;
         std::string romCrc;
-        IEmulationHost::InputTopologySnapshot inputTopology = {};
+        InputTopology inputTopology = {};
         std::vector<InputFrame> frames;
     };
 

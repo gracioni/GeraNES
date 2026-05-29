@@ -244,6 +244,8 @@ private:
     bool m_showKonamiHyperShotConfigWindow = false;
 
     bool m_showMenuBar = true;
+    bool m_autoConfigureInputTopologyOnRomLoad = true;
+    InputTopology m_inputTopology = {};
 
     std::string m_errorMessage = "";
     bool m_showErrorWindow = false;
@@ -494,9 +496,10 @@ private:
     static const char* touchDeviceLabel(Settings::Device device);
     static bool isTouchCompatibleExpansionDevice(Settings::ExpansionDevice device);
     static std::string touchTargetMenuLabel(AppSettings::TouchControlsTarget target);
-    static AppSettings::TouchControlsTarget preferredTouchTargetForTopology(const IEmulationHost::InputTopologySnapshot& topology);
+    static AppSettings::TouchControlsTarget preferredTouchTargetForTopology(const InputTopology& topology);
     AppSettings::TouchControlsTarget effectiveTouchControlsTarget() const;
     void normalizeTouchControlsTargetForCurrentTopology();
+    void applyInputTopology(const InputTopology& topology);
     static void setIfNegative(std::string& dst, int value);
     static void setIfNegativeKb(std::string& dst, int bytesValue);
 
@@ -590,8 +593,8 @@ private:
     void refreshReplayFrameInputResolver();
     void stopReplayPlayback(bool pauseEmulation);
     void clearReplaySession(bool keepWindowOpen = true);
-    void applyReplayInputTopology(const IEmulationHost::InputTopologySnapshot& topology);
-    static InputFrame buildReplayRecordedFrame(const IEmulationHost::InputTopologySnapshot& topology,
+    void applyReplayInputTopology(const InputTopology& topology);
+    static InputFrame buildReplayRecordedFrame(const InputTopology& topology,
                                                uint32_t frameNumber,
                                                const IEmulationHost::InputState& input);
     std::string currentRomCrc32() const;

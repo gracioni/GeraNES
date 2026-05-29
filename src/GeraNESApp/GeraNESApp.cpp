@@ -1155,20 +1155,12 @@ void GeraNESApp::clearReplaySession(bool keepWindowOpen)
     }
 }
 
-void GeraNESApp::applyReplayInputTopology(const IEmulationHost::InputTopologySnapshot& topology)
+void GeraNESApp::applyReplayInputTopology(const InputTopology& topology)
 {
-    if(topology.port1Device.has_value()) {
-        m_emu.setPortDevice(Settings::Port::P_1, *topology.port1Device);
-    }
-    if(topology.port2Device.has_value()) {
-        m_emu.setPortDevice(Settings::Port::P_2, *topology.port2Device);
-    }
-    m_emu.setExpansionDevice(topology.expansionDevice);
-    m_emu.setNesMultitapDevice(topology.nesMultitapDevice);
-    m_emu.setFamicomMultitapDevice(topology.famicomMultitapDevice);
+    applyInputTopology(topology);
 }
 
-InputFrame GeraNESApp::buildReplayRecordedFrame(const IEmulationHost::InputTopologySnapshot& topology,
+InputFrame GeraNESApp::buildReplayRecordedFrame(const InputTopology& topology,
                                                 uint32_t frameNumber,
                                                 const IEmulationHost::InputState& input)
 {
@@ -1340,7 +1332,7 @@ bool GeraNESApp::startReplayRecording()
     clearReplaySession(true);
     const std::string romName = m_loadedRomPath.filename().string();
     const std::string romCrc = currentRomCrc32();
-    const auto inputTopology = m_emu.getInputTopologySnapshot();
+    const auto inputTopology = m_inputTopology;
 
     m_replayManager.beginRecording(romName, romCrc, inputTopology);
     refreshReplayFrameInputResolver();
@@ -1718,7 +1710,7 @@ std::string GeraNESApp::touchTargetMenuLabel(AppSettings::TouchControlsTarget ta
 }
 
 AppSettings::TouchControlsTarget GeraNESApp::preferredTouchTargetForTopology(
-    const IEmulationHost::InputTopologySnapshot& topology)
+    const InputTopology& topology)
 {
     const bool multitapActive =
         topology.nesMultitapDevice == Settings::NesMultitapDevice::FOUR_SCORE ||
@@ -1749,7 +1741,23 @@ bool touchTargetMatchesNetplayAssignment(AppSettings::TouchControlsTarget target
 void GeraNESApp::normalizeTouchControlsTargetForCurrentTopology()
 {
     AppSettings::instance().data.input.touchControls.target =
-        preferredTouchTargetForTopology(m_emu.getInputTopologySnapshot());
+        preferredTouchTargetForTopology(m_inputTopology);
+}
+
+void GeraNESApp::applyInputTopology(const InputTopology& topology)
+{
+    m_inputTopology = topology;
+    m_emu.withExclusiveAccess([&](auto& emu) {
+        if(topology.port1Device.has_value()) {
+            emu.setPortDevice(Settings::Port::P_1, *topology.port1Device);
+        }
+        if(topology.port2Device.has_value()) {
+            emu.setPortDevice(Settings::Port::P_2, *topology.port2Device);
+        }
+        emu.setExpansionDevice(topology.expansionDevice);
+        emu.setNesMultitapDevice(topology.nesMultitapDevice);
+        emu.setFamicomMultitapDevice(topology.famicomMultitapDevice);
+    });
 }
 
 AppSettings::TouchControlsTarget GeraNESApp::effectiveTouchControlsTarget() const
@@ -1977,24 +1985,24 @@ std::tuple<int, int> GeraNESApp::getClampedNesCursor(int screenX, int screenY)
 
 bool GeraNESApp::isSnesMouseActive() const
 {
-    return m_emu.getPortDevice(Settings::Port::P_1) == std::optional<Settings::Device>(Settings::Device::SNES_MOUSE) ||
-           m_emu.getPortDevice(Settings::Port::P_2) == std::optional<Settings::Device>(Settings::Device::SNES_MOUSE);
+    return m_inputTopology.port1Device == std::optional<Settings::Device>(Settings::Device::SNES_MOUSE) ||
+           m_inputTopology.port2Device == std::optional<Settings::Device>(Settings::Device::SNES_MOUSE);
 }
 
 bool GeraNESApp::isSuborMouseActive() const
 {
-    return m_emu.getPortDevice(Settings::Port::P_1) == std::optional<Settings::Device>(Settings::Device::SUBOR_MOUSE) ||
-           m_emu.getPortDevice(Settings::Port::P_2) == std::optional<Settings::Device>(Settings::Device::SUBOR_MOUSE);
+    return m_inputTopology.port1Device == std::optional<Settings::Device>(Settings::Device::SUBOR_MOUSE) ||
+           m_inputTopology.port2Device == std::optional<Settings::Device>(Settings::Device::SUBOR_MOUSE);
 }
 
 bool GeraNESApp::isSuborKeyboardActive() const
 {
-    return m_emu.getExpansionDevice() == Settings::ExpansionDevice::SUBOR_KEYBOARD;
+    return m_inputTopology.expansionDevice == Settings::ExpansionDevice::SUBOR_KEYBOARD;
 }
 
 bool GeraNESApp::isFamilyBasicKeyboardActive() const
 {
-    return m_emu.getExpansionDevice() == Settings::ExpansionDevice::FAMILY_BASIC_KEYBOARD;
+    return m_inputTopology.expansionDevice == Settings::ExpansionDevice::FAMILY_BASIC_KEYBOARD;
 }
 
 IExpansionDevice::SuborKeyboardKeys GeraNESApp::captureSuborKeyboardState()
@@ -2201,9 +2209,9 @@ IExpansionDevice::FamilyBasicKeyboardKeys GeraNESApp::captureFamilyBasicKeyboard
 
 bool GeraNESApp::isArkanoidActive() const
 {
-    return m_emu.getPortDevice(Settings::Port::P_1) == std::optional<Settings::Device>(Settings::Device::ARKANOID_CONTROLLER) ||
-           m_emu.getPortDevice(Settings::Port::P_2) == std::optional<Settings::Device>(Settings::Device::ARKANOID_CONTROLLER) ||
-           m_emu.getExpansionDevice() == Settings::ExpansionDevice::ARKANOID_CONTROLLER;
+    return m_inputTopology.port1Device == std::optional<Settings::Device>(Settings::Device::ARKANOID_CONTROLLER) ||
+           m_inputTopology.port2Device == std::optional<Settings::Device>(Settings::Device::ARKANOID_CONTROLLER) ||
+           m_inputTopology.expansionDevice == Settings::ExpansionDevice::ARKANOID_CONTROLLER;
 }
 
 void GeraNESApp::setArkanoidGrab(bool active)
@@ -2362,11 +2370,12 @@ void GeraNESApp::resetShowOriginalGraphicsInsteadOfModFramebuffer()
 
 bool GeraNESApp::finishOpenRomPath(const fs::path& requestedPath, const std::string& effectivePath, const ModManager::LoadRequest& modLoad, bool modDefinitionLoaded)
 {
-    if(modDefinitionLoaded && m_emu.open(effectivePath)) {
+    if(modDefinitionLoaded && m_emu.open(effectivePath, m_autoConfigureInputTopologyOnRomLoad)) {
         const int effectiveMaxRewindTime = shouldSuppressRewindForNetplay()
             ? 0
             : std::max(0, AppSettings::instance().data.improvements.maxRewindTime);
         m_emu.setupRewindSystem(effectiveMaxRewindTime > 0, effectiveMaxRewindTime);
+        m_inputTopology = m_emu.getInputTopologySnapshot();
 
         if(modLoad.modLoaded) {
             Logger::instance().log(modLoad.message + " " + modLoad.modPath.string(), Logger::Type::USER);
@@ -2542,6 +2551,8 @@ void GeraNESApp::syncSettings()
     cfg.input.getVirtualBoyControllerInfo(1, m_virtualBoyController2);
     m_konamiHyperShot = cfg.input.konamiHyperShot;
     m_systemInput = cfg.input.system;
+    m_autoConfigureInputTopologyOnRomLoad = cfg.input.automaticOnRomLoad;
+    m_inputTopology = m_emu.getInputTopologySnapshot();
 
     cfg.improvements.maxRewindTime = std::max(0, cfg.improvements.maxRewindTime);
     const int effectiveMaxRewindTime = shouldSuppressRewindForNetplay() ? 0 : cfg.improvements.maxRewindTime;
@@ -3891,7 +3902,7 @@ void GeraNESApp::pollAndPrepareInput()
         m_imGuiWantsKeyboard = io.WantTextInput || m_imGuiWindowFocusBlocksEmulator;
         im.updateInputs(!m_imGuiWantsKeyboard);
 
-        const auto inputTopology = m_emu.getInputTopologySnapshot();
+        const auto inputTopology = m_inputTopology;
         const bool touchInputActive = !m_imGuiWantsMouse;
         const auto touchTarget = effectiveTouchControlsTarget();
         const bool multitapActive =
@@ -3974,8 +3985,8 @@ void GeraNESApp::pollAndPrepareInput()
         const bool konamiP1Jump = im.isPressed(m_konamiHyperShot.p1Jump);
         const bool konamiP2Run = im.isPressed(m_konamiHyperShot.p2Run);
         const bool konamiP2Jump = im.isPressed(m_konamiHyperShot.p2Jump);
-        const bool p1UsesVirtualBoyController = m_emu.getPortDevice(Settings::Port::P_1) == std::optional<Settings::Device>(Settings::Device::VIRTUAL_BOY_CONTROLLER);
-        const bool p2UsesVirtualBoyController = m_emu.getPortDevice(Settings::Port::P_2) == std::optional<Settings::Device>(Settings::Device::VIRTUAL_BOY_CONTROLLER);
+        const bool p1UsesVirtualBoyController = inputTopology.port1Device == std::optional<Settings::Device>(Settings::Device::VIRTUAL_BOY_CONTROLLER);
+        const bool p2UsesVirtualBoyController = inputTopology.port2Device == std::optional<Settings::Device>(Settings::Device::VIRTUAL_BOY_CONTROLLER);
         const bool p1PrimaryA = p1UsesVirtualBoyController ? im.isPressed(m_virtualBoyController1.a) : p1A;
         const bool p1PrimaryB = p1UsesVirtualBoyController ? im.isPressed(m_virtualBoyController1.b) : p1B;
         const bool p1PrimarySelect = p1UsesVirtualBoyController ? im.isPressed(m_virtualBoyController1.select) : p1Select;
