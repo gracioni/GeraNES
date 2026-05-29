@@ -27,6 +27,7 @@ class ThreadedEmulationHost : public IEmulationHost
 {
 public:
     using InputState = IEmulationHost::InputState;
+    using InputTopology = IEmulationHost::InputTopology;
     using ReplayFrameInput = IEmulationHost::ReplayFrameInput;
     using FrameInputResolver = IEmulationHost::FrameInputResolver;
     using QueuedInputObserver = IEmulationHost::QueuedInputObserver;
@@ -108,11 +109,7 @@ private:
         uint32_t regionFps = 60;
         Settings::Region region = Settings::Region::NTSC;
         GameDatabase::System cartridgeSystem = GameDatabase::System::Unknown;
-        std::optional<Settings::Device> port1Device = Settings::Device::CONTROLLER;
-        std::optional<Settings::Device> port2Device = Settings::Device::CONTROLLER;
-        Settings::ExpansionDevice expansionDevice = Settings::ExpansionDevice::NONE;
-        Settings::NesMultitapDevice nesMultitapDevice = Settings::NesMultitapDevice::NONE;
-        Settings::FamicomMultitapDevice famicomMultitapDevice = Settings::FamicomMultitapDevice::NONE;
+        InputTopology inputTopology = {};
         int nsfTotalSongs = 0;
         int nsfCurrentSong = 0;
         std::string audioDeviceName;
@@ -573,7 +570,9 @@ public:
     std::optional<Settings::Device> getPortDevice(Settings::Port port) const override
     {
         std::scoped_lock snapshotLock(m_snapshotMutex);
-        return port == Settings::Port::P_1 ? m_snapshot.port1Device : m_snapshot.port2Device;
+        return port == Settings::Port::P_1
+            ? m_snapshot.inputTopology.port1Device
+            : m_snapshot.inputTopology.port2Device;
     }
 
     void setPortDevice(Settings::Port port, Settings::Device device) override
@@ -586,31 +585,25 @@ public:
     Settings::ExpansionDevice getExpansionDevice() const override
     {
         std::scoped_lock snapshotLock(m_snapshotMutex);
-        return m_snapshot.expansionDevice;
+        return m_snapshot.inputTopology.expansionDevice;
     }
 
     Settings::NesMultitapDevice getNesMultitapDevice() const override
     {
         std::scoped_lock snapshotLock(m_snapshotMutex);
-        return m_snapshot.nesMultitapDevice;
+        return m_snapshot.inputTopology.nesMultitapDevice;
     }
 
     Settings::FamicomMultitapDevice getFamicomMultitapDevice() const override
     {
         std::scoped_lock snapshotLock(m_snapshotMutex);
-        return m_snapshot.famicomMultitapDevice;
+        return m_snapshot.inputTopology.famicomMultitapDevice;
     }
 
     InputTopologySnapshot getInputTopologySnapshot() const override
     {
         std::scoped_lock snapshotLock(m_snapshotMutex);
-        InputTopologySnapshot snapshot;
-        snapshot.port1Device = m_snapshot.port1Device;
-        snapshot.port2Device = m_snapshot.port2Device;
-        snapshot.expansionDevice = m_snapshot.expansionDevice;
-        snapshot.nesMultitapDevice = m_snapshot.nesMultitapDevice;
-        snapshot.famicomMultitapDevice = m_snapshot.famicomMultitapDevice;
-        return snapshot;
+        return m_snapshot.inputTopology;
     }
 
     GameDatabase::System currentCartridgeSystem() const override

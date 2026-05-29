@@ -244,7 +244,7 @@ private:
     bool m_showKonamiHyperShotConfigWindow = false;
 
     bool m_showMenuBar = true;
-    bool m_autoConfigureInputTopologyOnRomLoad = true;
+
     InputTopology m_inputTopology = {};
 
     std::string m_errorMessage = "";

@@ -610,10 +610,9 @@ inline void GeraNESApp::menuBar() {
 
             ImGui::BeginDisabled(replayInputLocked);
 
-            bool automaticOnRomLoad = m_autoConfigureInputTopologyOnRomLoad;
+            bool automaticOnRomLoad = AppSettings::instance().data.input.automaticOnRomLoad;
             if(ImGui::MenuItem("Automatic on ROM load", nullptr, automaticOnRomLoad, topologyEditingEnabled)) {
-                m_autoConfigureInputTopologyOnRomLoad = !m_autoConfigureInputTopologyOnRomLoad;
-                AppSettings::instance().data.input.automaticOnRomLoad = m_autoConfigureInputTopologyOnRomLoad;
+                AppSettings::instance().data.input.automaticOnRomLoad = !automaticOnRomLoad;
             }
 
             ImGui::Separator();

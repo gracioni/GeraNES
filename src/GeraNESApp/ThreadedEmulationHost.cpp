@@ -310,11 +310,12 @@ void ThreadedEmulationHost::refreshSnapshotLocked()
         valid
             ? m_emu.getConsole().cartridge().system()
             : GameDatabase::System::Unknown;
-    const std::optional<Settings::Device> port1Device = m_emu.getPortDevice(Settings::Port::P_1);
-    const std::optional<Settings::Device> port2Device = m_emu.getPortDevice(Settings::Port::P_2);
-    const Settings::ExpansionDevice expansionDevice = m_emu.getExpansionDevice();
-    const Settings::NesMultitapDevice nesMultitapDevice = m_emu.getNesMultitapDevice();
-    const Settings::FamicomMultitapDevice famicomMultitapDevice = m_emu.getFamicomMultitapDevice();
+    InputTopology inputTopology;
+    inputTopology.port1Device = m_emu.getPortDevice(Settings::Port::P_1);
+    inputTopology.port2Device = m_emu.getPortDevice(Settings::Port::P_2);
+    inputTopology.expansionDevice = m_emu.getExpansionDevice();
+    inputTopology.nesMultitapDevice = m_emu.getNesMultitapDevice();
+    inputTopology.famicomMultitapDevice = m_emu.getFamicomMultitapDevice();
     const int nsfTotalSongs = m_emu.nsfTotalSongs();
     const int nsfCurrentSong = m_emu.nsfCurrentSong();
     const uint32_t lastFrameReadyFrame = m_lastFrameReadyFrameValue;
@@ -367,11 +368,7 @@ void ThreadedEmulationHost::refreshSnapshotLocked()
         m_snapshot.manualLoadStateGeneration = manualLoadStateGeneration;
         m_snapshot.region = region;
         m_snapshot.cartridgeSystem = cartridgeSystem;
-        m_snapshot.port1Device = port1Device;
-        m_snapshot.port2Device = port2Device;
-        m_snapshot.expansionDevice = expansionDevice;
-        m_snapshot.nesMultitapDevice = nesMultitapDevice;
-        m_snapshot.famicomMultitapDevice = famicomMultitapDevice;
+        m_snapshot.inputTopology = inputTopology;
         m_snapshot.nsfTotalSongs = nsfTotalSongs;
         m_snapshot.nsfCurrentSong = nsfCurrentSong;
         m_snapshot.lastFrameReadyFrame = lastFrameReadyFrame;

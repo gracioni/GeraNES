@@ -2370,7 +2370,7 @@ void GeraNESApp::resetShowOriginalGraphicsInsteadOfModFramebuffer()
 
 bool GeraNESApp::finishOpenRomPath(const fs::path& requestedPath, const std::string& effectivePath, const ModManager::LoadRequest& modLoad, bool modDefinitionLoaded)
 {
-    if(modDefinitionLoaded && m_emu.open(effectivePath, m_autoConfigureInputTopologyOnRomLoad)) {
+    if(modDefinitionLoaded && m_emu.open(effectivePath, AppSettings::instance().data.input.automaticOnRomLoad)) {
         const int effectiveMaxRewindTime = shouldSuppressRewindForNetplay()
             ? 0
             : std::max(0, AppSettings::instance().data.improvements.maxRewindTime);
@@ -2551,7 +2551,6 @@ void GeraNESApp::syncSettings()
     cfg.input.getVirtualBoyControllerInfo(1, m_virtualBoyController2);
     m_konamiHyperShot = cfg.input.konamiHyperShot;
     m_systemInput = cfg.input.system;
-    m_autoConfigureInputTopologyOnRomLoad = cfg.input.automaticOnRomLoad;
     m_inputTopology = m_emu.getInputTopologySnapshot();
 
     cfg.improvements.maxRewindTime = std::max(0, cfg.improvements.maxRewindTime);
