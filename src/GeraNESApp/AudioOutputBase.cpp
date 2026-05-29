@@ -26,6 +26,7 @@ void AudioOutputBase::initChannels(int sampleRate)
     m_sample.init(sampleRate);
     m_sampleDirect.init(sampleRate);
     m_expansionChannel.init(sampleRate);
+    setPlaybackSpeed(m_playbackSpeed);
     m_expansionVolume = 1.0f;
     m_visualizerSamples.fill(0.0f);
     m_visualizerWriteIndex = 0;
@@ -76,6 +77,23 @@ std::vector<float> AudioOutputBase::getRecentMixedSamples(size_t maxSamples) con
 int AudioOutputBase::outputSampleRate() const
 {
     return m_outputSampleRate;
+}
+
+void AudioOutputBase::setPlaybackSpeed(double speed)
+{
+    m_playbackSpeed = std::max(0.01, speed);
+    m_pulseWave1.setPlaybackSpeed(m_playbackSpeed);
+    m_pulseWave2.setPlaybackSpeed(m_playbackSpeed);
+    m_triangleWave.setPlaybackSpeed(m_playbackSpeed);
+    m_noise.setPlaybackSpeed(m_playbackSpeed);
+    m_sample.setPlaybackSpeed(m_playbackSpeed);
+    m_sampleDirect.setPlaybackSpeed(m_playbackSpeed);
+    m_expansionChannel.setPlaybackSpeed(m_playbackSpeed);
+}
+
+double AudioOutputBase::playbackSpeed() const
+{
+    return m_playbackSpeed;
 }
 
 int AudioOutputBase::desiredOutputChannels() const

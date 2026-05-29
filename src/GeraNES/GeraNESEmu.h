@@ -195,7 +195,6 @@ private:
     HardwareActions m_hardwareActions;
 
     bool m_runningLoop;
-    bool m_speedBoost;
     bool m_paused;
 
     DebugBreakpointConfig m_debugBreakpointConfig;
@@ -1357,7 +1356,7 @@ private:
             m_audioOutput.setRewinding(rewinding);
             m_audioOutputRewinding = rewinding;
         }
-        bool enableAudio = m_rewind.rewindLimit() && !m_speedBoost;
+        bool enableAudio = m_rewind.rewindLimit();
         const bool silentRender = forceSilence || !enableAudio || m_nsfPlayer.forceMute();
         m_audioOutput.render(ms, silentRender);
         return !silentRender;
@@ -1668,7 +1667,6 @@ public:
         m_currentFrameInputLocked = false;
         m_lockedPlaybackInputFrame = m_lastAppliedInputFrame;
         m_runningLoop = false;
-        m_speedBoost = false;
         m_paused = false;
         clearDebugBreakpointHit();
         m_nsfPlayer.init();
@@ -1711,15 +1709,6 @@ public:
             m_vsyncAudioCompMsAcc = 0.0;
             m_vsyncAudioSkipMsDebt = 0;
         }
-    }
-
-    void setSpeedBoost(bool state)
-    {
-        if(m_speedBoost && !state) {
-            m_audioOutput.init();
-            m_apu.refreshAudioOutputState();
-        }
-        m_speedBoost = state;
     }
 
     void resetRewindSystem()

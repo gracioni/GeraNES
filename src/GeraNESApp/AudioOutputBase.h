@@ -24,6 +24,7 @@ private:
     ExpansionChannel m_expansionChannel;
     float m_expansionVolume = 1.0f;
     int m_outputSampleRate = 44100;
+    double m_playbackSpeed = 1.0;
 
     FirstOrderHighPassFilter m_hpFilter1;
     FirstOrderHighPassFilter m_hpFilter2;
@@ -80,6 +81,8 @@ public:
     void captureMixedSample(float sample);
     std::vector<float> getRecentMixedSamples(size_t maxSamples = 0) const override;
     int outputSampleRate() const override;
+    void setPlaybackSpeed(double speed) override;
+    double playbackSpeed() const;
     int desiredOutputChannels() const;
     GERANES_INLINE_HOT float mixMono()
     {

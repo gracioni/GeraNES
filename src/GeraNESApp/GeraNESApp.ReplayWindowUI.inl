@@ -105,8 +105,7 @@ inline void GeraNESApp::drawReplayWindow()
         const uint32_t replayCursorFrame = std::min(replayState.cursorFrame, replayFrameCount);
         const uint32_t replayFps = hasRomLoaded ? std::max<uint32_t>(1u, m_emu.getRegionFPS()) : 60u;
         const bool speedRestricted = isNetplaySpeedRestricted();
-        const size_t currentSpeedIndex =
-            effectiveEmulationSpeedIndex(m_emu.pendingRuntimeControlsSnapshot().speedBoost);
+        const EmulationSpeed currentSpeed = effectiveEmulationSpeed(m_maxSpeedRequested);
 
         if(ImGui::BeginMenuBar()) {
             if(ImGui::BeginMenu("File")) {
@@ -166,7 +165,7 @@ inline void GeraNESApp::drawReplayWindow()
         ImGui::EndDisabled();
         ImGui::SameLine();
         ImGui::BeginDisabled();
-        ImGui::Button(emulationSpeedLabel(currentSpeedIndex), ImVec2(70.0f, 0.0f));
+        ImGui::Button(emulationSpeedLabel(currentSpeed), ImVec2(70.0f, 0.0f));
         ImGui::EndDisabled();
         ImGui::SameLine();
         ImGui::BeginDisabled(speedRestricted);

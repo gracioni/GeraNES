@@ -410,7 +410,6 @@ public:
             return 2;
         }
 
-        emu.setSpeedBoost(false);
         emu.setPaused(false);
         emu.enableOverclock(false);
         emu.disableSpriteLimit(false);

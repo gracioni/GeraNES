@@ -26,7 +26,6 @@ struct EmulationHostTypes
     {
         InputState state{};
         bool rewind = false;
-        bool speedBoost = false;
         bool hasFrameOverride = false;
         InputFrame frameOverride{};
     };
@@ -34,7 +33,6 @@ struct EmulationHostTypes
     struct RuntimeControls
     {
         bool rewind = false;
-        bool speedBoost = false;
     };
 
     using FrameInputResolver = std::function<bool(uint32_t, ReplayFrameInput&)>;
@@ -133,6 +131,8 @@ public:
     virtual int currentAudioSampleSize() const = 0;
     virtual float getAudioVolume() const = 0;
     virtual std::string getAudioChannelsJson() const = 0;
+    virtual void setAudioPlaybackSpeed(double speed) = 0;
+    virtual void setForceSilentAudio(bool silent) = 0;
     virtual void configAudioDevice(const std::string& deviceName) = 0;
     virtual void configAudioDevice(const std::string& deviceName, int sampleRate, int sampleSize) = 0;
     virtual void restartAudio() = 0;

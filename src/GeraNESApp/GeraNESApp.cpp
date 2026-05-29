@@ -1000,36 +1000,60 @@ bool GeraNESApp::isReplayRecordingActive() const
     return m_replayManager.snapshot().mode == ReplayManager::ReplayMode::Recording;
 }
 
-const char* GeraNESApp::emulationSpeedLabel(size_t index)
+const std::array<GeraNESApp::EmulationSpeed, 6>& GeraNESApp::emulationSpeedValues()
 {
-    static constexpr std::array<const char*, emulationSpeedOptionCount()> kLabels = {
-        "0.25x", "0.5x", "1x", "2x", "3x", "Max"
+    static constexpr std::array<EmulationSpeed, 6> kSpeeds = {
+        EmulationSpeed::Quarter,
+        EmulationSpeed::Half,
+        EmulationSpeed::Normal,
+        EmulationSpeed::Double,
+        EmulationSpeed::Triple,
+        EmulationSpeed::Max
     };
-    return kLabels[std::min(index, kLabels.size() - 1u)];
+    return kSpeeds;
 }
 
-bool GeraNESApp::emulationSpeedIsMax(size_t index)
+const char* GeraNESApp::emulationSpeedLabel(EmulationSpeed speed)
 {
-    return index >= (emulationSpeedOptionCount() - 1u);
+    switch(speed) {
+        case EmulationSpeed::Quarter: return "0.25x";
+        case EmulationSpeed::Half: return "0.5x";
+        case EmulationSpeed::Normal: return "1x";
+        case EmulationSpeed::Double: return "2x";
+        case EmulationSpeed::Triple: return "3x";
+        case EmulationSpeed::Max:
+        default: return "Max";
+    }
 }
 
-double GeraNESApp::emulationSpeedMultiplier(size_t index)
+bool GeraNESApp::emulationSpeedIsMax(EmulationSpeed speed)
 {
-    static constexpr std::array<double, emulationSpeedOptionCount()> kMultipliers = {
-        0.25, 0.5, 1.0, 2.0, 3.0, 1.0
-    };
-    return kMultipliers[std::min(index, kMultipliers.size() - 1u)];
+    return speed == EmulationSpeed::Max;
 }
 
-size_t GeraNESApp::effectiveEmulationSpeedIndex(bool maxSpeedRequested) const
+double GeraNESApp::emulationSpeedMultiplier(EmulationSpeed speed)
+{
+    switch(speed) {
+        case EmulationSpeed::Quarter: return 0.25;
+        case EmulationSpeed::Half: return 0.5;
+        case EmulationSpeed::Normal: return 1.0;
+        case EmulationSpeed::Double: return 2.0;
+        case EmulationSpeed::Triple: return 3.0;
+        case EmulationSpeed::Max:
+        default:
+            return 1.0;
+    }
+}
+
+GeraNESApp::EmulationSpeed GeraNESApp::effectiveEmulationSpeed(bool maxSpeedRequested) const
 {
     if(isNetplaySpeedRestricted()) {
-        return 2u;
+        return EmulationSpeed::Normal;
     }
     if(maxSpeedRequested) {
-        return emulationSpeedOptionCount() - 1u;
+        return EmulationSpeed::Max;
     }
-    return std::min(m_selectedEmulationSpeedIndex, emulationSpeedOptionCount() - 1u);
+    return m_selectedEmulationSpeed;
 }
 
 void GeraNESApp::resetEmulationSpeedPacing()
@@ -1039,18 +1063,37 @@ void GeraNESApp::resetEmulationSpeedPacing()
     m_presenterStepRemainder = 0;
 }
 
+void GeraNESApp::updateRuntimeVSyncSuppression(EmulationSpeed effectiveSpeed)
+{
+    const bool shouldSuppress =
+        effectiveSpeed == EmulationSpeed::Double ||
+        effectiveSpeed == EmulationSpeed::Triple ||
+        effectiveSpeed == EmulationSpeed::Max;
+    if(m_runtimeVsyncSuppressed == shouldSuppress) {
+        return;
+    }
+    m_runtimeVsyncSuppressed = shouldSuppress;
+    if(shouldSuppress) {
+        this->setVSync(0);
+    } else {
+        updateVSyncConfig();
+    }
+}
+
 void GeraNESApp::cycleEmulationSpeedSelection(int direction)
 {
     if(isNetplaySpeedRestricted()) {
-        m_selectedEmulationSpeedIndex = 2u;
+        m_selectedEmulationSpeed = EmulationSpeed::Normal;
         resetEmulationSpeedPacing();
         return;
     }
 
-    const int optionCount = static_cast<int>(emulationSpeedOptionCount());
-    const int currentIndex = static_cast<int>(std::min(m_selectedEmulationSpeedIndex, emulationSpeedOptionCount() - 1u));
-    const int wrappedIndex = (currentIndex + direction + optionCount) % optionCount;
-    m_selectedEmulationSpeedIndex = static_cast<size_t>(wrappedIndex);
+    const auto& speeds = emulationSpeedValues();
+    auto it = std::find(speeds.begin(), speeds.end(), m_selectedEmulationSpeed);
+    const size_t currentIndex = it != speeds.end() ? static_cast<size_t>(it - speeds.begin()) : 2u;
+    const int optionCount = static_cast<int>(speeds.size());
+    const int wrappedIndex = (static_cast<int>(currentIndex) + direction + optionCount) % optionCount;
+    m_selectedEmulationSpeed = speeds[static_cast<size_t>(wrappedIndex)];
     resetEmulationSpeedPacing();
 }
 
@@ -4150,17 +4193,19 @@ void GeraNESApp::pollAndPrepareInput()
             im.isPressed(m_systemInput.rewind) ||
             m_touch->buttons().rewind
         );
-        const bool speedBoostActive = !isNetplaySpeedRestricted() && !keyboardExpansionActive && (
+        const bool maxSpeedRequested = !isNetplaySpeedRestricted() && !keyboardExpansionActive && (
             im.isPressed(m_systemInput.speed)
         );
+        m_maxSpeedRequested = maxSpeedRequested;
         {
             std::scoped_lock stateLock(m_netplayInputStateMutex);
             m_replayLiveInputState = inputState;
             m_netplayLatestInputState = inputState;
         }
         m_emu.setPendingInput(inputState);
-        m_emu.setPendingRuntimeControls({rewindActive, speedBoostActive});
+        m_emu.setPendingRuntimeControls({rewindActive});
     } else {
+        m_maxSpeedRequested = false;
         {
             std::scoped_lock stateLock(m_netplayInputStateMutex);
             m_replayLiveInputState = {};
@@ -4819,14 +4864,22 @@ void GeraNESApp::mainLoop()
 
     bool netplayPacingOverrideActive = false;
     netplayPacingOverrideActive = m_netplayRuntime.uiSnapshot().active;
-    const IEmulationHost::RuntimeControls runtimeControls = m_emu.pendingRuntimeControlsSnapshot();
-    const size_t effectiveSpeedIndex = effectiveEmulationSpeedIndex(runtimeControls.speedBoost);
-    if(effectiveSpeedIndex != m_lastEffectiveEmulationSpeedIndex) {
+    const EmulationSpeed effectiveSpeed = effectiveEmulationSpeed(m_maxSpeedRequested);
+    if(effectiveSpeed != m_lastEffectiveEmulationSpeed) {
         resetEmulationSpeedPacing();
-        m_lastEffectiveEmulationSpeedIndex = effectiveSpeedIndex;
+        m_emu.setAudioPlaybackSpeed(
+            emulationSpeedIsMax(effectiveSpeed)
+                ? 1.0
+                : emulationSpeedMultiplier(effectiveSpeed));
+        updateRuntimeVSyncSuppression(effectiveSpeed);
+        m_emu.setForceSilentAudio(emulationSpeedIsMax(effectiveSpeed));
+        m_lastEffectiveEmulationSpeed = effectiveSpeed;
     }
-    const bool maxSpeedActive = emulationSpeedIsMax(effectiveSpeedIndex);
-    const double speedMultiplier = emulationSpeedMultiplier(effectiveSpeedIndex);
+    const bool maxSpeedActive = emulationSpeedIsMax(effectiveSpeed);
+    const double speedMultiplier = emulationSpeedMultiplier(effectiveSpeed);
+    if(maxSpeedActive) {
+        m_emu.discardQueuedAudio();
+    }
     const uint32_t pacingDtMs = static_cast<uint32_t>(std::min<Uint64>(dt, UINT32_MAX));
     const bool minimized = isMinimized();
     const bool allowPresenterPacing =
@@ -4836,6 +4889,7 @@ void GeraNESApp::mainLoop()
         const int maxFramesToAdvance = maxSpeedActive ? 120 : 30;
         if(maxSpeedActive) {
             m_emulationSpeedFrameAccumulator = 0.0;
+            m_presenterFrameAccumScaled = 0;
             uint32_t framesToAdvance = 0u;
             for(int i = 0; i < maxFramesToAdvance; ++i) {
                 const uint32_t stepNumerator = m_presenterStepRemainder + 1000u;
@@ -4885,7 +4939,7 @@ void GeraNESApp::mainLoop()
         }
     } else {
         const uint32_t emuFps = std::max<uint32_t>(1u, m_emu.getRegionFPS());
-        const bool vsyncEnabled = m_vsyncMode != OFF;
+        const bool vsyncEnabled = !m_runtimeVsyncSuppressed && m_vsyncMode != OFF;
         const int displayFrameRate = vsyncEnabled ? this->getDisplayFrameRate() : 0;
         bool monitorCadenceMatchesEmu =
             vsyncEnabled &&
@@ -4899,6 +4953,7 @@ void GeraNESApp::mainLoop()
 
         if(monitorCadenceMatchesEmu && !maxSpeedActive && std::abs(speedMultiplier - 1.0) < 0.001) {
             m_emulationSpeedFrameAccumulator = 0.0;
+            m_presenterFrameAccumScaled = 0;
             const uint32_t stepNumerator = m_presenterStepRemainder + 1000u;
             uint32_t stepDtMs = stepNumerator / emuFps;
             m_presenterStepRemainder = stepNumerator % emuFps;

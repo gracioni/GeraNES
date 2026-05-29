@@ -32,6 +32,7 @@ protected:
     float m_currentPosition;
 
     float m_inverseSampleRate;
+    double m_playbackSpeed;
 
 public:
 
@@ -47,7 +48,7 @@ public:
     //return true when parameter can be changed (zero crossing)
     GERANES_INLINE_HOT int update()
     {       
-        m_currentPosition += m_inverseSampleRate;
+        m_currentPosition += static_cast<float>(m_inverseSampleRate * m_playbackSpeed);
 
         int ret = m_currentPosition/m_period;
 
@@ -81,6 +82,11 @@ public:
         m_nextVolume = v;
     }
 
+    GERANES_INLINE void setPlaybackSpeed(double speed)
+    {
+        m_playbackSpeed = std::max(0.01, speed);
+    }
+
     virtual void init(int sampleRate)
     {
         m_inverseSampleRate = 1.0/sampleRate;
@@ -93,6 +99,7 @@ public:
         m_nextVolume = m_volume;
 
         m_currentPosition = 0.0;
+        m_playbackSpeed = 1.0;
     }    
 
     virtual float get() = 0;
@@ -310,6 +317,7 @@ private:
     uint32_t m_rawSourceRateHz = 1789773;
     uint32_t m_outputSampleRate = 44100;
     bool m_playbackStarted = false;
+    double m_playbackSpeed = 1.0;
     double m_consumeRate = 1.0;
     double m_consumeAcc = 0.0;
     uint64_t m_phaseAcc = 0;
@@ -347,6 +355,12 @@ public:
     {
         m_outputSampleRate = std::max(1, sampleRate);
         clearBuffer();
+    }
+
+    void setPlaybackSpeed(double speed)
+    {
+        m_playbackSpeed = std::max(0.01, speed);
+        m_consumeRate = m_playbackSpeed;
     }
 
     GERANES_INLINE void add(float sample, float mixWeight)
@@ -387,7 +401,7 @@ public:
     {
         m_buffer.clear();
         m_playbackStarted = false;
-        m_consumeRate = 1.0;
+        m_consumeRate = m_playbackSpeed;
         m_consumeAcc = 0.0;
         m_phaseAcc = 0;
         m_windowWeight = 0;
@@ -410,7 +424,11 @@ public:
         const double bufferError = static_cast<double>(
             static_cast<int64_t>(m_buffer.size()) -
             static_cast<int64_t>(targetBufferSamples()));
-        const double targetConsumeRate = std::clamp(1.0 + bufferError * 0.00005, 0.995, 1.005);
+        const double baseConsumeRate = std::max(0.01, m_playbackSpeed);
+        const double targetConsumeRate = std::clamp(
+            baseConsumeRate + bufferError * 0.00005,
+            baseConsumeRate * 0.995,
+            baseConsumeRate * 1.005);
         m_consumeRate += (targetConsumeRate - m_consumeRate) * 0.05;
         m_consumeAcc += m_consumeRate;
 
@@ -449,6 +467,7 @@ private:
     float m_volume;
     double m_currentPosition;
     double m_inverseSampleRate;
+    double m_playbackSpeed = 1.0;
 
     float m_sample;
     float m_lastSample;
@@ -460,7 +479,7 @@ private:
 
     GERANES_INLINE_HOT int update()
     {
-        m_currentPosition += m_inverseSampleRate;
+        m_currentPosition += m_inverseSampleRate * m_playbackSpeed;
         if(m_current.period <= 0.0) {
             return 0;
         }
@@ -494,6 +513,7 @@ public:
         m_current = SampleDirectInfo(0.001f, 0.0f, 0);
         m_serialCounter = 0;
         m_lastAddedSerial = 0;
+        m_playbackSpeed = 1.0;
 
         clearBuffer();
     }
@@ -503,6 +523,11 @@ public:
         const uint32_t serial = ++m_serialCounter;
         m_lastAddedSerial = serial;
         m_buffer.write(SampleDirectInfo(period, sample, serial));
+    }
+
+    GERANES_INLINE void setPlaybackSpeed(double speed)
+    {
+        m_playbackSpeed = std::max(0.01, speed);
     }
 
     GERANES_INLINE void setLastPeriod(float period)

@@ -244,14 +244,14 @@ void SDLAudioOutput::render(uint32_t dt, bool silenceFlag)
         return;
     }
 
-    sampleAcc += dt * sampleRate();
+    sampleAcc += static_cast<double>(dt) * static_cast<double>(sampleRate()) / playbackSpeed();
 
     const int bitsPerSample = sampleSize();
     const int bytesPerSample = bitsPerSample / 8;
     const int outputChannels = std::max(1, static_cast<int>(spec.channels));
     const int bytesPerFrame = bytesPerSample * outputChannels;
     float vol = std::pow(m_volume, 2.0f);
-    while(sampleAcc >= 1000)
+    while(sampleAcc >= 1000.0)
     {
         const auto appendSample = [&](float value) {
             if(bitsPerSample == 8) {
@@ -281,7 +281,7 @@ void SDLAudioOutput::render(uint32_t dt, bool silenceFlag)
             appendSample(right);
         }
 
-        sampleAcc -= 1000;
+        sampleAcc -= 1000.0;
     }
 
     bool playFlag = SDL_GetQueuedAudioSize(m_device) != 0;

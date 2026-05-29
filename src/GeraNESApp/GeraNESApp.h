@@ -105,6 +105,14 @@ struct CpuDebugSymbol {
 class GeraNESApp : public SDLOpenGLWindow, public SigSlot::SigSlotBase {
 
 private:
+    enum class EmulationSpeed : uint8_t {
+        Quarter,
+        Half,
+        Normal,
+        Double,
+        Triple,
+        Max
+    };
 
     InputBindingConfigWindow m_inputBindingConfigWindow;
     PowerPadConfigWindow m_powerPadConfigWindow;
@@ -330,8 +338,9 @@ private:
     std::atomic<bool> m_replaySeekTaskCompleted = false;
     std::atomic<bool> m_replaySeekTaskSucceeded = false;
     uint32_t m_replaySeekTargetFrame = 0;
-    size_t m_selectedEmulationSpeedIndex = 2;
-    size_t m_lastEffectiveEmulationSpeedIndex = 2;
+    EmulationSpeed m_selectedEmulationSpeed = EmulationSpeed::Normal;
+    EmulationSpeed m_lastEffectiveEmulationSpeed = EmulationSpeed::Normal;
+    bool m_maxSpeedRequested = false;
 
     struct RomDatabaseEditorData {
         bool loaded = false;
@@ -401,6 +410,7 @@ private:
     uint64_t m_presenterFrameAccumScaled = 0;
     uint32_t m_presenterStepRemainder = 0;
     double m_emulationSpeedFrameAccumulator = 0.0;
+    bool m_runtimeVsyncSuppressed = false;
     uint32_t m_lastTextureUploadOverscanKey = 0;
     int m_lastTextureUploadModScale = -1;
 
@@ -582,12 +592,13 @@ private:
     bool isNetplaySpeedRestricted() const;
     bool isReplayRecordingActive() const;
     bool isReplaySessionInteractionLocked() const;
-    static constexpr size_t emulationSpeedOptionCount() { return 6; }
-    static const char* emulationSpeedLabel(size_t index);
-    static bool emulationSpeedIsMax(size_t index);
-    static double emulationSpeedMultiplier(size_t index);
-    size_t effectiveEmulationSpeedIndex(bool maxSpeedRequested) const;
+    static const char* emulationSpeedLabel(EmulationSpeed speed);
+    static const std::array<EmulationSpeed, 6>& emulationSpeedValues();
+    static bool emulationSpeedIsMax(EmulationSpeed speed);
+    static double emulationSpeedMultiplier(EmulationSpeed speed);
+    EmulationSpeed effectiveEmulationSpeed(bool maxSpeedRequested) const;
     void resetEmulationSpeedPacing();
+    void updateRuntimeVSyncSuppression(EmulationSpeed effectiveSpeed);
     void cycleEmulationSpeedSelection(int direction);
     void notifyReplaySessionInteractionLocked(const char* action);
     void refreshReplayFrameInputResolver();

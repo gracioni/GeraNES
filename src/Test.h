@@ -399,8 +399,6 @@ public:
             return RESULT_ERROR;
         }
 
-        // Do not use player speed-boost (3x). In test mode we run uncapped headless.
-        emu.setSpeedBoost(false);
         emu.setPaused(false);
 
         // Use smaller headless steps to better capture short/high-pitched completion beeps.

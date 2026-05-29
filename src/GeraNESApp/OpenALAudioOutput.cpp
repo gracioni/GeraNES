@@ -184,10 +184,10 @@ void OpenALAudioOutput::render(uint32_t dt, bool silenceFlag)
         return;
     }
 
-    sampleAcc += dt * sampleRate();
+    sampleAcc += static_cast<double>(dt) * static_cast<double>(sampleRate()) / playbackSpeed();
     float vol = std::pow(m_volume, 2.0f);
 
-    while(sampleAcc >= 1000)
+    while(sampleAcc >= 1000.0)
     {
         if(m_outputChannels <= 1) {
             const float mono = (silenceFlag ? 0.0f : mixMono()) * vol;
@@ -201,7 +201,7 @@ void OpenALAudioOutput::render(uint32_t dt, bool silenceFlag)
             m_bufferData.push_back(static_cast<ALshort>(left * 32767.0f));
             m_bufferData.push_back(static_cast<ALshort>(right * 32767.0f));
         }
-        sampleAcc -= 1000;
+        sampleAcc -= 1000.0;
     }
 
     ALint numProcessed;

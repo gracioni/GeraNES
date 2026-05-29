@@ -56,6 +56,7 @@ class IAudioOutput
     virtual void discardQueuedAudio() {}
     virtual std::vector<float> getRecentMixedSamples(size_t /*maxSamples*/ = 0) const { return {}; }
     virtual int outputSampleRate() const { return 44100; }
+    virtual void setPlaybackSpeed(double /*speed*/) {}
     virtual std::vector<std::string> getAudioList() const { return {}; }
     virtual AudioFormatOptions getAudioFormatOptions(const std::string& /*deviceName*/) const { return {}; }
     virtual const std::string& currentDeviceName() const { static const std::string empty; return empty; }
