@@ -157,15 +157,11 @@ public:
     virtual void saveState(uint8_t slot = 0) = 0;
     virtual void loadState(uint8_t slot = 0) = 0;
     virtual std::optional<Settings::Device> getPortDevice(Settings::Port port) const = 0;
-    virtual void setPortDevice(Settings::Port port, Settings::Device device) = 0;
     virtual Settings::ExpansionDevice getExpansionDevice() const = 0;
     virtual Settings::NesMultitapDevice getNesMultitapDevice() const = 0;
     virtual Settings::FamicomMultitapDevice getFamicomMultitapDevice() const = 0;
     virtual InputTopology getInputTopologySnapshot() const = 0;
     virtual GameDatabase::System currentCartridgeSystem() const = 0;
-    virtual void setExpansionDevice(Settings::ExpansionDevice device) = 0;
-    virtual void setNesMultitapDevice(Settings::NesMultitapDevice device) = 0;
-    virtual void setFamicomMultitapDevice(Settings::FamicomMultitapDevice device) = 0;
     virtual void fdsSwitchDiskSide() = 0;
     virtual void fdsEjectDisk() = 0;
     virtual void fdsInsertNextDisk() = 0;

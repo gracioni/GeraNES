@@ -69,17 +69,16 @@ bool GeraNESNetplayConsole::updateUntilFrame(uint32_t frameDtMs, bool resimulati
 
 void GeraNESNetplayConsole::applyRemoteInputTopology(const RoomState& room)
 {
-    m_emu.setPortDevice(Settings::Port::P_1, geraNESPortDeviceFromTopology(room, kPort1PlayerSlot));
-    m_emu.setPortDevice(Settings::Port::P_2, geraNESPortDeviceFromTopology(room, kPort2PlayerSlot));
-    m_emu.setExpansionDevice(geraNESExpansionDeviceFromTopology(room));
-    m_emu.setNesMultitapDevice(geraNESNesMultitapDeviceFromTopology(room));
-    m_emu.setFamicomMultitapDevice(geraNESFamicomMultitapDeviceFromTopology(room));
-
-    // Netplay frames embed topology. If buffered frames still carry the old
-    // layout, they will restore it on the next frame and undo the room change.
     const uint32_t currentFrame = m_emu.frameCount();
     m_emu.discardQueuedInputFramesAfter(currentFrame);
+
     InputFrame bootstrapFrame = m_emu.createInputFrame(currentFrame);
+    bootstrapFrame.port1Device = geraNESPortDeviceFromTopology(room, kPort1PlayerSlot);
+    bootstrapFrame.port2Device = geraNESPortDeviceFromTopology(room, kPort2PlayerSlot);
+    bootstrapFrame.expansionDevice = geraNESExpansionDeviceFromTopology(room);
+    bootstrapFrame.nesMultitapDevice = geraNESNesMultitapDeviceFromTopology(room);
+    bootstrapFrame.famicomMultitapDevice = geraNESFamicomMultitapDeviceFromTopology(room);
+
     bootstrapFrame.state.serializedInputData = m_latestInputState.serializedInputData;
     (void)m_emu.queueInputFrame(bootstrapFrame);
 }
@@ -93,54 +92,13 @@ void GeraNESNetplayConsole::publishCurrentInputTopology(NetplayCoordinator& coor
     const Settings::NesMultitapDevice roomNesMultitapDevice = geraNESNesMultitapDeviceFromTopology(room);
     const Settings::FamicomMultitapDevice roomFamicomMultitapDevice = geraNESFamicomMultitapDeviceFromTopology(room);
 
-    std::optional<Settings::Device> port1Device = m_emu.getPortDevice(Settings::Port::P_1);
-    std::optional<Settings::Device> port2Device = m_emu.getPortDevice(Settings::Port::P_2);
-    Settings::ExpansionDevice expansionDevice = m_emu.getExpansionDevice();
-    Settings::NesMultitapDevice nesMultitapDevice = m_emu.getNesMultitapDevice();
-    Settings::FamicomMultitapDevice famicomMultitapDevice = m_emu.getFamicomMultitapDevice();
-
-    if(roomPort1Device != Settings::Device::NONE &&
-       port1Device != std::optional<Settings::Device>(roomPort1Device)) {
-        port1Device = roomPort1Device;
-        if(coordinator.isHosting()) {
-            m_emu.setPortDevice(Settings::Port::P_1, *port1Device);
-        }
-    }
-    if(roomPort2Device != Settings::Device::NONE &&
-       port2Device != std::optional<Settings::Device>(roomPort2Device)) {
-        port2Device = roomPort2Device;
-        if(coordinator.isHosting()) {
-            m_emu.setPortDevice(Settings::Port::P_2, *port2Device);
-        }
-    }
-    if(roomExpansionDevice != Settings::ExpansionDevice::NONE &&
-       expansionDevice != roomExpansionDevice) {
-        expansionDevice = roomExpansionDevice;
-        if(coordinator.isHosting()) {
-            m_emu.setExpansionDevice(expansionDevice);
-        }
-    }
-    if(roomNesMultitapDevice != Settings::NesMultitapDevice::NONE &&
-       nesMultitapDevice != roomNesMultitapDevice) {
-        nesMultitapDevice = roomNesMultitapDevice;
-        if(coordinator.isHosting()) {
-            m_emu.setNesMultitapDevice(nesMultitapDevice);
-        }
-    }
-    if(roomFamicomMultitapDevice != Settings::FamicomMultitapDevice::NONE &&
-       famicomMultitapDevice != roomFamicomMultitapDevice) {
-        famicomMultitapDevice = roomFamicomMultitapDevice;
-        if(coordinator.isHosting()) {
-            m_emu.setFamicomMultitapDevice(famicomMultitapDevice);
-        }
-    }
     setGeraNESRoomInputTopology(
         coordinator,
-        port1Device,
-        port2Device,
-        expansionDevice,
-        nesMultitapDevice,
-        famicomMultitapDevice
+        roomPort1Device,
+        roomPort2Device,
+        roomExpansionDevice,
+        roomNesMultitapDevice,
+        roomFamicomMultitapDevice
     );
 }
 

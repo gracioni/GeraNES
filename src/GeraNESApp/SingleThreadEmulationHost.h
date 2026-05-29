@@ -420,13 +420,6 @@ public:
         return m_emu.getPortDevice(port);
     }
 
-    void setPortDevice(Settings::Port port, Settings::Device device)
-     override{
-        postCommand([=](GeraNESEmu& emu) {
-            emu.setPortDevice(port, device);
-        });
-    }
-
     Settings::ExpansionDevice getExpansionDevice() const override
     {
         return m_emu.getExpansionDevice();
@@ -456,27 +449,6 @@ public:
     GameDatabase::System currentCartridgeSystem() const override
     {
         return m_emu.getConsole().cartridge().system();
-    }
-
-    void setExpansionDevice(Settings::ExpansionDevice device)
-     override{
-        postCommand([=](GeraNESEmu& emu) {
-            emu.setExpansionDevice(device);
-        });
-    }
-
-    void setNesMultitapDevice(Settings::NesMultitapDevice device)
-     override{
-        postCommand([=](GeraNESEmu& emu) {
-            emu.setNesMultitapDevice(device);
-        });
-    }
-
-    void setFamicomMultitapDevice(Settings::FamicomMultitapDevice device)
-     override{
-        postCommand([=](GeraNESEmu& emu) {
-            emu.setFamicomMultitapDevice(device);
-        });
     }
 
     void fdsSwitchDiskSide()  override{ postCommand([](GeraNESEmu& emu) { emu.fdsSwitchDiskSide(); }); }

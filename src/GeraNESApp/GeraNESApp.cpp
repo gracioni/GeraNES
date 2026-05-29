@@ -1749,15 +1749,6 @@ void GeraNESApp::applyInputTopology(const InputTopology& topology)
     m_inputTopology = topology;
     const IEmulationHost::InputState pendingInput = m_emu.pendingInputSnapshot();
     m_emu.withExclusiveAccess([&](auto& emu) {
-        if(topology.port1Device.has_value()) {
-            emu.setPortDevice(Settings::Port::P_1, *topology.port1Device);
-        }
-        if(topology.port2Device.has_value()) {
-            emu.setPortDevice(Settings::Port::P_2, *topology.port2Device);
-        }
-        emu.setExpansionDevice(topology.expansionDevice);
-        emu.setNesMultitapDevice(topology.nesMultitapDevice);
-        emu.setFamicomMultitapDevice(topology.famicomMultitapDevice);
 
         // Queued input frames carry their own topology and would otherwise
         // restore the previous device layout on the next frame.
@@ -1765,6 +1756,12 @@ void GeraNESApp::applyInputTopology(const InputTopology& topology)
         emu.discardQueuedInputFramesAfter(currentFrame);
 
         InputFrame currentInput = emu.createInputFrame(currentFrame);
+        currentInput.port1Device = topology.port1Device.value_or(Settings::Device::NONE);
+        currentInput.port2Device = topology.port2Device.value_or(Settings::Device::NONE);
+        currentInput.expansionDevice = topology.expansionDevice;
+        currentInput.nesMultitapDevice = topology.nesMultitapDevice;
+        currentInput.famicomMultitapDevice = topology.famicomMultitapDevice;
+
         currentInput.state.serializedInputData = pendingInput.serializedInputData;
         emu.queueInputFrame(currentInput);
     });

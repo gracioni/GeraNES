@@ -629,6 +629,36 @@ private:
         if(familyTrainer && m_expansionDevice) m_expansionDevice->setPowerPadButtons(inputFrame.powerPadButtons(1));
     }
 
+    GERANES_INLINE void setPortDevice(Settings::Port port, Settings::Device device)
+    {
+        m_settings.setPortDevice(port, device);
+        if(!isAnyMultitapActive()) recreatePortDevice(port);
+    }
+
+    GERANES_INLINE void setExpansionDevice(Settings::ExpansionDevice device)
+    {
+        m_settings.setExpansionDevice(device);
+        if(!isAnyMultitapActive()) recreateExpansionDevice();
+    }
+
+    GERANES_INLINE void setNesMultitapDevice(Settings::NesMultitapDevice device)
+    {
+        m_settings.setNesMultitapDevice(device);
+        if(device != Settings::NesMultitapDevice::NONE) {
+            m_settings.setFamicomMultitapDevice(Settings::FamicomMultitapDevice::NONE);
+        }
+        recreateInputRouting();
+    }
+
+    GERANES_INLINE void setFamicomMultitapDevice(Settings::FamicomMultitapDevice device)
+    {
+        m_settings.setFamicomMultitapDevice(device);
+        if(device != Settings::FamicomMultitapDevice::NONE) {
+            m_settings.setNesMultitapDevice(Settings::NesMultitapDevice::NONE);
+        }
+        recreateInputRouting();
+    }
+
     void processNsfControllerInput(bool selectPressed, bool startPressed, bool leftPressed, bool rightPressed)
     {
         const bool startJustPressed = startPressed && !m_prevNsfStart;
@@ -2435,12 +2465,6 @@ public:
         return m_settings.getPortDevice(port);
     }
 
-    GERANES_INLINE void setPortDevice(Settings::Port port, Settings::Device device)
-    {
-        m_settings.setPortDevice(port, device);
-        if(!isAnyMultitapActive()) recreatePortDevice(port);
-    }
-
     GERANES_INLINE Settings::ExpansionDevice getExpansionDevice() const
     {
         return m_settings.getExpansionDevice();
@@ -2454,30 +2478,6 @@ public:
     GERANES_INLINE Settings::FamicomMultitapDevice getFamicomMultitapDevice() const
     {
         return m_settings.getFamicomMultitapDevice();
-    }
-
-    GERANES_INLINE void setExpansionDevice(Settings::ExpansionDevice device)
-    {
-        m_settings.setExpansionDevice(device);
-        if(!isAnyMultitapActive()) recreateExpansionDevice();
-    }
-
-    GERANES_INLINE void setNesMultitapDevice(Settings::NesMultitapDevice device)
-    {
-        m_settings.setNesMultitapDevice(device);
-        if(device != Settings::NesMultitapDevice::NONE) {
-            m_settings.setFamicomMultitapDevice(Settings::FamicomMultitapDevice::NONE);
-        }
-        recreateInputRouting();
-    }
-
-    GERANES_INLINE void setFamicomMultitapDevice(Settings::FamicomMultitapDevice device)
-    {
-        m_settings.setFamicomMultitapDevice(device);
-        if(device != Settings::FamicomMultitapDevice::NONE) {
-            m_settings.setNesMultitapDevice(Settings::NesMultitapDevice::NONE);
-        }
-        recreateInputRouting();
     }
 
     bool overclocked() const
