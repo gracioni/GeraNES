@@ -74,6 +74,14 @@ void GeraNESNetplayConsole::applyRemoteInputTopology(const RoomState& room)
     m_emu.setExpansionDevice(geraNESExpansionDeviceFromTopology(room));
     m_emu.setNesMultitapDevice(geraNESNesMultitapDeviceFromTopology(room));
     m_emu.setFamicomMultitapDevice(geraNESFamicomMultitapDeviceFromTopology(room));
+
+    // Netplay frames embed topology. If buffered frames still carry the old
+    // layout, they will restore it on the next frame and undo the room change.
+    const uint32_t currentFrame = m_emu.frameCount();
+    m_emu.discardQueuedInputFramesAfter(currentFrame);
+    InputFrame bootstrapFrame = m_emu.createInputFrame(currentFrame);
+    bootstrapFrame.state.serializedInputData = m_latestInputState.serializedInputData;
+    (void)m_emu.queueInputFrame(bootstrapFrame);
 }
 
 void GeraNESNetplayConsole::publishCurrentInputTopology(NetplayCoordinator& coordinator)

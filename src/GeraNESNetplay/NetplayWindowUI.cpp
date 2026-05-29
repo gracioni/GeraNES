@@ -1097,7 +1097,7 @@ void drawNetplayWindow(bool& showWindow,
                 participantHasAssignment(participant, slot) &&
                 currentNesMultitapDevice == nesDevice &&
                 currentFamicomMultitapDevice == famicomDevice;
-            const bool enabled = canAssignCandidate(
+            const bool enabled = !selected && canAssignCandidate(
                 std::optional<Settings::Device>(Settings::Device::CONTROLLER),
                 std::optional<Settings::Device>(Settings::Device::CONTROLLER),
                 Settings::ExpansionDevice::NONE,

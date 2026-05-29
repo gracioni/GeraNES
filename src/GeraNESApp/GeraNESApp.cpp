@@ -3911,7 +3911,15 @@ void GeraNESApp::pollAndPrepareInput()
         m_imGuiWantsKeyboard = io.WantTextInput || m_imGuiWindowFocusBlocksEmulator;
         im.updateInputs(!m_imGuiWantsKeyboard);
 
-        const auto inputTopology = m_inputTopology;
+        InputTopology inputTopology = m_inputTopology;
+        const auto netplayMenu = GeraNESNetplay::menuSnapshot(m_netplayRuntime);
+        if(netplayMenu.inputManaged) {
+            inputTopology.port1Device = netplayMenu.port1Device;
+            inputTopology.port2Device = netplayMenu.port2Device;
+            inputTopology.expansionDevice = netplayMenu.expansionDevice;
+            inputTopology.nesMultitapDevice = netplayMenu.nesMultitapDevice;
+            inputTopology.famicomMultitapDevice = netplayMenu.famicomMultitapDevice;
+        }
         const bool touchInputActive = !m_imGuiWantsMouse;
         const auto touchTarget = effectiveTouchControlsTarget();
         const bool multitapActive =
