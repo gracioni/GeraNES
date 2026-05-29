@@ -1747,24 +1747,6 @@ void GeraNESApp::normalizeTouchControlsTargetForCurrentTopology()
 void GeraNESApp::applyInputTopology(const InputTopology& topology)
 {
     m_inputTopology = topology;
-    const IEmulationHost::InputState pendingInput = m_emu.pendingInputSnapshot();
-    m_emu.withExclusiveAccess([&](auto& emu) {
-
-        // Queued input frames carry their own topology and would otherwise
-        // restore the previous device layout on the next frame.
-        const uint32_t currentFrame = emu.frameCount();
-        emu.discardQueuedInputFramesAfter(currentFrame);
-
-        InputFrame currentInput = emu.createInputFrame(currentFrame);
-        currentInput.port1Device = topology.port1Device.value_or(Settings::Device::NONE);
-        currentInput.port2Device = topology.port2Device.value_or(Settings::Device::NONE);
-        currentInput.expansionDevice = topology.expansionDevice;
-        currentInput.nesMultitapDevice = topology.nesMultitapDevice;
-        currentInput.famicomMultitapDevice = topology.famicomMultitapDevice;
-
-        currentInput.state.serializedInputData = pendingInput.serializedInputData;
-        emu.queueInputFrame(currentInput);
-    });
 }
 
 AppSettings::TouchControlsTarget GeraNESApp::effectiveTouchControlsTarget() const

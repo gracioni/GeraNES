@@ -69,18 +69,7 @@ bool GeraNESNetplayConsole::updateUntilFrame(uint32_t frameDtMs, bool resimulati
 
 void GeraNESNetplayConsole::applyRemoteInputTopology(const RoomState& room)
 {
-    const uint32_t currentFrame = m_emu.frameCount();
-    m_emu.discardQueuedInputFramesAfter(currentFrame);
-
-    InputFrame bootstrapFrame = m_emu.createInputFrame(currentFrame);
-    bootstrapFrame.port1Device = geraNESPortDeviceFromTopology(room, kPort1PlayerSlot);
-    bootstrapFrame.port2Device = geraNESPortDeviceFromTopology(room, kPort2PlayerSlot);
-    bootstrapFrame.expansionDevice = geraNESExpansionDeviceFromTopology(room);
-    bootstrapFrame.nesMultitapDevice = geraNESNesMultitapDeviceFromTopology(room);
-    bootstrapFrame.famicomMultitapDevice = geraNESFamicomMultitapDeviceFromTopology(room);
-
-    bootstrapFrame.state.serializedInputData = m_latestInputState.serializedInputData;
-    (void)m_emu.queueInputFrame(bootstrapFrame);
+    //topology is set on InputFrame
 }
 
 void GeraNESNetplayConsole::publishCurrentInputTopology(NetplayCoordinator& coordinator)
