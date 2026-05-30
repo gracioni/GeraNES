@@ -109,10 +109,10 @@ inline void GeraNESApp::drawReplayWindow()
 
         if(ImGui::BeginMenuBar()) {
             if(ImGui::BeginMenu("File")) {
-                if(ImGui::MenuItem((std::string(FontAwesomeIcons::kFolderOpen) + " Load").c_str(), nullptr, false, !seekInProgress)) {
+                if(ImGui::MenuItem((std::string(FontAwesomeIcons::kFolderOpen) + " Load replay").c_str(), nullptr, false, !seekInProgress)) {
                     openReplayDialog();
                 }
-                if(ImGui::MenuItem((std::string(FontAwesomeIcons::kXmark) + " Close").c_str(), nullptr, false, closeEnabled)) {
+                if(ImGui::MenuItem((std::string(FontAwesomeIcons::kXmark) + " Close replay").c_str(), nullptr, false, closeEnabled)) {
                     clearReplaySession(true);
                 }
                 ImGui::EndMenu();
@@ -262,8 +262,14 @@ inline void GeraNESApp::drawReplayWindow()
     }
 
     if(!m_showReplayWindow && replayState.mode == ReplayManager::ReplayMode::Recording) {
+        m_selectedEmulationSpeed = EmulationSpeed::Normal;
+        m_maxSpeedRequested = false;
+        resetEmulationSpeedPacing();
         stopReplayRecording();
     } else if(!m_showReplayWindow && replayState.mode == ReplayManager::ReplayMode::Playback) {
+        m_selectedEmulationSpeed = EmulationSpeed::Normal;
+        m_maxSpeedRequested = false;
+        resetEmulationSpeedPacing();
         clearReplaySession(false);
     }
 }
