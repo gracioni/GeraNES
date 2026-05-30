@@ -30,6 +30,7 @@ public:
     using ReplayFrameInput = IEmulationHost::ReplayFrameInput;
     using FrameInputResolver = IEmulationHost::FrameInputResolver;
     using QueuedInputObserver = IEmulationHost::QueuedInputObserver;
+    using ReplaySnapshotObserver = IEmulationHost::ReplaySnapshotObserver;
     using NetplayDiagnosticsSnapshot = IEmulationHost::NetplayDiagnosticsSnapshot;
     using ManualStateChangeKind = IEmulationHost::ManualStateChangeKind;
     using ManualStateChangeRecord = IEmulationHost::ManualStateChangeRecord;
@@ -559,7 +560,9 @@ public:
     bool loadStateFromMemoryAsManualStateChange(const std::vector<uint8_t>& data) override;
     bool fastForwardReplayToFrame(uint32_t targetFrame,
                                   const std::vector<InputFrame>& replayFrames,
-                                  std::optional<uint32_t> expectedCurrentStateCrc32) override
+                                  std::optional<uint32_t> expectedCurrentStateCrc32,
+                                  const std::vector<uint32_t>& snapshotFramesToCapture = {},
+                                  ReplaySnapshotObserver snapshotObserver = {}) override
     {
         if(expectedCurrentStateCrc32.has_value() && canonicalStateCrc32() != *expectedCurrentStateCrc32) {
             return false;
@@ -580,8 +583,16 @@ public:
         }
 
         const uint32_t frameDt = std::max<uint32_t>(1, 1000u / std::max<uint32_t>(1, m_emu.getRegionFPS()));
+        size_t nextSnapshotIndex = 0;
         while(m_emu.valid() && m_emu.frameCount() < targetFrame) {
             m_emu.updateUntilFrame(frameDt, false);
+            while(nextSnapshotIndex < snapshotFramesToCapture.size() &&
+                  m_emu.frameCount() >= snapshotFramesToCapture[nextSnapshotIndex]) {
+                if(snapshotObserver) {
+                    snapshotObserver(snapshotFramesToCapture[nextSnapshotIndex], m_emu.saveStateToMemory());
+                }
+                ++nextSnapshotIndex;
+            }
         }
 
         if(wasPaused && !m_emu.paused()) {

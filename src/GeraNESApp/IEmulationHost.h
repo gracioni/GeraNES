@@ -37,6 +37,7 @@ struct EmulationHostTypes
 
     using FrameInputResolver = std::function<bool(uint32_t, ReplayFrameInput&)>;
     using QueuedInputObserver = std::function<void(const InputFrame&)>;
+    using ReplaySnapshotObserver = std::function<void(uint32_t, std::vector<uint8_t>)>;
     struct ModRenderSnapshot;
     using ModFrameCaptureHook = std::function<bool(GeraNESEmu&, ModRenderSnapshot&, std::vector<uint32_t>&)>;
 
@@ -99,6 +100,7 @@ public:
     using RuntimeControls = EmulationHostTypes::RuntimeControls;
     using FrameInputResolver = EmulationHostTypes::FrameInputResolver;
     using QueuedInputObserver = EmulationHostTypes::QueuedInputObserver;
+    using ReplaySnapshotObserver = EmulationHostTypes::ReplaySnapshotObserver;
     using ModFrameCaptureHook = EmulationHostTypes::ModFrameCaptureHook;
     using NetplayDiagnosticsSnapshot = ConsoleNetplay::NetplayRuntimeDiagnostics;
     using ManualStateChangeKind = ConsoleNetplay::NetplayManualStateChangeKind;
@@ -206,7 +208,9 @@ public:
     virtual bool loadStateFromMemoryAsManualStateChange(const std::vector<uint8_t>& data) = 0;
     virtual bool fastForwardReplayToFrame(uint32_t targetFrame,
                                           const std::vector<InputFrame>& replayFrames,
-                                          std::optional<uint32_t> expectedCurrentStateCrc32) = 0;
+                                          std::optional<uint32_t> expectedCurrentStateCrc32,
+                                          const std::vector<uint32_t>& snapshotFramesToCapture = {},
+                                          ReplaySnapshotObserver snapshotObserver = {}) = 0;
     virtual uint32_t canonicalStateCrc32() = 0;
     virtual uint32_t canonicalNetplayStateCrc32() = 0;
     virtual uint32_t lastFrameReadyFrame() const = 0;

@@ -620,7 +620,8 @@ private:
     void startReplayPlayback();
     bool beginReplaySeekCatchup(uint32_t targetFrame,
                                 std::vector<InputFrame> replayFrames,
-                                std::optional<uint32_t> expectedCurrentStateCrc32);
+                                std::optional<uint32_t> expectedCurrentStateCrc32,
+                                std::vector<uint32_t> snapshotFramesToCapture = {});
     void finishReplaySeekTask();
     void waitForReplaySeekTask();
     void syncReplayRuntimeState();

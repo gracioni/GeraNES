@@ -1548,6 +1548,7 @@ bool GeraNESApp::seekReplayToFrame(uint32_t frame)
     applyReplayInputTopology(replayTopology);
 
     const uint32_t currentFrame = m_emu.frameCount();
+    const auto snapshotBase = m_replayManager.runtimeSnapshotAtOrBefore(targetFrame);
     bool canResumeFromCurrentState =
         replayState.loadedReplayActive &&
         !replayState.playing &&
@@ -1555,6 +1556,28 @@ bool GeraNESApp::seekReplayToFrame(uint32_t frame)
         currentFrame <= targetFrame &&
         replayState.cursorFrame == currentFrame &&
         replayState.cursorCanonicalCrc32.has_value();
+    const bool shouldUseStoredSnapshot =
+        snapshotBase.has_value() &&
+        snapshotBase->first > 0 &&
+        (!canResumeFromCurrentState || snapshotBase->first > currentFrame);
+
+    if(shouldUseStoredSnapshot) {
+        if(!m_emu.loadStateFromMemoryOnCleanBoot(snapshotBase->second)) {
+            m_replaySeekInProgress = false;
+            m_replayAutoPlayAfterSeek = false;
+            m_emu.setSimulationSuspended(false);
+            m_userToast.show("Replay snapshot restore failed");
+            return false;
+        }
+        m_emu.setSimulationSuspended(true);
+        if(targetFrame > snapshotBase->first) {
+            return beginReplaySeekCatchup(
+                targetFrame,
+                replayState.data.frames,
+                std::nullopt,
+                m_replayManager.pendingRuntimeSnapshotFramesInRange(snapshotBase->first, targetFrame));
+        }
+    }
 
     if(!canResumeFromCurrentState) {
         m_emu.setFrameInputResolver([replayFrames = replayState.data.frames](uint32_t targetFrame,
@@ -1576,12 +1599,20 @@ bool GeraNESApp::seekReplayToFrame(uint32_t frame)
         m_emu.setFrameInputResolver({});
         m_emu.setSimulationSuspended(true);
         if(targetFrame > m_emu.frameCount()) {
-            return beginReplaySeekCatchup(targetFrame, replayState.data.frames, std::nullopt);
+            return beginReplaySeekCatchup(
+                targetFrame,
+                replayState.data.frames,
+                std::nullopt,
+                m_replayManager.pendingRuntimeSnapshotFramesInRange(m_emu.frameCount(), targetFrame));
         }
     }
 
     if(canResumeFromCurrentState && targetFrame > currentFrame) {
-        return beginReplaySeekCatchup(targetFrame, replayState.data.frames, replayState.cursorCanonicalCrc32);
+        return beginReplaySeekCatchup(
+            targetFrame,
+            replayState.data.frames,
+            replayState.cursorCanonicalCrc32,
+            m_replayManager.pendingRuntimeSnapshotFramesInRange(currentFrame, targetFrame));
     }
 
     m_emu.discardQueuedAudio();
@@ -1598,7 +1629,8 @@ bool GeraNESApp::seekReplayToFrame(uint32_t frame)
 
 bool GeraNESApp::beginReplaySeekCatchup(uint32_t targetFrame,
                                         std::vector<InputFrame> replayFrames,
-                                        std::optional<uint32_t> expectedCurrentStateCrc32)
+                                        std::optional<uint32_t> expectedCurrentStateCrc32,
+                                        std::vector<uint32_t> snapshotFramesToCapture)
 {
     waitForReplaySeekTask();
     m_replaySeekTargetFrame = targetFrame;
@@ -1609,9 +1641,17 @@ bool GeraNESApp::beginReplaySeekCatchup(uint32_t targetFrame,
         [this,
          targetFrame,
          replayFrames = std::move(replayFrames),
-         expectedCurrentStateCrc32]() mutable {
+         expectedCurrentStateCrc32,
+         snapshotFramesToCapture = std::move(snapshotFramesToCapture)]() mutable {
             const bool succeeded =
-                m_emu.fastForwardReplayToFrame(targetFrame, replayFrames, expectedCurrentStateCrc32);
+                m_emu.fastForwardReplayToFrame(
+                    targetFrame,
+                    replayFrames,
+                    expectedCurrentStateCrc32,
+                    snapshotFramesToCapture,
+                    [this](uint32_t frame, std::vector<uint8_t> state) {
+                        m_replayManager.storeRuntimeSnapshot(frame, std::move(state));
+                    });
             m_replaySeekTaskSucceeded = succeeded;
             m_replaySeekTaskCompleted = true;
             m_replaySeekTaskRunning = false;

@@ -14,6 +14,7 @@ class ReplayManager
 {
 public:
     using ReplayData = ReplayFile::Data;
+    static constexpr size_t kRuntimeSnapshotCapacity = 10u;
 
     enum class ReplayMode {
         None,
@@ -39,11 +40,12 @@ private:
         std::vector<uint8_t> state;
     };
 
-    static constexpr uint32_t kSnapshotIntervalFrames = 10000u;
-
     mutable std::mutex m_mutex;
     ReplayState m_state;
     std::vector<RuntimeSnapshot> m_runtimeSnapshots;
+
+    std::vector<uint32_t> scheduledRuntimeSnapshotFramesLocked() const;
+    bool hasRuntimeSnapshotForFrameLocked(uint32_t frame) const;
 
 public:
     ReplayState snapshot() const;
@@ -70,9 +72,10 @@ public:
     void notePlaybackFrame(uint32_t frame);
     bool syncRuntimeFrame(uint32_t emuFrame);
     bool shouldCaptureRuntimeSnapshot(uint32_t frame) const;
+    std::vector<uint32_t> pendingRuntimeSnapshotFramesInRange(uint32_t startFrameExclusive,
+                                                              uint32_t endFrameInclusive) const;
     void storeRuntimeSnapshot(uint32_t frame, std::vector<uint8_t> state);
     std::optional<std::pair<uint32_t, std::vector<uint8_t>>> runtimeSnapshotAtOrBefore(uint32_t frame) const;
-    static constexpr uint32_t snapshotIntervalFrames() { return kSnapshotIntervalFrames; }
 
     bool saveToFile(const fs::path& path, std::string& error) const;
     bool loadFromFile(const fs::path& path, std::string& error);

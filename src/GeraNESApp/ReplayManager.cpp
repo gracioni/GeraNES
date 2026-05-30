@@ -2,6 +2,37 @@
 
 #include <algorithm>
 
+std::vector<uint32_t> ReplayManager::scheduledRuntimeSnapshotFramesLocked() const
+{
+    std::vector<uint32_t> frames;
+    if(m_state.mode != ReplayMode::Playback || !m_state.loadedReplayActive) {
+        return frames;
+    }
+
+    const uint32_t replayFrameCount = static_cast<uint32_t>(m_state.data.frames.size());
+    if(replayFrameCount <= 1u) {
+        return frames;
+    }
+
+    frames.reserve(kRuntimeSnapshotCapacity);
+    for(uint32_t i = 1; i <= kRuntimeSnapshotCapacity; ++i) {
+        const uint32_t frame = (i * replayFrameCount) / (static_cast<uint32_t>(kRuntimeSnapshotCapacity) + 1u);
+        if(frame == 0 || frame >= replayFrameCount || (!frames.empty() && frames.back() == frame)) {
+            continue;
+        }
+        frames.push_back(frame);
+    }
+
+    return frames;
+}
+
+bool ReplayManager::hasRuntimeSnapshotForFrameLocked(uint32_t frame) const
+{
+    return std::any_of(m_runtimeSnapshots.begin(), m_runtimeSnapshots.end(), [frame](const RuntimeSnapshot& snapshot) {
+        return snapshot.frame == frame;
+    });
+}
+
 ReplayManager::ReplayState ReplayManager::snapshot() const
 {
     std::scoped_lock lock(m_mutex);
@@ -188,13 +219,33 @@ bool ReplayManager::syncRuntimeFrame(uint32_t emuFrame)
 bool ReplayManager::shouldCaptureRuntimeSnapshot(uint32_t frame) const
 {
     std::scoped_lock lock(m_mutex);
-    if(m_state.mode != ReplayMode::Playback || !m_state.loadedReplayActive || frame == 0 ||
-       (frame % kSnapshotIntervalFrames) != 0) {
+    if(m_state.mode != ReplayMode::Playback || !m_state.loadedReplayActive || frame == 0) {
         return false;
     }
-    return std::none_of(m_runtimeSnapshots.begin(), m_runtimeSnapshots.end(), [frame](const RuntimeSnapshot& snapshot) {
-        return snapshot.frame == frame;
-    });
+
+    const std::vector<uint32_t> scheduledFrames = scheduledRuntimeSnapshotFramesLocked();
+    return std::find(scheduledFrames.begin(), scheduledFrames.end(), frame) != scheduledFrames.end() &&
+           !hasRuntimeSnapshotForFrameLocked(frame);
+}
+
+std::vector<uint32_t> ReplayManager::pendingRuntimeSnapshotFramesInRange(uint32_t startFrameExclusive,
+                                                                         uint32_t endFrameInclusive) const
+{
+    std::scoped_lock lock(m_mutex);
+    std::vector<uint32_t> pendingFrames;
+    if(m_state.mode != ReplayMode::Playback || !m_state.loadedReplayActive || endFrameInclusive == 0 ||
+       startFrameExclusive >= endFrameInclusive) {
+        return pendingFrames;
+    }
+
+    const std::vector<uint32_t> scheduledFrames = scheduledRuntimeSnapshotFramesLocked();
+    for(const uint32_t frame : scheduledFrames) {
+        if(frame <= startFrameExclusive || frame > endFrameInclusive || hasRuntimeSnapshotForFrameLocked(frame)) {
+            continue;
+        }
+        pendingFrames.push_back(frame);
+    }
+    return pendingFrames;
 }
 
 void ReplayManager::storeRuntimeSnapshot(uint32_t frame, std::vector<uint8_t> state)
@@ -203,6 +254,12 @@ void ReplayManager::storeRuntimeSnapshot(uint32_t frame, std::vector<uint8_t> st
     if(m_state.mode != ReplayMode::Playback || !m_state.loadedReplayActive || frame == 0 || state.empty()) {
         return;
     }
+
+    const std::vector<uint32_t> scheduledFrames = scheduledRuntimeSnapshotFramesLocked();
+    if(std::find(scheduledFrames.begin(), scheduledFrames.end(), frame) == scheduledFrames.end()) {
+        return;
+    }
+
     const auto it = std::find_if(m_runtimeSnapshots.begin(), m_runtimeSnapshots.end(), [frame](const RuntimeSnapshot& snapshot) {
         return snapshot.frame == frame;
     });
@@ -214,6 +271,9 @@ void ReplayManager::storeRuntimeSnapshot(uint32_t frame, std::vector<uint8_t> st
     std::sort(m_runtimeSnapshots.begin(), m_runtimeSnapshots.end(), [](const RuntimeSnapshot& lhs, const RuntimeSnapshot& rhs) {
         return lhs.frame < rhs.frame;
     });
+    while(m_runtimeSnapshots.size() > kRuntimeSnapshotCapacity) {
+        m_runtimeSnapshots.erase(m_runtimeSnapshots.begin());
+    }
 }
 
 std::optional<std::pair<uint32_t, std::vector<uint8_t>>> ReplayManager::runtimeSnapshotAtOrBefore(uint32_t frame) const
