@@ -1570,13 +1570,26 @@ bool GeraNESApp::seekReplayToFrame(uint32_t frame)
             return false;
         }
         m_emu.setSimulationSuspended(true);
-        if(targetFrame > snapshotBase->first) {
+        const uint32_t restoredFrame = m_emu.frameCount();
+        m_emu.discardQueuedInputFramesAfter(restoredFrame);
+        if(targetFrame > restoredFrame) {
             return beginReplaySeekCatchup(
                 targetFrame,
                 replayState.data.frames,
                 std::nullopt,
-                m_replayManager.pendingRuntimeSnapshotFramesInRange(snapshotBase->first, targetFrame));
+                m_replayManager.pendingRuntimeSnapshotFramesInRange(restoredFrame, targetFrame));
         }
+
+        m_emu.discardQueuedAudio();
+        m_replayManager.setCursorState(restoredFrame, m_emu.canonicalStateCrc32());
+        m_replaySliderValue = static_cast<int>(restoredFrame);
+        if(!m_replayAutoPlayAfterSeek && m_emu.valid() && !m_emu.paused()) {
+            m_emu.togglePaused();
+        }
+        m_replaySeekInProgress = false;
+        m_emu.setSimulationSuspended(false);
+        render();
+        return true;
     }
 
     if(!canResumeFromCurrentState) {
@@ -1608,6 +1621,7 @@ bool GeraNESApp::seekReplayToFrame(uint32_t frame)
     }
 
     if(canResumeFromCurrentState && targetFrame > currentFrame) {
+        m_emu.discardQueuedInputFramesAfter(currentFrame);
         return beginReplaySeekCatchup(
             targetFrame,
             replayState.data.frames,
@@ -1616,8 +1630,10 @@ bool GeraNESApp::seekReplayToFrame(uint32_t frame)
     }
 
     m_emu.discardQueuedAudio();
-    m_replayManager.setCursorState(targetFrame, m_emu.canonicalStateCrc32());
-    m_replaySliderValue = static_cast<int>(targetFrame);
+    const uint32_t settledFrame = m_emu.frameCount();
+    m_emu.discardQueuedInputFramesAfter(settledFrame);
+    m_replayManager.setCursorState(settledFrame, m_emu.canonicalStateCrc32());
+    m_replaySliderValue = static_cast<int>(settledFrame);
     if(!m_replayAutoPlayAfterSeek && m_emu.valid() && !m_emu.paused()) {
         m_emu.togglePaused();
     }
@@ -1677,8 +1693,10 @@ void GeraNESApp::finishReplaySeekTask()
     }
 
     m_emu.discardQueuedAudio();
-    m_replayManager.setCursorState(m_replaySeekTargetFrame, m_emu.canonicalStateCrc32());
-    m_replaySliderValue = static_cast<int>(m_replaySeekTargetFrame);
+    const uint32_t settledFrame = m_emu.frameCount();
+    m_emu.discardQueuedInputFramesAfter(settledFrame);
+    m_replayManager.setCursorState(settledFrame, m_emu.canonicalStateCrc32());
+    m_replaySliderValue = static_cast<int>(settledFrame);
     if(!m_replayAutoPlayAfterSeek && m_emu.valid() && !m_emu.paused()) {
         m_emu.togglePaused();
     }
@@ -1706,6 +1724,13 @@ void GeraNESApp::startReplayPlayback()
         return;
     }
 
+    if(m_emu.valid()) {
+        const uint32_t currentFrame = m_emu.frameCount();
+        m_replayManager.setCursorState(currentFrame, m_emu.canonicalStateCrc32());
+        if(const auto replayFrame = m_replayManager.playbackFrameForFrame(currentFrame); replayFrame.has_value()) {
+            m_emu.queueReplayInputFrame(*replayFrame);
+        }
+    }
     m_replayManager.beginPlayback();
     refreshReplayFrameInputResolver();
 

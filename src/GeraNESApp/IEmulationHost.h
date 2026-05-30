@@ -118,6 +118,7 @@ public:
     virtual RuntimeControls pendingRuntimeControlsSnapshot() const = 0;
     virtual void setFrameInputResolver(FrameInputResolver resolver) = 0;
     virtual void setQueuedInputObserver(QueuedInputObserver observer) = 0;
+    virtual void queueReplayInputFrame(const InputFrame& frame) = 0;
     virtual void queueInputForFrame(uint32_t frameNumber, const InputState& input) = 0;
     virtual void queueInputFrames(const std::vector<std::pair<uint32_t, InputState>>& inputs) = 0;
     virtual void setAutoQueuePendingInputOnFrameStart(bool enabled) = 0;

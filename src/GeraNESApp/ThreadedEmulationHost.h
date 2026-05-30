@@ -253,6 +253,14 @@ public:
     }
     void setFrameInputResolver(FrameInputResolver resolver) override;
     void setQueuedInputObserver(QueuedInputObserver observer) override;
+    void queueReplayInputFrame(const InputFrame& frame) override
+    {
+        postCommand([frame](GeraNESEmu& emu) {
+            InputFrame replayFrame = frame;
+            replayFrame.timelineEpoch = emu.inputTimelineEpoch();
+            emu.queueInputFrame(replayFrame);
+        });
+    }
 
     void queueInputForFrame(uint32_t frameNumber, const InputState& input) override
     {
@@ -788,7 +796,16 @@ public:
         const uint32_t frameDt = std::max<uint32_t>(1, 1000u / std::max<uint32_t>(1, m_emu.getRegionFPS()));
         size_t nextSnapshotIndex = 0;
         while(m_emu.frameCount() < targetFrame) {
+            const uint32_t frameBefore = m_emu.frameCount();
             m_emu.updateUntilFrame(frameDt, false);
+            if(m_emu.frameCount() <= frameBefore) {
+                {
+                    std::scoped_lock resolverLock(m_frameInputResolverMutex);
+                    m_frameInputResolver = previousResolver;
+                }
+                refreshSnapshotLocked();
+                return false;
+            }
             while(nextSnapshotIndex < snapshotFramesToCapture.size() &&
                   m_emu.frameCount() >= snapshotFramesToCapture[nextSnapshotIndex]) {
                 if(snapshotObserver) {
