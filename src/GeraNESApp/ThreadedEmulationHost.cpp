@@ -179,6 +179,18 @@ void ThreadedEmulationHost::notifyQueuedInputObserverLocked(const InputFrame& fr
     }
 }
 
+void ThreadedEmulationHost::notifySelectedInputObserverLocked(const InputFrame& frame)
+{
+    SelectedInputObserver observer;
+    {
+        std::scoped_lock observerLock(m_selectedInputObserverMutex);
+        observer = m_selectedInputObserver;
+    }
+    if(observer) {
+        observer(frame);
+    }
+}
+
 void ThreadedEmulationHost::onCommand(std::function<void(GeraNESEmu&)> command)
 {
     if(command) {
@@ -536,6 +548,7 @@ ThreadedEmulationHost::ThreadedEmulationHost(IAudioOutput& audioOutput)
     m_emu.signalResetExecuted.bind(&ThreadedEmulationHost::onResetExecutedLocked, this);
     m_emu.signalLoadExecuted.bind(&ThreadedEmulationHost::onLoadExecutedLocked, this);
     m_emu.signalSimulationStart.bind(&ThreadedEmulationHost::applyStartupInputLocked, this);
+    m_emu.signalInputFrameSelected.bind(&ThreadedEmulationHost::notifySelectedInputObserverLocked, this);
     m_emu.signalFrameStart.bind(&ThreadedEmulationHost::applyPendingInputLocked, this);
     m_emu.signalFrameReady.bind(&ThreadedEmulationHost::onFrameReadyLocked, this);
     m_signalCommand.bind_auto(&ThreadedEmulationHost::onCommand, this);
@@ -595,6 +608,16 @@ void ThreadedEmulationHost::setQueuedInputObserver(QueuedInputObserver observer)
     {
         std::scoped_lock observerLock(m_queuedInputObserverMutex);
         m_queuedInputObserver = std::move(observer);
+    }
+    m_workerWakeRequested.store(true, std::memory_order_release);
+    m_presenterCv.notify_one();
+}
+
+void ThreadedEmulationHost::setSelectedInputObserver(SelectedInputObserver observer)
+{
+    {
+        std::scoped_lock observerLock(m_selectedInputObserverMutex);
+        m_selectedInputObserver = std::move(observer);
     }
     m_workerWakeRequested.store(true, std::memory_order_release);
     m_presenterCv.notify_one();

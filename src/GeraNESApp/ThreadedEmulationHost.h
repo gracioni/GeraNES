@@ -31,6 +31,7 @@ public:
     using ReplayFrameInput = IEmulationHost::ReplayFrameInput;
     using FrameInputResolver = IEmulationHost::FrameInputResolver;
     using QueuedInputObserver = IEmulationHost::QueuedInputObserver;
+    using SelectedInputObserver = IEmulationHost::SelectedInputObserver;
     using ReplaySnapshotObserver = IEmulationHost::ReplaySnapshotObserver;
     using NetplayDiagnosticsSnapshot = IEmulationHost::NetplayDiagnosticsSnapshot;
     using ManualStateChangeKind = IEmulationHost::ManualStateChangeKind;
@@ -198,6 +199,8 @@ private:
     FrameInputResolver m_frameInputResolver;
     mutable std::mutex m_queuedInputObserverMutex;
     QueuedInputObserver m_queuedInputObserver;
+    mutable std::mutex m_selectedInputObserverMutex;
+    SelectedInputObserver m_selectedInputObserver;
     std::atomic<bool> m_autoQueuePendingInputOnFrameStart{true};
     std::atomic<bool> m_allowPresenterTimeoutAdvance{true};
     mutable std::mutex m_preAdvanceHookMutex;
@@ -209,6 +212,7 @@ private:
     void applyPendingInputLocked();
     void applyStartupInputLocked();
     void notifyQueuedInputObserverLocked(const InputFrame& frame);
+    void notifySelectedInputObserverLocked(const InputFrame& frame);
     void onCommand(std::function<void(GeraNESEmu&)> command);
     void refreshSnapshotLocked();
     void refreshPpuViewerSnapshotLocked(uint32_t frameCount);
@@ -253,6 +257,7 @@ public:
     }
     void setFrameInputResolver(FrameInputResolver resolver) override;
     void setQueuedInputObserver(QueuedInputObserver observer) override;
+    void setSelectedInputObserver(SelectedInputObserver observer) override;
     void queueReplayInputFrame(const InputFrame& frame) override
     {
         postCommand([frame](GeraNESEmu& emu) {

@@ -37,6 +37,7 @@ struct EmulationHostTypes
 
     using FrameInputResolver = std::function<bool(uint32_t, ReplayFrameInput&)>;
     using QueuedInputObserver = std::function<void(const InputFrame&)>;
+    using SelectedInputObserver = std::function<void(const InputFrame&)>;
     using ReplaySnapshotObserver = std::function<void(uint32_t, std::vector<uint8_t>)>;
     struct ModRenderSnapshot;
     using ModFrameCaptureHook = std::function<bool(GeraNESEmu&, ModRenderSnapshot&, std::vector<uint32_t>&)>;
@@ -100,6 +101,7 @@ public:
     using RuntimeControls = EmulationHostTypes::RuntimeControls;
     using FrameInputResolver = EmulationHostTypes::FrameInputResolver;
     using QueuedInputObserver = EmulationHostTypes::QueuedInputObserver;
+    using SelectedInputObserver = EmulationHostTypes::SelectedInputObserver;
     using ReplaySnapshotObserver = EmulationHostTypes::ReplaySnapshotObserver;
     using ModFrameCaptureHook = EmulationHostTypes::ModFrameCaptureHook;
     using NetplayDiagnosticsSnapshot = ConsoleNetplay::NetplayRuntimeDiagnostics;
@@ -118,6 +120,7 @@ public:
     virtual RuntimeControls pendingRuntimeControlsSnapshot() const = 0;
     virtual void setFrameInputResolver(FrameInputResolver resolver) = 0;
     virtual void setQueuedInputObserver(QueuedInputObserver observer) = 0;
+    virtual void setSelectedInputObserver(SelectedInputObserver observer) = 0;
     virtual void queueReplayInputFrame(const InputFrame& frame) = 0;
     virtual void queueInputForFrame(uint32_t frameNumber, const InputState& input) = 0;
     virtual void queueInputFrames(const std::vector<std::pair<uint32_t, InputState>>& inputs) = 0;

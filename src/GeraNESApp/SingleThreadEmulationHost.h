@@ -30,6 +30,7 @@ public:
     using ReplayFrameInput = IEmulationHost::ReplayFrameInput;
     using FrameInputResolver = IEmulationHost::FrameInputResolver;
     using QueuedInputObserver = IEmulationHost::QueuedInputObserver;
+    using SelectedInputObserver = IEmulationHost::SelectedInputObserver;
     using ReplaySnapshotObserver = IEmulationHost::ReplaySnapshotObserver;
     using NetplayDiagnosticsSnapshot = IEmulationHost::NetplayDiagnosticsSnapshot;
     using ManualStateChangeKind = IEmulationHost::ManualStateChangeKind;
@@ -155,6 +156,7 @@ private:
     RuntimeControls m_pendingRuntimeControls;
     FrameInputResolver m_frameInputResolver;
     QueuedInputObserver m_queuedInputObserver;
+    SelectedInputObserver m_selectedInputObserver;
     bool m_autoQueuePendingInputOnFrameStart = true;
     FramePacingMode m_framePacingMode = FramePacingMode::FreeRunning;
     uint32_t m_presenterTickDtMs = 16;
@@ -176,6 +178,7 @@ private:
     void applyPendingInput();
     void applyStartupInput();
     void notifyQueuedInputObserver(const InputFrame& frame);
+    void notifySelectedInputObserver(const InputFrame& frame);
     bool runPreAdvanceHook();
     void dispatchQueuedCommands();
     bool pumpFreeRunningWorkerSteps();
@@ -205,6 +208,7 @@ public:
     }
     void setFrameInputResolver(FrameInputResolver resolver) override;
     void setQueuedInputObserver(QueuedInputObserver observer) override;
+    void setSelectedInputObserver(SelectedInputObserver observer) override;
     void queueReplayInputFrame(const InputFrame& frame) override
     {
         postCommand([frame](GeraNESEmu& emu) {

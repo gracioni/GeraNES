@@ -142,6 +142,13 @@ void SingleThreadEmulationHost::notifyQueuedInputObserver(const InputFrame& fram
     }
 }
 
+void SingleThreadEmulationHost::notifySelectedInputObserver(const InputFrame& frame)
+{
+    if(m_selectedInputObserver) {
+        m_selectedInputObserver(frame);
+    }
+}
+
 bool SingleThreadEmulationHost::runPreAdvanceHook()
 {
     if(m_preAdvanceHook) {
@@ -332,6 +339,7 @@ SingleThreadEmulationHost::SingleThreadEmulationHost(IAudioOutput& audioOutput)
     m_emu.signalResetExecuted.bind(&SingleThreadEmulationHost::onResetExecutedLocked, this);
     m_emu.signalLoadExecuted.bind(&SingleThreadEmulationHost::onLoadExecutedLocked, this);
     m_emu.signalSimulationStart.bind(&SingleThreadEmulationHost::applyStartupInput, this);
+    m_emu.signalInputFrameSelected.bind(&SingleThreadEmulationHost::notifySelectedInputObserver, this);
     m_emu.signalFrameStart.bind(&SingleThreadEmulationHost::applyPendingInput, this);
     m_emu.signalFrameReady.bind(&SingleThreadEmulationHost::onFrameReady, this);
 }
@@ -359,6 +367,11 @@ void SingleThreadEmulationHost::setFrameInputResolver(FrameInputResolver resolve
 void SingleThreadEmulationHost::setQueuedInputObserver(QueuedInputObserver observer)
 {
     m_queuedInputObserver = std::move(observer);
+}
+
+void SingleThreadEmulationHost::setSelectedInputObserver(SelectedInputObserver observer)
+{
+    m_selectedInputObserver = std::move(observer);
 }
 
 void SingleThreadEmulationHost::queueInputForFrame(uint32_t frameNumber, const InputState& input)

@@ -989,6 +989,7 @@ private:
             m_lastAppliedInputFrame = *inputFrame;
         }
 
+        signalInputFrameSelected(m_lastAppliedInputFrame);
         signalFrameStart();
     }    
 
@@ -1571,6 +1572,7 @@ public:
 
     SigSlot::Signal<const std::string&> signalError;
     SigSlot::Signal<> signalSimulationStart;
+    SigSlot::Signal<const InputFrame&> signalInputFrameSelected;
     SigSlot::Signal<> signalFrameStart;
     SigSlot::Signal<> signalFrameReady;
     SigSlot::Signal<uint32_t> signalResetExecuted;

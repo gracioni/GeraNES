@@ -1123,13 +1123,15 @@ void GeraNESApp::refreshReplayFrameInputResolver()
     const auto replayState = m_replayManager.snapshot();
     if(replayState.mode == ReplayManager::ReplayMode::Recording) {
         m_emu.setFrameInputResolver({});
-        m_emu.setQueuedInputObserver([this](const InputFrame& frame) {
+        m_emu.setQueuedInputObserver({});
+        m_emu.setSelectedInputObserver([this](const InputFrame& frame) {
             m_replayManager.appendRecordedFrame(frame);
         });
         return;
     }
 
     m_emu.setQueuedInputObserver({});
+    m_emu.setSelectedInputObserver({});
     if(replayState.mode == ReplayManager::ReplayMode::Playback && replayState.loadedReplayActive && replayState.playing) {
         m_emu.setFrameInputResolver([this](uint32_t targetFrame, IEmulationHost::ReplayFrameInput& replayInput) {
             const auto replayFrame = m_replayManager.playbackFrameForFrame(targetFrame);
