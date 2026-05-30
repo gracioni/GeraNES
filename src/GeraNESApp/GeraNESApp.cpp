@@ -1751,7 +1751,10 @@ void GeraNESApp::syncReplayRuntimeState()
         m_replayManager.storeRuntimeSnapshot(emuFrame, m_emu.saveStateToMemory());
     }
     if(m_replayManager.syncRuntimeFrame(emuFrame)) {
-        stopReplayPlayback(true);
+        const auto replayState = m_replayManager.snapshot();
+        if(replayState.mode == ReplayManager::ReplayMode::Playback && replayState.playing) {
+            stopReplayPlayback(true);
+        }
     }
 }
 
