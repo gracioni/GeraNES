@@ -806,7 +806,10 @@ endif()
 
 list(APPEND CMAKE_MODULE_PATH ${catch2_SOURCE_DIR}/extras)
 include(Catch)
-catch_discover_tests(GeraNESTests)
+catch_discover_tests(GeraNESTests
+    PROPERTIES
+        RUN_SERIAL TRUE
+)
 
 set(LIBRETRO_CORE_NAME "geranes_libretro")
 

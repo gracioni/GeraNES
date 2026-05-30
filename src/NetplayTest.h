@@ -297,6 +297,46 @@ private:
         return mask;
     }
 
+    static InputState::PadButtons makePadButtons(const Buttons& buttons)
+    {
+        return {
+            buttons.a,
+            buttons.b,
+            buttons.select,
+            buttons.start,
+            buttons.up,
+            buttons.down,
+            buttons.left,
+            buttons.right
+        };
+    }
+
+    static nlohmann::json inputFrameToJson(const InputFrame& frame)
+    {
+        const auto p1 = frame.portButtons(1);
+        const auto p2 = frame.portButtons(2);
+        const auto p3 = frame.portButtons(3);
+        const auto p4 = frame.portButtons(4);
+        const auto zapper1 = frame.zapper(1);
+        const auto zapper2 = frame.zapper(2);
+
+        return {
+            {"frame", frame.frame},
+            {"timelineEpoch", frame.timelineEpoch},
+            {"port1Device", static_cast<int>(frame.port1Device)},
+            {"port2Device", static_cast<int>(frame.port2Device)},
+            {"expansionDevice", static_cast<int>(frame.expansionDevice)},
+            {"nesMultitapDevice", static_cast<int>(frame.nesMultitapDevice)},
+            {"famicomMultitapDevice", static_cast<int>(frame.famicomMultitapDevice)},
+            {"p1", {{"a", p1.a}, {"b", p1.b}, {"select", p1.select}, {"start", p1.start}, {"up", p1.up}, {"down", p1.down}, {"left", p1.left}, {"right", p1.right}}},
+            {"p2", {{"a", p2.a}, {"b", p2.b}, {"select", p2.select}, {"start", p2.start}, {"up", p2.up}, {"down", p2.down}, {"left", p2.left}, {"right", p2.right}}},
+            {"p3", {{"a", p3.a}, {"b", p3.b}, {"select", p3.select}, {"start", p3.start}, {"up", p3.up}, {"down", p3.down}, {"left", p3.left}, {"right", p3.right}}},
+            {"p4", {{"a", p4.a}, {"b", p4.b}, {"select", p4.select}, {"start", p4.start}, {"up", p4.up}, {"down", p4.down}, {"left", p4.left}, {"right", p4.right}}},
+            {"zapper1", {{"x", zapper1.x}, {"y", zapper1.y}, {"trigger", zapper1.trigger}}},
+            {"zapper2", {{"x", zapper2.x}, {"y", zapper2.y}, {"trigger", zapper2.trigger}}}
+        };
+    }
+
     static Buttons playbackButtonsForFrame(const Options& options,
                                            const DeterministicInputGenerator& generator,
                                            bool hostSide,
@@ -356,7 +396,10 @@ private:
     {
         for(const auto& participant : coordinator.session().roomState().participants) {
             if(participant.id == coordinator.localParticipantId() &&
-               participant.controllerAssignment != ConsoleNetplay::kObserverPlayerSlot) {
+               !ConsoleNetplay::participantIsObserver(participant)) {
+                if(!participant.controllerAssignments.empty()) {
+                    return participant.controllerAssignments.front();
+                }
                 return participant.controllerAssignment;
             }
         }
@@ -368,7 +411,10 @@ private:
     {
         for(const auto& participant : room.participants) {
             if(participant.id == localParticipantId &&
-               participant.controllerAssignment != ConsoleNetplay::kObserverPlayerSlot) {
+               !ConsoleNetplay::participantIsObserver(participant)) {
+                if(!participant.controllerAssignments.empty()) {
+                    return participant.controllerAssignments.front();
+                }
                 return participant.controllerAssignment;
             }
         }
@@ -707,8 +753,8 @@ private:
             {"crc32", peer.emu.valid() ? peer.emu.canonicalStateCrc32() : 0u},
             {"stateSize", state.size()},
             {"inputBufferSize", peer.emu.inputBuffer().size()},
-            {"inputFrame0", frame0 != nullptr ? frame0->toJson() : nlohmann::json()},
-            {"inputFrame1", frame1 != nullptr ? frame1->toJson() : nlohmann::json()},
+            {"inputFrame0", frame0 != nullptr ? inputFrameToJson(*frame0) : nlohmann::json()},
+            {"inputFrame1", frame1 != nullptr ? inputFrameToJson(*frame1) : nlohmann::json()},
             {"localTimelineSize", peer.coordinator.localInputs().size()},
             {"remoteTimelineSize", peer.coordinator.remoteInputs().size()},            {"latestLocalFrame", latestLocal != nullptr ? nlohmann::json{
                 {"frame", latestLocal->frame},
@@ -813,18 +859,18 @@ private:
                 ++futureBufferedFrames;
             }
             if(const InputFrame* previousFrame = innerEmu.inputBuffer().findByFrame(frame, timelineEpoch); previousFrame != nullptr) {
-                previousFrameJson = previousFrame->toJson();
+                previousFrameJson = inputFrameToJson(*previousFrame);
             }
             if(const InputFrame* nextFrame = innerEmu.inputBuffer().findByFrame(frame + 1u, timelineEpoch); nextFrame != nullptr) {
-                nextFrameJson = nextFrame->toJson();
+                nextFrameJson = inputFrameToJson(*nextFrame);
             }
             if(const InputFrame* currentFrame = innerEmu.inputBuffer().findByFrame(frame + 2u, timelineEpoch); currentFrame != nullptr) {
-                currentFrameJson = currentFrame->toJson();
+                currentFrameJson = inputFrameToJson(*currentFrame);
             }
             const uint32_t windowStart = frame > 2u ? frame - 2u : 0u;
             for(uint32_t probe = windowStart; probe <= frame + 4u; ++probe) {
                 if(const InputFrame* entry = innerEmu.inputBuffer().findByFrame(probe, timelineEpoch); entry != nullptr) {
-                    inputWindow.push_back(entry->toJson());
+                    inputWindow.push_back(inputFrameToJson(*entry));
                 }
             }
         });
@@ -994,7 +1040,7 @@ private:
     static bool allAssignedParticipantsReadyAndCompatible(const ConsoleNetplay::RoomState& room)
     {
         for(const auto& participant : room.participants) {
-            if(participant.controllerAssignment == ConsoleNetplay::kObserverPlayerSlot) continue;
+            if(ConsoleNetplay::participantIsObserver(participant)) continue;
             if(!participant.connected || !participant.romLoaded || !participant.romCompatible) {
                 return false;
             }
@@ -1005,6 +1051,38 @@ private:
     static IEmulationHost::InputState buildRuntimeInputStateForSlot(ConsoleNetplay::PlayerSlot slot, const Buttons& buttons)
     {
         IEmulationHost::InputState inputState{};
+        switch(slot) {
+            case GeraNESNetplay::kPort1PlayerSlot:
+            case GeraNESNetplay::kMultitapP1PlayerSlot:
+                inputState.port1Device = Settings::Device::CONTROLLER;
+                inputState.port2Device = Settings::Device::CONTROLLER;
+                break;
+            case GeraNESNetplay::kPort2PlayerSlot:
+            case GeraNESNetplay::kMultitapP2PlayerSlot:
+                inputState.port1Device = Settings::Device::CONTROLLER;
+                inputState.port2Device = Settings::Device::CONTROLLER;
+                break;
+            case GeraNESNetplay::kExpansionPlayerSlot:
+            case GeraNESNetplay::kMultitapP3PlayerSlot:
+                inputState.port1Device = Settings::Device::CONTROLLER;
+                inputState.port2Device = Settings::Device::CONTROLLER;
+                inputState.expansionDevice = Settings::ExpansionDevice::STANDARD_CONTROLLER_FAMICOM;
+                break;
+            case GeraNESNetplay::kMultitapP4PlayerSlot:
+                inputState.port1Device = Settings::Device::CONTROLLER;
+                inputState.port2Device = Settings::Device::CONTROLLER;
+                inputState.nesMultitapDevice = Settings::NesMultitapDevice::FOUR_SCORE;
+                break;
+            default:
+                break;
+        }
+        if(slot == GeraNESNetplay::kMultitapP1PlayerSlot ||
+           slot == GeraNESNetplay::kMultitapP2PlayerSlot ||
+           slot == GeraNESNetplay::kMultitapP3PlayerSlot) {
+            inputState.port1Device = Settings::Device::CONTROLLER;
+            inputState.port2Device = Settings::Device::CONTROLLER;
+            inputState.nesMultitapDevice = Settings::NesMultitapDevice::FOUR_SCORE;
+        }
         GeraNESNetplay::applyPadMaskToInputState(inputState, slot, buildPadMask(buttons));
         return inputState;
     }
@@ -1014,9 +1092,10 @@ private:
         IEmulationHost::InputState inputState{};
 
         const uint32_t startupQuietFrames = std::max<uint32_t>(fps / 2u, 20u);
+        inputState.port1Device = Settings::Device::CONTROLLER;
+        inputState.port2Device = Settings::Device::ZAPPER;
         if(frameIndex < startupQuietFrames) {
-            inputState.zapperX = 128;
-            inputState.zapperY = 96;
+            inputState.setZapper(2, {128, 96, false});
             return inputState;
         }
 
@@ -1026,14 +1105,17 @@ private:
         // deterministic zapper motion/trigger data so any post-resync input
         // divergence shows up quickly in the emulated state.
         if(activeFrame >= 4u && activeFrame < 8u) {
-            inputState.p1Start = true;
+            auto p1 = inputState.portButtons(1);
+            p1.start = true;
+            inputState.setPortButtons(1, p1);
         }
 
-        inputState.zapperX = static_cast<int>(96 + ((activeFrame * 17u) % 64u));
-        inputState.zapperY = static_cast<int>(72 + ((activeFrame * 11u) % 80u));
-        inputState.zapperP2Trigger =
+        inputState.setZapper(2, {
+            static_cast<int>(96 + ((activeFrame * 17u) % 64u)),
+            static_cast<int>(72 + ((activeFrame * 11u) % 80u)),
             activeFrame >= 12u &&
-            ((activeFrame % 19u) == 0u || (activeFrame % 19u) == 1u);
+                ((activeFrame % 19u) == 0u || (activeFrame % 19u) == 1u)
+        });
         return inputState;
     }
 
@@ -1071,43 +1153,55 @@ private:
         switch(slot) {
             case GeraNESNetplay::kPort1PlayerSlot:
             case GeraNESNetplay::kMultitapP1PlayerSlot:
-                return inputFrame.p1A == buttons.a &&
-                       inputFrame.p1B == buttons.b &&
-                       inputFrame.p1Select == buttons.select &&
-                       inputFrame.p1Start == buttons.start &&
-                       inputFrame.p1Up == buttons.up &&
-                       inputFrame.p1Down == buttons.down &&
-                       inputFrame.p1Left == buttons.left &&
-                       inputFrame.p1Right == buttons.right;
+            {
+                const auto port = inputFrame.portButtons(1);
+                return port.a == buttons.a &&
+                       port.b == buttons.b &&
+                       port.select == buttons.select &&
+                       port.start == buttons.start &&
+                       port.up == buttons.up &&
+                       port.down == buttons.down &&
+                       port.left == buttons.left &&
+                       port.right == buttons.right;
+            }
             case GeraNESNetplay::kPort2PlayerSlot:
             case GeraNESNetplay::kMultitapP2PlayerSlot:
-                return inputFrame.p2A == buttons.a &&
-                       inputFrame.p2B == buttons.b &&
-                       inputFrame.p2Select == buttons.select &&
-                       inputFrame.p2Start == buttons.start &&
-                       inputFrame.p2Up == buttons.up &&
-                       inputFrame.p2Down == buttons.down &&
-                       inputFrame.p2Left == buttons.left &&
-                       inputFrame.p2Right == buttons.right;
+            {
+                const auto port = inputFrame.portButtons(2);
+                return port.a == buttons.a &&
+                       port.b == buttons.b &&
+                       port.select == buttons.select &&
+                       port.start == buttons.start &&
+                       port.up == buttons.up &&
+                       port.down == buttons.down &&
+                       port.left == buttons.left &&
+                       port.right == buttons.right;
+            }
             case GeraNESNetplay::kExpansionPlayerSlot:
             case GeraNESNetplay::kMultitapP3PlayerSlot:
-                return inputFrame.p3A == buttons.a &&
-                       inputFrame.p3B == buttons.b &&
-                       inputFrame.p3Select == buttons.select &&
-                       inputFrame.p3Start == buttons.start &&
-                       inputFrame.p3Up == buttons.up &&
-                       inputFrame.p3Down == buttons.down &&
-                       inputFrame.p3Left == buttons.left &&
-                       inputFrame.p3Right == buttons.right;
+            {
+                const auto port = inputFrame.portButtons(3);
+                return port.a == buttons.a &&
+                       port.b == buttons.b &&
+                       port.select == buttons.select &&
+                       port.start == buttons.start &&
+                       port.up == buttons.up &&
+                       port.down == buttons.down &&
+                       port.left == buttons.left &&
+                       port.right == buttons.right;
+            }
             case GeraNESNetplay::kMultitapP4PlayerSlot:
-                return inputFrame.p4A == buttons.a &&
-                       inputFrame.p4B == buttons.b &&
-                       inputFrame.p4Select == buttons.select &&
-                       inputFrame.p4Start == buttons.start &&
-                       inputFrame.p4Up == buttons.up &&
-                       inputFrame.p4Down == buttons.down &&
-                       inputFrame.p4Left == buttons.left &&
-                       inputFrame.p4Right == buttons.right;
+            {
+                const auto port = inputFrame.portButtons(4);
+                return port.a == buttons.a &&
+                       port.b == buttons.b &&
+                       port.select == buttons.select &&
+                       port.start == buttons.start &&
+                       port.up == buttons.up &&
+                       port.down == buttons.down &&
+                       port.left == buttons.left &&
+                       port.right == buttons.right;
+            }
             default:
                 return false;
         }
@@ -1261,10 +1355,10 @@ private:
             hasExpectedFrameInput = innerEmu.inputBuffer().findByFrame(expectedPlaybackFrame, timelineEpoch) != nullptr;
             hasNextFrameInput = innerEmu.inputBuffer().findByFrame(expectedPlaybackFrame + 1u, timelineEpoch) != nullptr;
             if(const InputFrame* current = innerEmu.inputBuffer().findByFrame(expectedPlaybackFrame, timelineEpoch); current != nullptr) {
-                currentFrameJson = current->toJson();
+                currentFrameJson = inputFrameToJson(*current);
             }
             if(const InputFrame* next = innerEmu.inputBuffer().findByFrame(expectedPlaybackFrame + 1u, timelineEpoch); next != nullptr) {
-                nextFrameJson = next->toJson();
+                nextFrameJson = inputFrameToJson(*next);
             }
             for(uint32_t probe = expectedPlaybackFrame + 1u; probe < expectedPlaybackFrame + 256u; ++probe) {
                 if(innerEmu.inputBuffer().findByFrame(probe, timelineEpoch) == nullptr) {
@@ -1275,7 +1369,7 @@ private:
             const uint32_t windowStart = expectedPlaybackFrame > 2u ? expectedPlaybackFrame - 2u : 0u;
             for(uint32_t probe = windowStart; probe <= expectedPlaybackFrame + 4u; ++probe) {
                 if(const InputFrame* entry = innerEmu.inputBuffer().findByFrame(probe, timelineEpoch); entry != nullptr) {
-                    inputWindow.push_back(entry->toJson());
+                    inputWindow.push_back(inputFrameToJson(*entry));
                 }
             }
             enqueueCounters = innerEmu.inputEnqueueCounters();
@@ -1681,7 +1775,16 @@ private:
                         cleanup();
                         return result;
                     }
-                    hostPeer.runtime.assignController(*hostIdBeforeJoin, 0);
+                    GeraNESNetplay::configureInputAssignments(
+                        hostPeer.runtime,
+                        *hostIdBeforeJoin,
+                        std::optional<Settings::Device>(Settings::Device::CONTROLLER),
+                        std::optional<Settings::Device>(Settings::Device::CONTROLLER),
+                        Settings::ExpansionDevice::NONE,
+                        Settings::NesMultitapDevice::NONE,
+                        Settings::FamicomMultitapDevice::NONE,
+                        {GeraNESNetplay::kPort1PlayerSlot}
+                    );
                     if(!waitFor([&]() {
                             const auto hostSnap = hostPeer.runtime.uiSnapshot();
                             return hostSnap.room.state == ConsoleNetplay::SessionState::Running &&
@@ -1754,7 +1857,7 @@ private:
                             const auto* hostParticipant = findParticipantInRoom(hostSnap.room, *localId);
                             return hostParticipant != nullptr &&
                                    GeraNESNetplay::geraNESNesMultitapDeviceFromTopology(hostSnap.room) == Settings::NesMultitapDevice::FOUR_SCORE &&
-                                   hostParticipant->controllerAssignment == GeraNESNetplay::kMultitapP1PlayerSlot;
+                                   ConsoleNetplay::participantHasAssignment(*hostParticipant, GeraNESNetplay::kMultitapP1PlayerSlot);
                         }, options.startupTimeoutSteps, 5u)) {
                         failureReason = "Host-only Four Score P1 assignment did not stick before client join.";
                         result.report = buildRuntimeReport(options, hostPeer, clientPeer, "error", failureReason, lastCheckedFrame, maxStallSteps);
@@ -1868,8 +1971,8 @@ private:
                             : Settings::NesMultitapDevice::NONE;
                     return hostParticipant != nullptr &&
                            clientParticipant != nullptr &&
-                           hostParticipant->controllerAssignment == expectedHostAssignment &&
-                           clientParticipant->controllerAssignment == ConsoleNetplay::kObserverPlayerSlot &&
+                           ConsoleNetplay::participantHasAssignment(*hostParticipant, expectedHostAssignment) &&
+                           ConsoleNetplay::participantIsObserver(*clientParticipant) &&
                            GeraNESNetplay::geraNESNesMultitapDeviceFromTopology(hostSnap.room) == expectedNesMultitap &&
                            GeraNESNetplay::geraNESNesMultitapDeviceFromTopology(clientSnap.room) == expectedNesMultitap &&
                            hostSnap.room.state == ConsoleNetplay::SessionState::Running &&
@@ -1897,7 +2000,16 @@ private:
                         {GeraNESNetplay::kMultitapP2PlayerSlot}
                     );
                 } else {
-                    hostPeer.runtime.assignController(*clientId, GeraNESNetplay::kPort2PlayerSlot);
+                    GeraNESNetplay::configureInputAssignments(
+                        hostPeer.runtime,
+                        *clientId,
+                        std::optional<Settings::Device>(Settings::Device::CONTROLLER),
+                        std::optional<Settings::Device>(Settings::Device::CONTROLLER),
+                        Settings::ExpansionDevice::NONE,
+                        Settings::NesMultitapDevice::NONE,
+                        Settings::FamicomMultitapDevice::NONE,
+                        {GeraNESNetplay::kPort2PlayerSlot}
+                    );
                 }
                 if(!waitFor([&]() {
                         const auto hostSnap = hostPeer.runtime.uiSnapshot();
@@ -1911,18 +2023,21 @@ private:
                         return hostParticipant != nullptr &&
                                clientParticipantHostView != nullptr &&
                                clientLocalParticipant != nullptr &&
-                               hostParticipant->controllerAssignment ==
-                                   (options.assignLateJoinClientToMultitapAfterJoin
-                                        ? GeraNESNetplay::kMultitapP1PlayerSlot
-                                        : GeraNESNetplay::kPort1PlayerSlot) &&
-                               clientParticipantHostView->controllerAssignment ==
-                                   (options.assignLateJoinClientToMultitapAfterJoin
-                                        ? GeraNESNetplay::kMultitapP2PlayerSlot
-                                        : GeraNESNetplay::kPort2PlayerSlot) &&
-                               clientLocalParticipant->controllerAssignment ==
-                                   (options.assignLateJoinClientToMultitapAfterJoin
-                                        ? GeraNESNetplay::kMultitapP2PlayerSlot
-                                        : GeraNESNetplay::kPort2PlayerSlot) &&
+                               ConsoleNetplay::participantHasAssignment(
+                                   *hostParticipant,
+                                   options.assignLateJoinClientToMultitapAfterJoin
+                                       ? GeraNESNetplay::kMultitapP1PlayerSlot
+                                       : GeraNESNetplay::kPort1PlayerSlot) &&
+                               ConsoleNetplay::participantHasAssignment(
+                                   *clientParticipantHostView,
+                                   options.assignLateJoinClientToMultitapAfterJoin
+                                       ? GeraNESNetplay::kMultitapP2PlayerSlot
+                                       : GeraNESNetplay::kPort2PlayerSlot) &&
+                               ConsoleNetplay::participantHasAssignment(
+                                   *clientLocalParticipant,
+                                   options.assignLateJoinClientToMultitapAfterJoin
+                                       ? GeraNESNetplay::kMultitapP2PlayerSlot
+                                       : GeraNESNetplay::kPort2PlayerSlot) &&
                                hostSnap.room.state == ConsoleNetplay::SessionState::Running &&
                                clientSnap.room.state == ConsoleNetplay::SessionState::Running &&
                                hostSnap.room.activeResyncId == 0 &&
@@ -1939,7 +2054,16 @@ private:
             }
         } else if(options.hostAssignedAfterJoinOnly) {
             hostPeer.runtime.clearControllerAssignments(*clientId);
-            hostPeer.runtime.assignController(*hostId, GeraNESNetplay::kPort1PlayerSlot);
+            GeraNESNetplay::configureInputAssignments(
+                hostPeer.runtime,
+                *hostId,
+                std::optional<Settings::Device>(Settings::Device::CONTROLLER),
+                std::optional<Settings::Device>(Settings::Device::CONTROLLER),
+                Settings::ExpansionDevice::NONE,
+                Settings::NesMultitapDevice::NONE,
+                Settings::FamicomMultitapDevice::NONE,
+                {GeraNESNetplay::kPort1PlayerSlot}
+            );
 
             if(!waitFor([&]() {
                     const auto hostSnap = hostPeer.runtime.uiSnapshot();
@@ -1953,9 +2077,9 @@ private:
                     return hostParticipant != nullptr &&
                            clientParticipantHostView != nullptr &&
                            clientLocalParticipant != nullptr &&
-                           hostParticipant->controllerAssignment == GeraNESNetplay::kPort1PlayerSlot &&
-                           clientParticipantHostView->controllerAssignment == ConsoleNetplay::kObserverPlayerSlot &&
-                           clientLocalParticipant->controllerAssignment == ConsoleNetplay::kObserverPlayerSlot &&
+                           ConsoleNetplay::participantHasAssignment(*hostParticipant, GeraNESNetplay::kPort1PlayerSlot) &&
+                           ConsoleNetplay::participantIsObserver(*clientParticipantHostView) &&
+                           ConsoleNetplay::participantIsObserver(*clientLocalParticipant) &&
                            hostSnap.room.state == ConsoleNetplay::SessionState::Running &&
                            clientSnap.room.state == ConsoleNetplay::SessionState::Running &&
                            hostSnap.room.activeResyncId == 0 &&
@@ -2004,18 +2128,73 @@ private:
         } else {
             if(options.clientAssignedOnly || options.clientAssignedPort1Only) {
                 hostPeer.runtime.clearControllerAssignments(*hostId);
-                hostPeer.runtime.assignController(
+                GeraNESNetplay::configureInputAssignments(
+                    hostPeer.runtime,
                     *clientId,
-                    options.clientAssignedPort1Only
+                    std::optional<Settings::Device>(Settings::Device::CONTROLLER),
+                    std::optional<Settings::Device>(Settings::Device::CONTROLLER),
+                    Settings::ExpansionDevice::NONE,
+                    Settings::NesMultitapDevice::NONE,
+                    Settings::FamicomMultitapDevice::NONE,
+                    {options.clientAssignedPort1Only
                         ? GeraNESNetplay::kPort1PlayerSlot
-                        : GeraNESNetplay::kPort2PlayerSlot
+                        : GeraNESNetplay::kPort2PlayerSlot}
                 );
             } else {
-                hostPeer.runtime.assignController(*hostId, 0);
-                hostPeer.runtime.assignController(*clientId, 1);
+                GeraNESNetplay::configureInputAssignments(
+                    hostPeer.runtime,
+                    *hostId,
+                    std::optional<Settings::Device>(Settings::Device::CONTROLLER),
+                    std::optional<Settings::Device>(Settings::Device::CONTROLLER),
+                    Settings::ExpansionDevice::NONE,
+                    Settings::NesMultitapDevice::NONE,
+                    Settings::FamicomMultitapDevice::NONE,
+                    {GeraNESNetplay::kPort1PlayerSlot}
+                );
+                if(!waitFor([&]() {
+                        hostPeer.emu.update(16u);
+                        clientPeer.emu.update(16u);
+                        const auto hostSnap = hostPeer.runtime.uiSnapshot();
+                        const auto clientSnap = clientPeer.runtime.uiSnapshot();
+                        const auto hostLocal = findParticipantIdByName(hostSnap.room, hostPeer.name);
+                        const auto clientLocal = findParticipantIdByName(clientSnap.room, clientPeer.name);
+                        if(!hostLocal.has_value() || !clientLocal.has_value()) return false;
+                        const auto* hostParticipant = findParticipantInRoom(hostSnap.room, *hostLocal);
+                        const auto* clientParticipant = findParticipantInRoom(clientSnap.room, *clientLocal);
+                        return hostParticipant != nullptr &&
+                               clientParticipant != nullptr &&
+                               ConsoleNetplay::participantHasAssignment(*hostParticipant, GeraNESNetplay::kPort1PlayerSlot) &&
+                               ConsoleNetplay::participantIsObserver(*clientParticipant) &&
+                               GeraNESNetplay::geraNESPortDeviceFromTopology(hostSnap.room, GeraNESNetplay::kPort1PlayerSlot) == Settings::Device::CONTROLLER &&
+                               GeraNESNetplay::geraNESPortDeviceFromTopology(hostSnap.room, GeraNESNetplay::kPort2PlayerSlot) == Settings::Device::CONTROLLER &&
+                               GeraNESNetplay::geraNESPortDeviceFromTopology(clientSnap.room, GeraNESNetplay::kPort1PlayerSlot) == Settings::Device::CONTROLLER &&
+                               GeraNESNetplay::geraNESPortDeviceFromTopology(clientSnap.room, GeraNESNetplay::kPort2PlayerSlot) == Settings::Device::CONTROLLER &&
+                               hostSnap.room.state == ConsoleNetplay::SessionState::Running &&
+                               clientSnap.room.state == ConsoleNetplay::SessionState::Running &&
+                               hostSnap.room.activeResyncId == 0 &&
+                               clientSnap.room.activeResyncId == 0;
+                    }, options.startupTimeoutSteps, 5u)) {
+                    failureReason = "Timed out waiting for host-only controller topology assignment to settle before assigning client.";
+                    result.report = buildRuntimeReport(options, hostPeer, clientPeer, "error", failureReason, lastCheckedFrame, maxStallSteps);
+                    result.exitCode = RESULT_ERROR;
+                    cleanup();
+                    return result;
+                }
+                GeraNESNetplay::configureInputAssignments(
+                    hostPeer.runtime,
+                    *clientId,
+                    std::optional<Settings::Device>(Settings::Device::CONTROLLER),
+                    std::optional<Settings::Device>(Settings::Device::CONTROLLER),
+                    Settings::ExpansionDevice::NONE,
+                    Settings::NesMultitapDevice::NONE,
+                    Settings::FamicomMultitapDevice::NONE,
+                    {GeraNESNetplay::kPort2PlayerSlot}
+                );
             }
 
             if(!waitFor([&]() {
+                    hostPeer.emu.update(16u);
+                    clientPeer.emu.update(16u);
                     const auto hostSnap = hostPeer.runtime.uiSnapshot();
                     const auto clientSnap = clientPeer.runtime.uiSnapshot();
                     const auto hostLocal = findParticipantIdByName(hostSnap.room, hostPeer.name);
@@ -2025,14 +2204,14 @@ private:
                     const auto* clientParticipant = findParticipantInRoom(clientSnap.room, *clientLocal);
                     return hostParticipant != nullptr &&
                            clientParticipant != nullptr &&
-                           hostParticipant->controllerAssignment ==
-                               ((options.clientAssignedOnly || options.clientAssignedPort1Only)
-                                    ? ConsoleNetplay::kObserverPlayerSlot
-                                    : 0) &&
-                           clientParticipant->controllerAssignment ==
-                               (options.clientAssignedPort1Only
-                                    ? GeraNESNetplay::kPort1PlayerSlot
-                                    : GeraNESNetplay::kPort2PlayerSlot) &&
+                           ((options.clientAssignedOnly || options.clientAssignedPort1Only)
+                                ? ConsoleNetplay::participantIsObserver(*hostParticipant)
+                                : ConsoleNetplay::participantHasAssignment(*hostParticipant, 0)) &&
+                           ConsoleNetplay::participantHasAssignment(
+                               *clientParticipant,
+                               options.clientAssignedPort1Only
+                                   ? GeraNESNetplay::kPort1PlayerSlot
+                                   : GeraNESNetplay::kPort2PlayerSlot) &&
                            hostSnap.room.state == ConsoleNetplay::SessionState::Running &&
                            clientSnap.room.state == ConsoleNetplay::SessionState::Running &&
                            hostSnap.room.activeResyncId == 0 &&
@@ -2140,9 +2319,9 @@ private:
                     const bool requireReservationReuse = !options.reconnectDuringResync;
                     const bool assignmentRestored =
                         hostClientParticipant != nullptr &&
-                        hostClientParticipant->controllerAssignment == 1 &&
+                        ConsoleNetplay::participantHasAssignment(*hostClientParticipant, 1) &&
                         clientLocalParticipant != nullptr &&
-                        clientLocalParticipant->controllerAssignment == 1;
+                        ConsoleNetplay::participantHasAssignment(*clientLocalParticipant, 1);
                     return clientSnap.connected &&
                            clientSnap.active &&
                            (!requireReservationReuse || clientSnap.localParticipantId == previousLocalParticipantId) &&
@@ -2171,9 +2350,9 @@ private:
                     const auto* clientLocalParticipant = findParticipantInRoom(clientSnap.room, clientSnap.localParticipantId);
                     const bool assignmentRestored =
                         hostClientParticipant != nullptr &&
-                        hostClientParticipant->controllerAssignment == 1 &&
+                        ConsoleNetplay::participantHasAssignment(*hostClientParticipant, 1) &&
                         clientLocalParticipant != nullptr &&
-                        clientLocalParticipant->controllerAssignment == 1;
+                        ConsoleNetplay::participantHasAssignment(*clientLocalParticipant, 1);
                     return hostClientParticipant != nullptr &&
                            hostClientParticipant->connected &&
                            !hostClientParticipant->reconnectReserved &&
@@ -2343,8 +2522,26 @@ private:
                !assignmentSwapTriggered &&
                hostPeer.emu.exactEmulationFrame() >= startHostFrame + options.assignmentSwapAfterFrames &&
                clientPeer.emu.exactEmulationFrame() >= startClientFrame + options.assignmentSwapAfterFrames) {
-                hostPeer.runtime.assignController(*hostId, 1);
-                hostPeer.runtime.assignController(*clientId, 0);
+                GeraNESNetplay::configureInputAssignments(
+                    hostPeer.runtime,
+                    *hostId,
+                    std::optional<Settings::Device>(Settings::Device::CONTROLLER),
+                    std::optional<Settings::Device>(Settings::Device::CONTROLLER),
+                    Settings::ExpansionDevice::NONE,
+                    Settings::NesMultitapDevice::NONE,
+                    Settings::FamicomMultitapDevice::NONE,
+                    {GeraNESNetplay::kPort2PlayerSlot}
+                );
+                GeraNESNetplay::configureInputAssignments(
+                    hostPeer.runtime,
+                    *clientId,
+                    std::optional<Settings::Device>(Settings::Device::CONTROLLER),
+                    std::optional<Settings::Device>(Settings::Device::CONTROLLER),
+                    Settings::ExpansionDevice::NONE,
+                    Settings::NesMultitapDevice::NONE,
+                    Settings::FamicomMultitapDevice::NONE,
+                    {GeraNESNetplay::kPort1PlayerSlot}
+                );
                 assignmentSwapTriggered = true;
 
                 if(!waitFor([&]() {
@@ -2356,9 +2553,9 @@ private:
                         return hostParticipant != nullptr &&
                                clientParticipantHostView != nullptr &&
                                clientLocalParticipant != nullptr &&
-                               hostParticipant->controllerAssignment == GeraNESNetplay::kPort2PlayerSlot &&
-                               clientParticipantHostView->controllerAssignment == GeraNESNetplay::kPort1PlayerSlot &&
-                               clientLocalParticipant->controllerAssignment == GeraNESNetplay::kPort1PlayerSlot &&
+                               ConsoleNetplay::participantHasAssignment(*hostParticipant, GeraNESNetplay::kPort2PlayerSlot) &&
+                               ConsoleNetplay::participantHasAssignment(*clientParticipantHostView, GeraNESNetplay::kPort1PlayerSlot) &&
+                               ConsoleNetplay::participantHasAssignment(*clientLocalParticipant, GeraNESNetplay::kPort1PlayerSlot) &&
                                hostSwapSnap.room.state == ConsoleNetplay::SessionState::Running &&
                                clientSwapSnap.room.state == ConsoleNetplay::SessionState::Running &&
                                hostSwapSnap.room.activeResyncId == 0 &&
@@ -2901,7 +3098,7 @@ private:
                     return result;
                 }
                 if(options.hostDisconnectFrame > 0 &&
-                   !((!clientSnap.connected && !clientSnap.reconnecting) &&
+                   !(!clientSnap.connected &&
                      (clientSnap.room.state == ConsoleNetplay::SessionState::Ended ||
                       clientSnap.room.participants.empty()))) {
                     ++hostDisconnectCompletionWaitSteps;
@@ -3621,9 +3818,9 @@ private:
                     hostParticipant != nullptr &&
                     clientParticipantHostView != nullptr &&
                     clientLocalParticipant != nullptr &&
-                    hostParticipant->controllerAssignment == GeraNESNetplay::kPort2PlayerSlot &&
-                    clientParticipantHostView->controllerAssignment == GeraNESNetplay::kPort1PlayerSlot &&
-                    clientLocalParticipant->controllerAssignment == GeraNESNetplay::kPort1PlayerSlot &&
+                    ConsoleNetplay::participantHasAssignment(*hostParticipant, GeraNESNetplay::kPort2PlayerSlot) &&
+                    ConsoleNetplay::participantHasAssignment(*clientParticipantHostView, GeraNESNetplay::kPort1PlayerSlot) &&
+                    ConsoleNetplay::participantHasAssignment(*clientLocalParticipant, GeraNESNetplay::kPort1PlayerSlot) &&
                     hostRoom.state == ConsoleNetplay::SessionState::Running &&
                     clientRoom.state == ConsoleNetplay::SessionState::Running &&
                     hostRoom.activeResyncId == 0 &&
