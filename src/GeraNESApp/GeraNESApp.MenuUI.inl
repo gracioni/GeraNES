@@ -1,7 +1,6 @@
 #pragma once
 
 inline void GeraNESApp::menuBar() {
-
     bool show_menu = true;
     const bool netplayClientRestricted = isNetplayClientRestricted();
     const bool netplayRomChangeRestricted = isNetplayRomChangeRestricted();
@@ -981,8 +980,8 @@ inline void GeraNESApp::menuBar() {
 
             ImGui::Separator();
 
-            if(ImGui::MenuItem(withMenuIcon(FontAwesomeIcons::kVideo, "Replay").c_str(), nullptr, m_showReplayWindow, !isReplayRestricted())) {
-                m_showReplayWindow = !m_showReplayWindow;
+            if(ImGui::MenuItem(withMenuIcon(FontAwesomeIcons::kVideo, "Replay").c_str(), nullptr, false, !isReplayRestricted())) {
+                m_showReplayWindow = true;
             }
 
             ImGui::Separator();
@@ -1021,36 +1020,32 @@ inline void GeraNESApp::menuBar() {
             ImGui::Separator();
 
             const bool hasLoadedRom = m_emu.valid();
-            if(ImGui::MenuItem(withMenuIcon(FontAwesomeIcons::kMemory, "Memory Viewer").c_str(), nullptr, m_showMemoryViewerWindow, hasLoadedRom)) {
-                m_showMemoryViewerWindow = !m_showMemoryViewerWindow;
+            if(ImGui::MenuItem(withMenuIcon(FontAwesomeIcons::kMemory, "Memory Viewer").c_str(), nullptr, false, hasLoadedRom)) {
+                m_showMemoryViewerWindow = true;
             }
 
-            if(ImGui::MenuItem(withMenuIcon(FontAwesomeIcons::kMemory, "Memory Compare").c_str(), nullptr, m_showMemoryCompareWindow, hasLoadedRom)) {
-                m_showMemoryCompareWindow = !m_showMemoryCompareWindow;
+            if(ImGui::MenuItem(withMenuIcon(FontAwesomeIcons::kMemory, "Memory Compare").c_str(), nullptr, false, hasLoadedRom)) {
+                m_showMemoryCompareWindow = true;
             }
 
-            if(ImGui::MenuItem(withMenuIcon(FontAwesomeIcons::kMicrochip, "PPU Viewer").c_str(), nullptr, m_showPpuViewerWindow, hasLoadedRom)) {
-                m_showPpuViewerWindow = !m_showPpuViewerWindow;
+            if(ImGui::MenuItem(withMenuIcon(FontAwesomeIcons::kMicrochip, "PPU Viewer").c_str(), nullptr, false, hasLoadedRom)) {
+                m_showPpuViewerWindow = true;
             }
 
-            if(ImGui::MenuItem(withMenuIcon(FontAwesomeIcons::kPalette, "Screen Pixel Inspector").c_str(), nullptr, m_showModPixelInspectorWindow, hasLoadedRom)) {
-                m_showModPixelInspectorWindow = !m_showModPixelInspectorWindow;
+            if(ImGui::MenuItem(withMenuIcon(FontAwesomeIcons::kPalette, "Screen Pixel Inspector").c_str(), nullptr, false, hasLoadedRom)) {
+                m_showModPixelInspectorWindow = true;
             }
 
-            if(ImGui::MenuItem(withMenuIcon(FontAwesomeIcons::kClipboard, "Event Viewer").c_str(), nullptr, m_showEventViewerWindow, hasLoadedRom)) {
-                m_showEventViewerWindow = !m_showEventViewerWindow;
+            if(ImGui::MenuItem(withMenuIcon(FontAwesomeIcons::kClipboard, "Event Viewer").c_str(), nullptr, false, hasLoadedRom)) {
+                m_showEventViewerWindow = true;
             }
 
             auto debugShortcut = m_shortcuts.get("cpuDebugger");
             const char* debugKey = (debugShortcut != nullptr) ? debugShortcut->shortcut.c_str() : nullptr;
-            if(ImGui::MenuItem(withMenuIcon(FontAwesomeIcons::kBug, "CPU Debugger").c_str(), debugKey, m_showCpuDebuggerWindow, hasLoadedRom && !replayInteractionLocked)) {
-                m_showCpuDebuggerWindow = !m_showCpuDebuggerWindow;
-                AppSettings::instance().data.debug.showCpuDebugger = m_showCpuDebuggerWindow;
-                if(m_showCpuDebuggerWindow) {
-                    requestEnableCpuDebugger();
-                } else {
-                    disableCpuDebugging();
-                }
+            if(ImGui::MenuItem(withMenuIcon(FontAwesomeIcons::kBug, "CPU Debugger").c_str(), debugKey, false, hasLoadedRom && !replayInteractionLocked)) {
+                m_showCpuDebuggerWindow = true;
+                AppSettings::instance().data.debug.showCpuDebugger = true;
+                requestEnableCpuDebugger();
             }
 
             ImGui::Separator();
