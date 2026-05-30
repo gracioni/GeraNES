@@ -1180,6 +1180,21 @@ bool GeraNESApp::stopReplayToStart()
     return true;
 }
 
+void GeraNESApp::primeReplayInputAtFrame(uint32_t frame)
+{
+    if(!m_replayManager.isPlayback() || !m_emu.valid()) {
+        return;
+    }
+
+    if(frame > 0u) {
+        m_emu.discardQueuedInputFramesAfter(frame - 1u);
+    }
+
+    if(const auto replayFrame = m_replayManager.playbackFrameForFrame(frame); replayFrame.has_value()) {
+        m_emu.queueReplayInputFrame(*replayFrame);
+    }
+}
+
 void GeraNESApp::clearReplaySession(bool keepWindowOpen)
 {
     waitForReplaySeekTask();
@@ -1571,7 +1586,7 @@ bool GeraNESApp::seekReplayToFrame(uint32_t frame)
         }
         m_emu.setSimulationSuspended(true);
         const uint32_t restoredFrame = m_emu.frameCount();
-        m_emu.discardQueuedInputFramesAfter(restoredFrame);
+        primeReplayInputAtFrame(restoredFrame);
         if(targetFrame > restoredFrame) {
             return beginReplaySeekCatchup(
                 targetFrame,
@@ -1621,7 +1636,7 @@ bool GeraNESApp::seekReplayToFrame(uint32_t frame)
     }
 
     if(canResumeFromCurrentState && targetFrame > currentFrame) {
-        m_emu.discardQueuedInputFramesAfter(currentFrame);
+        primeReplayInputAtFrame(currentFrame);
         return beginReplaySeekCatchup(
             targetFrame,
             replayState.data.frames,
@@ -1727,9 +1742,7 @@ void GeraNESApp::startReplayPlayback()
     if(m_emu.valid()) {
         const uint32_t currentFrame = m_emu.frameCount();
         m_replayManager.setCursorState(currentFrame, m_emu.canonicalStateCrc32());
-        if(const auto replayFrame = m_replayManager.playbackFrameForFrame(currentFrame); replayFrame.has_value()) {
-            m_emu.queueReplayInputFrame(*replayFrame);
-        }
+        primeReplayInputAtFrame(currentFrame);
     }
     m_replayManager.beginPlayback();
     refreshReplayFrameInputResolver();

@@ -617,6 +617,7 @@ private:
     bool openReplayFile(const fs::path& path);
     bool seekReplayToFrame(uint32_t frame);
     bool stopReplayToStart();
+    void primeReplayInputAtFrame(uint32_t frame);
     void startReplayPlayback();
     bool beginReplaySeekCatchup(uint32_t targetFrame,
                                 std::vector<InputFrame> replayFrames,
