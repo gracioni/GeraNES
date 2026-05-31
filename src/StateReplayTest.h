@@ -154,7 +154,7 @@ private:
         return mask;
     }
 
-    static void queuePadMaskForCurrentFrame(GeraNESEmu& emu, uint64_t mask)
+    static bool queuePadMaskForCurrentFrame(GeraNESEmu& emu, uint64_t mask)
     {
         InputFrame frame = emu.createInputFrame(emu.frameCount());
         frame.setPortButtons(1, {
@@ -167,12 +167,14 @@ private:
             (mask & (1ull << 6)) != 0,
             (mask & (1ull << 7)) != 0
         });
-        emu.queueInputFrame(frame);
+        return emu.setPlaybackInputFrame(frame);
     }
 
     static bool advanceExactlyOneFrame(GeraNESEmu& emu, uint64_t inputMask)
     {
-        queuePadMaskForCurrentFrame(emu, inputMask);
+        if(!queuePadMaskForCurrentFrame(emu, inputMask)) {
+            return false;
+        }
         if(!emu.valid()) return false;
 
         const uint32_t targetFrame = emu.frameCount() + 1u;

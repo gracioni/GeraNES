@@ -97,36 +97,28 @@ NetplayInputFrame GeraNESNetplayConsole::buildLocalInputContribution(PlayerSlot 
 
 bool GeraNESNetplayConsole::hasStableQueuedInputFrame(FrameNumber frame) const
 {
-    const InputFrame* existingFrame = m_emu.inputBuffer().findByFrame(frame, m_emu.inputTimelineEpoch());
-    return existingFrame != nullptr;
+    (void)frame;
+    return false;
 }
 
 void GeraNESNetplayConsole::queueStandaloneBootstrapInputFrame()
 {
-    const uint32_t currentFrame = m_emu.frameCount();
-    if(m_emu.inputBuffer().findByFrame(currentFrame, m_emu.inputTimelineEpoch()) != nullptr) {
-        return;
-    }
-
-    InputFrame bootstrapFrame = m_emu.createInputFrame(currentFrame);
-    (void)m_emu.queueInputFrame(bootstrapFrame);
 }
 
 bool GeraNESNetplayConsole::queuePlaybackInputFrame(const NetplayCoordinator::ConfirmedFrameInputs& confirmed)
 {
-    const InputFrame* existingFrame =
-        m_emu.inputBuffer().findByFrame(confirmed.netplayFrame.frame, m_emu.inputTimelineEpoch());
-    InputFrame inputFrame = toGeraNESInputFrame(confirmed.netplayFrame);
-    inputFrame.timelineEpoch = m_emu.inputTimelineEpoch();
-    const InputBuffer::EnqueueResult enqueueResult = m_emu.queueInputFrame(inputFrame);
-    return enqueueResult == InputBuffer::EnqueueResult::Inserted ||
-           enqueueResult == InputBuffer::EnqueueResult::UpdatedPending ||
-           (existingFrame != nullptr && enqueueResult == InputBuffer::EnqueueResult::RejectedConsumed);
+    IEmulationHost::ReplayFrameInput replayInput;
+    if(!buildReplayFrameInput(confirmed, confirmed.frame, replayInput)) {
+        return false;
+    }
+
+    m_host.queueReplayInputFrame(replayInput.frameOverride);
+    return true;
 }
 
 void GeraNESNetplayConsole::discardQueuedInputFramesAfter(FrameNumber frame)
 {
-    m_emu.discardQueuedInputFramesAfter(frame);
+    (void)m_emu;
     m_host.discardQueuedNetplayInputsAfter(frame);
 }
 

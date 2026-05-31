@@ -288,7 +288,7 @@ void ThreadedEmulationHost::refreshSnapshotLocked()
     const bool nsfPaused = m_emu.nsfIsPaused();
     const bool nsfEnded = m_emu.nsfHasEnded();
     const uint32_t frameCount = m_emu.frameCount();
-    const uint32_t inputTimelineEpoch = m_emu.inputTimelineEpoch();
+    const uint32_t inputTimelineEpoch = m_pendingInputTimelineEpoch;
     const uint32_t regionFps = m_emu.getRegionFPS();
     const uint32_t manualResetGeneration = m_emu.manualResetGeneration();
     const uint32_t manualLoadStateGeneration = m_emu.manualLoadStateGeneration();

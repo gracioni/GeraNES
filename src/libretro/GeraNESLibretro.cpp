@@ -19,6 +19,7 @@
 #include "GeraNES/Serialization.h"
 #include "GeraNES/util/FileUtil.h"
 #include "GeraNESApp/AudioOutputBase.h"
+#include "GeraNESApp/PendingInputFrames.h"
 #include "logger/logger.h"
 
 #if defined(GERANES_LIBRETRO_USE_CMRC_DB)
@@ -258,6 +259,7 @@ public:
 
 LibretroAudioOutput g_audio;
 GeraNESEmu g_emu(g_audio);
+PendingInputFrames g_pendingInputFrames;
 
 std::array<uint32_t, PPU::SCREEN_WIDTH * PPU::SCREEN_HEIGHT> g_videoFrame{};
 std::string g_tempRomPath;
@@ -450,7 +452,7 @@ void applyPortInputMode(unsigned port)
             break;
     }
 
-    g_emu.setPortDevice(emuPort, device);
+    g_emu.configurePortDevice(emuPort, device);
 }
 
 void applyAllPortInputModes()
@@ -764,7 +766,8 @@ int axisToPixel(int16_t axis, int size)
 InputFrame libretroInputFrameForNextFrame()
 {
     const uint32_t targetFrame = g_emu.frameCount();
-    if(const InputFrame* existing = g_emu.inputBuffer().findByFrame(targetFrame, g_emu.inputTimelineEpoch()); existing != nullptr) {
+    g_pendingInputFrames.eraseFramesBefore(targetFrame);
+    if(const InputFrame* existing = g_pendingInputFrames.find(targetFrame); existing != nullptr) {
         return *existing;
     }
     return g_emu.createInputFrame(targetFrame);
@@ -772,7 +775,7 @@ InputFrame libretroInputFrameForNextFrame()
 
 void commitLibretroInputFrame(const InputFrame& frame)
 {
-    g_emu.queueInputFrame(frame);
+    g_pendingInputFrames.set(frame);
 }
 
 void updateZapperState(unsigned port)
@@ -1084,7 +1087,10 @@ RETRO_API void retro_set_controller_port_device(unsigned port, unsigned device)
 
 RETRO_API void retro_reset(void)
 {
-    if(g_gameLoaded) g_emu.reset();
+    if(g_gameLoaded) {
+        g_pendingInputFrames.clear();
+        g_emu.reset();
+    }
 }
 
 RETRO_API void retro_run(void)
@@ -1119,7 +1125,12 @@ RETRO_API void retro_run(void)
     updateExpansionKonamiHyperShotState();
 
     // Libretro drives one emulated frame per retro_run call; avoid desktop-vsync drift compensation here.
+    if(const std::optional<InputFrame> currentFrameInput = g_pendingInputFrames.take(g_emu.frameCount());
+       currentFrameInput.has_value()) {
+        (void)g_emu.setPlaybackInputFrame(*currentFrameInput);
+    }
     g_emu.updateUntilFrame(0);
+    g_pendingInputFrames.eraseFramesBefore(g_emu.frameCount());
 
     convertVideoFrame();
 
@@ -1161,6 +1172,7 @@ RETRO_API bool retro_unserialize(const void* data, size_t size)
 {
     if(!g_gameLoaded || data == nullptr || size == 0) return false;
 
+    g_pendingInputFrames.clear();
     const auto* raw = static_cast<const uint8_t*>(data);
     g_emu.loadStateFromMemory(std::vector<uint8_t>(raw, raw + size));
     return true;
@@ -1182,6 +1194,7 @@ RETRO_API bool retro_load_game(const struct retro_game_info* game)
     }
 
     if(g_gameLoaded) {
+        g_pendingInputFrames.clear();
         g_emu.closeRom();
         g_gameLoaded = false;
     }
@@ -1249,6 +1262,7 @@ RETRO_API bool retro_load_game_special(unsigned, const struct retro_game_info*, 
 RETRO_API void retro_unload_game(void)
 {
     if(g_gameLoaded) {
+        g_pendingInputFrames.clear();
         g_emu.closeRom();
     }
 

@@ -437,7 +437,9 @@ public:
             pad.left = buttons.left;
             pad.right = buttons.right;
             inputFrame.setPortButtons(1, pad);
-            emu.queueInputFrame(inputFrame);
+            if(!emu.setPlaybackInputFrame(inputFrame)) {
+                return 1;
+            }
 
             const uint32_t prevFrameCount = emu.frameCount();
             const uint32_t frameDtMs = std::max<uint32_t>(1u, 1000u / std::max<uint32_t>(1u, fps));

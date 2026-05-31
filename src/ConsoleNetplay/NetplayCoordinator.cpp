@@ -188,7 +188,6 @@ ConsoleNetplay::NetplayInputFrame makeRoomTopologyNetplayFrame(ConsoleNetplay::F
 {
     ConsoleNetplay::NetplayInputFrame inputFrame;
     inputFrame.frame = frame;
-    inputFrame.timelineEpoch = room.timelineEpoch;
     return inputFrame;
 }
 

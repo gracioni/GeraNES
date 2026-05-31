@@ -1,22 +1,23 @@
 #include <catch2/catch_test_macros.hpp>
 
-#include "GeraNES/InputBuffer.h"
+#include "GeraNESApp/PendingInputFrames.h"
 #include "StateReplayTest.h"
 #include "TestSupport.h"
 
-TEST_CASE("InputBuffer rejects backfilling an earlier frame when a later replay frame is already queued", "[state-replay][input-buffer]")
+TEST_CASE("PendingInputFrames keeps queued frames addressable by frame number", "[state-replay][pending-input]")
 {
-    InputBuffer buffer;
+    PendingInputFrames buffer;
 
     InputFrame later;
     later.frame = 11;
-    later.timelineEpoch = 7;
-    REQUIRE(buffer.push(later) == InputBuffer::EnqueueResult::Inserted);
+    buffer.set(later);
 
     InputFrame current;
     current.frame = 10;
-    current.timelineEpoch = 7;
-    REQUIRE(buffer.push(current) == InputBuffer::EnqueueResult::RejectedOutOfSequence);
+    buffer.set(current);
+
+    REQUIRE(buffer.find(10) != nullptr);
+    REQUIRE(buffer.find(11) != nullptr);
 }
 
 TEST_CASE("State replay remains deterministic from saved snapshots", "[state-replay]")

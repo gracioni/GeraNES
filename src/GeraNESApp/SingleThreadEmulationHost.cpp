@@ -363,17 +363,17 @@ void SingleThreadEmulationHost::setSelectedInputObserver(SelectedInputObserver o
 
 void SingleThreadEmulationHost::queueInputForFrame(uint32_t frameNumber, const InputState& input)
 {
-    postCommand([frameNumber, input](GeraNESEmu& emu) {
-        emu.queueInputFrame(buildInputFrameForEmu(emu, frameNumber, input));
+    postCommand([this, frameNumber, input](GeraNESEmu& emu) {
+        m_pendingInputFrames.set(buildInputFrameForEmu(emu, frameNumber, input));
     });
 }
 
 void SingleThreadEmulationHost::queueInputFrames(const std::vector<std::pair<uint32_t, InputState>>& inputs)
 {
     if(inputs.empty()) return;
-    postCommand([inputs](GeraNESEmu& emu) {
+    postCommand([this, inputs](GeraNESEmu& emu) {
         for(const auto& [frameNumber, input] : inputs) {
-            emu.queueInputFrame(buildInputFrameForEmu(emu, frameNumber, input));
+            m_pendingInputFrames.set(buildInputFrameForEmu(emu, frameNumber, input));
         }
     });
 }

@@ -14,6 +14,7 @@
 #include <vector>
 
 #include "GeraNESApp/IEmulationHost.h"
+#include "GeraNESApp/PendingInputFrames.h"
 #include "GeraNES/GeraNESEmu.h"
 #include "GeraNES/PPU.h"
 
@@ -51,16 +52,17 @@ private:
         return frame;
     }
 
-    static InputFrame queueReplayFrameInputToEmu(GeraNESEmu& emu,
-                                                 uint32_t targetFrame,
-                                                 const ReplayFrameInput& input)
+    static std::optional<InputFrame> queueReplayFrameInputToEmu(GeraNESEmu& emu,
+                                                                uint32_t targetFrame,
+                                                                const ReplayFrameInput& input)
     {
         InputFrame frame = input.hasFrameOverride
             ? input.frameOverride
             : buildInputFrameForEmu(emu, targetFrame, input.state);
         frame.frame = targetFrame;
-        frame.timelineEpoch = emu.inputTimelineEpoch();
-        emu.queueInputFrame(frame);
+        if(!emu.setPlaybackInputFrame(frame)) {
+            return std::nullopt;
+        }
         emu.setRewind(input.rewind);
         return frame;
     }
@@ -72,34 +74,50 @@ private:
             if(!m_frameInputResolver(targetFrame, input)) {
                 return false;
             }
+        } else if(const std::optional<InputFrame> queuedFrame = m_pendingInputFrames.take(targetFrame);
+                  queuedFrame.has_value()) {
+            input.hasFrameOverride = true;
+            input.frameOverride = *queuedFrame;
         } else {
             input.state = m_pendingInput;
             input.rewind = m_pendingRuntimeControls.rewind;
         }
 
-        notifyQueuedInputObserver(queueReplayFrameInputToEmu(m_emu, targetFrame, input));
+        const std::optional<InputFrame> queuedFrame = queueReplayFrameInputToEmu(m_emu, targetFrame, input);
+        if(!queuedFrame.has_value()) {
+            return false;
+        }
+        notifyQueuedInputObserver(*queuedFrame);
         return true;
     }
 
     bool prepareCurrentFrameInput()
     {
-        if(!m_autoQueuePendingInputOnFrameStart && !m_frameInputResolver) {
-            return false;
-        }
-
+        const uint32_t targetFrame = m_emu.frameCount();
+        m_pendingInputFrames.eraseFramesBefore(targetFrame);
         ReplayFrameInput input;
         if(m_frameInputResolver) {
-            if(!m_frameInputResolver(m_emu.frameCount(), input)) {
+            if(!m_frameInputResolver(targetFrame, input)) {
                 return false;
             }
+        } else if(const std::optional<InputFrame> queuedFrame = m_pendingInputFrames.take(targetFrame);
+                  queuedFrame.has_value()) {
+            input.hasFrameOverride = true;
+            input.frameOverride = *queuedFrame;
         } else {
+            if(!m_autoQueuePendingInputOnFrameStart) {
+                return false;
+            }
             input.state = m_pendingInput;
             input.rewind = m_pendingRuntimeControls.rewind;
         }
 
-        const InputFrame queuedFrame = queueReplayFrameInputToEmu(m_emu, m_emu.frameCount(), input);
-        notifyQueuedInputObserver(queuedFrame);
-        notifySelectedInputObserver(queuedFrame);
+        const std::optional<InputFrame> queuedFrame = queueReplayFrameInputToEmu(m_emu, targetFrame, input);
+        if(!queuedFrame.has_value()) {
+            return false;
+        }
+        notifyQueuedInputObserver(*queuedFrame);
+        notifySelectedInputObserver(*queuedFrame);
         return true;
     }
 
@@ -176,6 +194,8 @@ private:
         std::vector<uint32_t>(PPU::SCREEN_WIDTH * PPU::SCREEN_HEIGHT, 0);
     InputState m_pendingInput;
     RuntimeControls m_pendingRuntimeControls;
+    PendingInputFrames m_pendingInputFrames;
+    uint32_t m_pendingInputTimelineEpoch = 0;
     FrameInputResolver m_frameInputResolver;
     QueuedInputObserver m_queuedInputObserver;
     SelectedInputObserver m_selectedInputObserver;
@@ -231,10 +251,10 @@ public:
     void setSelectedInputObserver(SelectedInputObserver observer) override;
     void queueReplayInputFrame(const InputFrame& frame) override
     {
-        postCommand([frame](GeraNESEmu& emu) {
+        postCommand([this, frame](GeraNESEmu& emu) {
+            (void)emu;
             InputFrame replayFrame = frame;
-            replayFrame.timelineEpoch = emu.inputTimelineEpoch();
-            emu.queueInputFrame(replayFrame);
+            m_pendingInputFrames.set(replayFrame);
         });
     }
     void queueInputForFrame(uint32_t frameNumber, const InputState& input) override;
@@ -347,7 +367,7 @@ public:
     void discardQueuedNetplayInputsAfter(uint32_t frame)
      override{
         dispatchQueuedCommands();
-        m_emu.discardQueuedInputFramesAfter(frame);
+        m_pendingInputFrames.eraseFramesAfter(frame);
         discardNetplaySnapshotsAfter(frame);
     }
 
@@ -557,22 +577,26 @@ public:
     uint32_t getRegionFPS() const override;
     void configureInputBufferCapacity(size_t capacity) override
     {
-        m_emu.configureInputBufferCapacity(capacity);
+        m_pendingInputFrames.reconfigureCapacity(capacity);
     }
 
     uint32_t inputTimelineEpoch() const override
     {
-        return m_emu.inputTimelineEpoch();
+        return m_pendingInputTimelineEpoch;
     }
 
     void setInputTimelineEpoch(uint32_t timelineEpoch) override
     {
-        m_emu.setInputTimelineEpoch(timelineEpoch);
+        if(m_pendingInputTimelineEpoch == timelineEpoch) {
+            return;
+        }
+        m_pendingInputTimelineEpoch = timelineEpoch;
+        m_pendingInputFrames.clear();
     }
 
     void discardQueuedInputFramesAfter(uint32_t frame) override
     {
-        m_emu.discardQueuedInputFramesAfter(frame);
+        m_pendingInputFrames.eraseFramesAfter(frame);
     }
 
     const uint32_t* getFramebuffer() const override;
@@ -658,9 +682,12 @@ public:
             const uint32_t currentFrame = m_emu.frameCount();
             const ReplayFrameInput replayInput = std::forward<InputProvider>(inputProvider)(currentFrame);
             m_pendingInput = replayInput.state;
-            const InputFrame queuedFrame = queueReplayFrameInputToEmu(m_emu, currentFrame, replayInput);
-            notifyQueuedInputObserver(queuedFrame);
-            notifySelectedInputObserver(queuedFrame);
+            const std::optional<InputFrame> queuedFrame = queueReplayFrameInputToEmu(m_emu, currentFrame, replayInput);
+            if(!queuedFrame.has_value()) {
+                return false;
+            }
+            notifyQueuedInputObserver(*queuedFrame);
+            notifySelectedInputObserver(*queuedFrame);
             lastReplayInput = replayInput;
             hasLastReplayInput = true;
             const uint32_t frameBefore = m_emu.frameCount();

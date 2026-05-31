@@ -223,13 +223,11 @@ private:
     bool m_netplayLoadStateCleanBoot = false;
     std::vector<uint8_t> m_netplayLoadStateData;
     std::optional<bool> m_netplayLoadStateResult;
-    uint32_t m_inputTimelineEpoch = 0;
     uint32_t m_manualResetGeneration = 0;
     uint32_t m_manualLoadStateGeneration = 0;
     bool m_forceSilentAudio = false;
     std::optional<uint32_t> m_lastAudiblyRenderedPlaybackFrame;
     bool m_currentPlaybackFrameRenderedAudibly = false;
-    InputBuffer m_inputBuffer;
     InputFrame m_lastAppliedInputFrame;
     bool m_currentFrameInputLocked = false;
     InputFrame m_lockedPlaybackInputFrame;
@@ -568,7 +566,6 @@ private:
     {
         InputFrame inputFrame;
         inputFrame.frame = frame;
-        inputFrame.timelineEpoch = m_inputTimelineEpoch;
         inputFrame.port1Device = m_settings.getPortDevice(Settings::Port::P_1).value_or(Settings::Device::NONE);
         inputFrame.port2Device = m_settings.getPortDevice(Settings::Port::P_2).value_or(Settings::Device::NONE);
         inputFrame.expansionDevice = m_settings.getExpansionDevice();
@@ -1059,14 +1056,9 @@ private:
         updateCyclesPerSecond();        
         
         if(m_currentFrameInputLocked &&
-           m_lockedPlaybackInputFrame.frame == m_frameCounter &&
-           m_lockedPlaybackInputFrame.timelineEpoch == m_inputTimelineEpoch) {
+           m_lockedPlaybackInputFrame.frame == m_frameCounter) {
             applyInputFrame(m_lockedPlaybackInputFrame);
             m_lastAppliedInputFrame = m_lockedPlaybackInputFrame;
-        } else if(const InputFrame* inputFrame = m_inputBuffer.findByFrame(m_frameCounter, m_inputTimelineEpoch);
-                  inputFrame != nullptr) {
-            applyInputFrame(*inputFrame);
-            m_lastAppliedInputFrame = *inputFrame;
         }
 
         signalInputFrameSelected(m_lastAppliedInputFrame);
@@ -1231,8 +1223,8 @@ private:
         m_forceSilentAudio = false;
         m_audioOutputRewinding = m_rewind.isRewinding();
         m_currentPlaybackFrameRenderedAudibly = false;
-        m_currentFrameInputLocked = false;
         m_lockedPlaybackInputFrame = m_lastAppliedInputFrame;
+        m_currentFrameInputLocked = m_lockedPlaybackInputFrame.frame == m_frameCounter;
         ++m_ppuViewerMapperWriteGeneration;
         m_ppuViewerScanlineSnapshots.clear();
         for(auto& lineState : m_ppuViewerScanlineStates) {
@@ -1450,17 +1442,8 @@ private:
     {
         const uint32_t playbackFrame = m_frameCounter;
         if(!m_currentFrameInputLocked ||
-           m_lockedPlaybackInputFrame.frame != playbackFrame ||
-           m_lockedPlaybackInputFrame.timelineEpoch != m_inputTimelineEpoch) {
-            const InputFrame* queuedInput = m_inputBuffer.findByFrame(playbackFrame, m_inputTimelineEpoch);
-            if(queuedInput == nullptr) {
-                return false;
-            }
-            m_lockedPlaybackInputFrame = *queuedInput;
-            if(!m_inputBuffer.markConsumed(playbackFrame, m_inputTimelineEpoch)) {
-                return false;
-            }
-            m_currentFrameInputLocked = true;
+           m_lockedPlaybackInputFrame.frame != playbackFrame) {
+            return false;
         }
         const bool playbackFrameAlreadyRenderedAudibly =
             m_lastAudiblyRenderedPlaybackFrame.has_value() &&
@@ -1727,7 +1710,6 @@ public:
         m_currentPlaybackFrameRenderedAudibly = false;
 
         m_frameCounter = 0;
-        m_inputBuffer.clear();
         m_lastAppliedInputFrame = makeDefaultInputFrame(0);
         m_currentFrameInputLocked = false;
         m_lockedPlaybackInputFrame = m_lastAppliedInputFrame;
@@ -1961,7 +1943,6 @@ public:
 
             updateCyclesPerSecond();
 
-            m_inputBuffer.clear();
             m_lastAppliedInputFrame = makeDefaultInputFrame(0);
             m_currentFrameInputLocked = false;
             m_lockedPlaybackInputFrame = m_lastAppliedInputFrame;
@@ -2348,10 +2329,9 @@ public:
 
     std::vector<uint8_t> saveCanonicalNetplayStateToMemory(bool includePlaybackInput)
     {
-        const size_t inputBufferCapacity = m_inputBuffer.capacity();
-        InputBuffer savedInputBuffer(inputBufferCapacity);
         const InputFrame savedLastAppliedInputFrame = m_lastAppliedInputFrame;
-        const uint32_t savedInputTimelineEpoch = m_inputTimelineEpoch;
+        const InputFrame savedLockedPlaybackInputFrame = m_lockedPlaybackInputFrame;
+        const bool savedCurrentFrameInputLocked = m_currentFrameInputLocked;
         const bool savedNewFrame = m_newFrame;
         const bool savedFrameStarted = m_frameStarted;
         const bool savedRunningLoop = m_runningLoop;
@@ -2359,21 +2339,17 @@ public:
         const uint32_t savedUpdateCyclesAcc = m_updateCyclesAcc;
         const uint32_t savedAudioRenderCyclesAcc = m_audioRenderCyclesAcc;
         InputFrame serializedPlaybackInput = m_lastAppliedInputFrame;
-        if(const InputFrame* currentPlaybackInput = m_inputBuffer.findByFrame(m_frameCounter, m_inputTimelineEpoch);
-           currentPlaybackInput != nullptr) {
-            serializedPlaybackInput = *currentPlaybackInput;
+        if(m_currentFrameInputLocked && m_lockedPlaybackInputFrame.frame == m_frameCounter) {
+            serializedPlaybackInput = m_lockedPlaybackInputFrame;
         } else if(serializedPlaybackInput.frame != m_frameCounter) {
             serializedPlaybackInput = InputFrame::repeatedFrom(serializedPlaybackInput, m_frameCounter);
         }
         if(!includePlaybackInput) {
             serializedPlaybackInput = makeDefaultInputFrame(m_frameCounter);
-            serializedPlaybackInput.timelineEpoch = 0;
         }
-        std::swap(m_inputBuffer, savedInputBuffer);
-        m_inputBuffer.clear();
-        m_inputBuffer.push(serializedPlaybackInput);
         m_lastAppliedInputFrame = serializedPlaybackInput;
-        m_inputTimelineEpoch = serializedPlaybackInput.timelineEpoch;
+        m_lockedPlaybackInputFrame = serializedPlaybackInput;
+        m_currentFrameInputLocked = serializedPlaybackInput.frame == m_frameCounter;
         m_newFrame = false;
         m_frameStarted = false;
         m_runningLoop = false;
@@ -2390,9 +2366,9 @@ public:
         std::vector<uint8_t> data = s.takeData();
         reserveHint = data.size();
 
-        std::swap(m_inputBuffer, savedInputBuffer);
         m_lastAppliedInputFrame = savedLastAppliedInputFrame;
-        m_inputTimelineEpoch = savedInputTimelineEpoch;
+        m_lockedPlaybackInputFrame = savedLockedPlaybackInputFrame;
+        m_currentFrameInputLocked = savedCurrentFrameInputLocked;
         m_newFrame = savedNewFrame;
         m_frameStarted = savedFrameStarted;
         m_runningLoop = savedRunningLoop;
@@ -2448,6 +2424,11 @@ public:
     GERANES_INLINE std::optional<Settings::Device> getPortDevice(Settings::Port port) const
     {
         return m_settings.getPortDevice(port);
+    }
+
+    void configurePortDevice(Settings::Port port, Settings::Device device)
+    {
+        setPortDevice(port, device);
     }
 
     GERANES_INLINE Settings::ExpansionDevice getExpansionDevice() const
@@ -2660,7 +2641,6 @@ public:
         if(m_fourScore) m_fourScore->serialization(s);
         if(m_HoriAdapter) m_HoriAdapter->serialization(s);
         m_lastAppliedInputFrame.serialization(s);
-        m_inputBuffer.serialization(s);
         SERIALIZEDATA(s, m_updateCyclesAcc);
         SERIALIZEDATA(s, m_cpuCyclesAcc);
         SERIALIZEDATA(s, m_cyclesPerSecond);
@@ -2676,7 +2656,6 @@ public:
         SERIALIZEDATA(s, m_newFrame);
         SERIALIZEDATA(s, m_frameStarted);
         SERIALIZEDATA(s, m_frameCounter);
-        SERIALIZEDATA(s, m_inputTimelineEpoch);
         m_hardwareActions.serialization(s);
 
         SERIALIZEDATA(s, m_runningLoop);
@@ -2687,64 +2666,24 @@ public:
         return makeDefaultInputFrame(frame);
     }
 
-    InputBuffer::EnqueueResult queueInputFrame(const InputFrame& inputFrame)
+    bool setPlaybackInputFrame(const InputFrame& inputFrame)
     {
-        if(inputFrame.timelineEpoch != m_inputTimelineEpoch) {
-            Logger::instance().log(
-                "Rejected input enqueue due to timeline epoch mismatch: frame=" + std::to_string(inputFrame.frame) +
-                " inputEpoch=" + std::to_string(inputFrame.timelineEpoch) +
-                " currentEpoch=" + std::to_string(m_inputTimelineEpoch),
-                Logger::Type::WARNING
-            );
-            return InputBuffer::EnqueueResult::RejectedEpoch;
+        if(inputFrame.frame != m_frameCounter) {
+            return false;
         }
-        if(inputFrame.frame < m_frameCounter) {
-            Logger::instance().log(
-                "Rejected input enqueue for consumed frame: frame=" + std::to_string(inputFrame.frame) +
-                " currentFrame=" + std::to_string(m_frameCounter),
-                Logger::Type::WARNING
-            );
-            return InputBuffer::EnqueueResult::RejectedConsumed;
+        if(m_currentFrameInputLocked && m_frameStarted) {
+            return false;
         }
-        if(inputFrame.frame == m_frameCounter && m_currentFrameInputLocked) {
-            Logger::instance().log(
-                "Rejected input enqueue for locked current frame: frame=" + std::to_string(inputFrame.frame),
-                Logger::Type::WARNING
-            );
-            return InputBuffer::EnqueueResult::RejectedConsumed;
-        }
-        const std::optional<uint32_t> latestQueued = m_inputBuffer.latestFrameForTimelineEpoch(m_inputTimelineEpoch);
-        if(!latestQueued.has_value() && inputFrame.frame != m_frameCounter) {
-            Logger::instance().log(
-                "Rejected out-of-sequence bootstrap input enqueue: frame=" + std::to_string(inputFrame.frame) +
-                " expected=" + std::to_string(m_frameCounter),
-                Logger::Type::WARNING
-            );
-            return InputBuffer::EnqueueResult::RejectedOutOfSequence;
-        }
-        const InputBuffer::EnqueueResult result = m_inputBuffer.push(inputFrame, m_inputTimelineEpoch);
-        if(result == InputBuffer::EnqueueResult::RejectedConsumed) {
-            Logger::instance().log(
-                "Rejected input enqueue for consumed frame in InputBuffer: frame=" + std::to_string(inputFrame.frame),
-                Logger::Type::WARNING
-            );
-        }
-        return result;
+
+        m_lockedPlaybackInputFrame = inputFrame;
+        m_lockedPlaybackInputFrame.frame = m_frameCounter;
+        m_currentFrameInputLocked = true;
+        return true;
     }
 
-    void setInputTimelineEpoch(uint32_t timelineEpoch)
+    bool hasPlaybackInputFrame(uint32_t frame) const
     {
-        if(m_inputTimelineEpoch == timelineEpoch) return;
-        m_inputTimelineEpoch = timelineEpoch;
-        m_inputBuffer.eraseFramesNotMatchingTimelineEpoch(timelineEpoch);
-        m_lastAppliedInputFrame.timelineEpoch = timelineEpoch;
-        m_currentFrameInputLocked = false;
-        m_lockedPlaybackInputFrame.timelineEpoch = timelineEpoch;
-    }
-
-    uint32_t inputTimelineEpoch() const
-    {
-        return m_inputTimelineEpoch;
+        return m_currentFrameInputLocked && m_lockedPlaybackInputFrame.frame == frame;
     }
 
     void setForceSilentAudio(bool silent)
@@ -2755,26 +2694,6 @@ public:
     bool forceSilentAudio() const
     {
         return m_forceSilentAudio;
-    }
-
-    const InputBuffer& inputBuffer() const
-    {
-        return m_inputBuffer;
-    }
-
-    void configureInputBufferCapacity(size_t capacity)
-    {
-        m_inputBuffer.reconfigureCapacity(capacity);
-    }
-
-    InputBuffer::EnqueueCounters inputEnqueueCounters() const
-    {
-        return m_inputBuffer.enqueueCounters();
-    }
-
-    void discardQueuedInputFramesAfter(uint32_t frame)
-    {
-        m_inputBuffer.eraseFramesAfter(frame);
     }
 
     void fdsSwitchDiskSide()

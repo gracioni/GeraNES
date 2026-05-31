@@ -779,7 +779,6 @@ NetplayInputFrame toNetplayInputFrame(const InputFrame& inputFrame)
     const InputFrame::PadButtons bandai = inputFrame.bandaiButtons();
     NetplayInputFrame frame;
     frame.frame = inputFrame.frame;
-    frame.timelineEpoch = inputFrame.timelineEpoch;
     frame.framePayload = makeAdapterFramePayload(inputFrame);
     frame.buttonMaskLo[kPort1PlayerSlot] =
         buildMask(p1.a, p1.b, p1.select, p1.start,
@@ -820,7 +819,6 @@ InputFrame toGeraNESInputFrame(const NetplayInputFrame& inputFrame)
 {
     InputFrame frame;
     frame.frame = inputFrame.frame;
-    frame.timelineEpoch = inputFrame.timelineEpoch;
     AdapterFramePayload adapterPayload;
     if(readAdapterFramePayload(inputFrame, adapterPayload)) {
         applyInputTopology(frame, adapterPayload.inputTopology);
@@ -851,7 +849,6 @@ InputFrame makeRoomTopologyBaseFrame(FrameNumber frame, const RoomState& room)
 {
     InputFrame inputFrame{};
     inputFrame.frame = frame;
-    inputFrame.timelineEpoch = room.timelineEpoch;
     applyInputTopology(inputFrame, roomInputTopology(room));
     return inputFrame;
 }
@@ -862,7 +859,6 @@ InputFrame makeContributionBase(const InputFrame& baseFrame)
 {
     InputFrame contribution{};
     contribution.frame = baseFrame.frame;
-    contribution.timelineEpoch = baseFrame.timelineEpoch;
     contribution.port1Device = baseFrame.port1Device;
     contribution.port2Device = baseFrame.port2Device;
     contribution.expansionDevice = baseFrame.expansionDevice;

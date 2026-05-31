@@ -206,14 +206,13 @@ private:
             emu.setAllowPresenterTimeoutAdvance(false);
             emu.setFrameInputResolver({});
             emu.setPreAdvanceHook([this](GeraNESEmu& emuRef) {
-                emuRef.setInputTimelineEpoch(coordinator.session().roomState().timelineEpoch);
                 driver.consumePendingFrames(
                     emuRef.frameCount(),
-                    emuRef.frameCount() + driver.prebufferFrames(),
+                    emuRef.frameCount(),
                     [&emuRef](const ConsoleNetplay::NetplayCoordinator::ConfirmedFrameInputs& confirmed) {
                         InputFrame inputFrame = GeraNESNetplay::toGeraNESInputFrame(confirmed.netplayFrame);
-                        inputFrame.timelineEpoch = emuRef.inputTimelineEpoch();
-                        (void)emuRef.queueInputFrame(inputFrame);
+                        inputFrame.frame = confirmed.frame;
+                        (void)emuRef.setPlaybackInputFrame(inputFrame);
                     }
                 );
             });
@@ -322,7 +321,6 @@ private:
 
         return {
             {"frame", frame.frame},
-            {"timelineEpoch", frame.timelineEpoch},
             {"port1Device", static_cast<int>(frame.port1Device)},
             {"port2Device", static_cast<int>(frame.port2Device)},
             {"expansionDevice", static_cast<int>(frame.expansionDevice)},
@@ -687,11 +685,7 @@ private:
 
     static void queueConfirmedFrames(PeerState& peer)
     {
-        const uint32_t throughFrame = confirmedThroughFrame(peer);
-        while(peer.queuedThroughFrame < throughFrame) {
-            ++peer.queuedThroughFrame;
-            peer.emu.queueInputFrame(buildEmuInputFrame(peer, peer.queuedThroughFrame));
-        }
+        peer.queuedThroughFrame = confirmedThroughFrame(peer);
     }
 
     static bool advanceExactlyOneFrame(PeerState& peer)
@@ -699,11 +693,10 @@ private:
         if(!peer.emu.valid()) return false;
 
         const uint32_t previousFrame = peer.emu.frameCount();
-        uint32_t guard = 0;
-        while(peer.emu.valid() && peer.emu.frameCount() == previousFrame && guard < 4096u) {
-            peer.emu.update(1u);
-            ++guard;
+        if(!peer.emu.setPlaybackInputFrame(buildEmuInputFrame(peer, previousFrame))) {
+            return false;
         }
+        peer.emu.updateUntilFrame(1u);
 
         return peer.emu.valid() && peer.emu.frameCount() == previousFrame + 1u;
     }
@@ -738,8 +731,8 @@ private:
         }
         const auto* latestConfirmedFrame = peer.coordinator.findConfirmedFrame(peer.coordinator.latestConfirmedFrame());
 
-        const InputFrame* frame0 = peer.emu.inputBuffer().findByFrame(0, peer.emu.inputTimelineEpoch());
-        const InputFrame* frame1 = peer.emu.inputBuffer().findByFrame(1, peer.emu.inputTimelineEpoch());
+        const auto* frame0 = peer.coordinator.findConfirmedFrame(0);
+        const auto* frame1 = peer.coordinator.findConfirmedFrame(1);
         const std::vector<uint8_t> state = peer.emu.saveStateToMemory();
 
         return {
@@ -752,9 +745,11 @@ private:
             {"confirmedThroughFrame", confirmedThroughFrame(peer)},
             {"crc32", peer.emu.valid() ? peer.emu.canonicalStateCrc32() : 0u},
             {"stateSize", state.size()},
-            {"inputBufferSize", peer.emu.inputBuffer().size()},
-            {"inputFrame0", frame0 != nullptr ? inputFrameToJson(*frame0) : nlohmann::json()},
-            {"inputFrame1", frame1 != nullptr ? inputFrameToJson(*frame1) : nlohmann::json()},
+            {"inputBufferSize", peer.queuedThroughFrame > peer.emu.frameCount()
+                ? (peer.queuedThroughFrame - peer.emu.frameCount() + 1u)
+                : 0u},
+            {"inputFrame0", frame0 != nullptr ? inputFrameToJson(toGeraNESInputFrame(frame0->netplayFrame)) : nlohmann::json()},
+            {"inputFrame1", frame1 != nullptr ? inputFrameToJson(toGeraNESInputFrame(frame1->netplayFrame)) : nlohmann::json()},
             {"localTimelineSize", peer.coordinator.localInputs().size()},
             {"remoteTimelineSize", peer.coordinator.remoteInputs().size()},            {"latestLocalFrame", latestLocal != nullptr ? nlohmann::json{
                 {"frame", latestLocal->frame},
@@ -845,35 +840,34 @@ private:
         nlohmann::json currentFrameJson;
         nlohmann::json previousFrameJson;
         nlohmann::json inputWindow = nlohmann::json::array();
-        peer.emu.withExclusiveAccess([&](auto& innerEmu) {
-            inputBufferSize = static_cast<uint32_t>(innerEmu.inputBuffer().size());
-            const uint32_t frame = exactFrame;
-            const uint32_t timelineEpoch = innerEmu.inputTimelineEpoch();
-            expectedPlaybackFrame = frame;
-            hasExpectedFrameInput = innerEmu.inputBuffer().findByFrame(frame, timelineEpoch) != nullptr;
-            hasNextFrameInput = innerEmu.inputBuffer().findByFrame(frame + 1u, timelineEpoch) != nullptr;
-            for(uint32_t probe = frame + 1u; probe < frame + 256u; ++probe) {
-                if(innerEmu.inputBuffer().findByFrame(probe, timelineEpoch) == nullptr) {
-                    break;
-                }
-                ++futureBufferedFrames;
+        expectedPlaybackFrame = exactFrame;
+        const uint32_t confirmedThrough = peer.coordinator.latestConfirmedFrame();
+        inputBufferSize = confirmedThrough >= expectedPlaybackFrame
+            ? (confirmedThrough - expectedPlaybackFrame + 1u)
+            : 0u;
+        hasExpectedFrameInput = expectedPlaybackFrame <= confirmedThrough;
+        hasNextFrameInput = (expectedPlaybackFrame + 1u) <= confirmedThrough;
+        for(uint32_t probe = expectedPlaybackFrame + 1u; probe <= confirmedThrough; ++probe) {
+            ++futureBufferedFrames;
+        }
+        const uint32_t windowStart = expectedPlaybackFrame > 2u ? expectedPlaybackFrame - 2u : 0u;
+        for(uint32_t probe = windowStart; probe <= expectedPlaybackFrame + 4u; ++probe) {
+            ConsoleNetplay::NetplayCoordinator::ConfirmedFrameInputs confirmed;
+            if(!peer.coordinator.tryBuildPlaybackFrame(probe, confirmed)) {
+                continue;
             }
-            if(const InputFrame* previousFrame = innerEmu.inputBuffer().findByFrame(frame, timelineEpoch); previousFrame != nullptr) {
-                previousFrameJson = inputFrameToJson(*previousFrame);
+            const InputFrame inputFrame = GeraNESNetplay::toGeraNESInputFrame(confirmed.netplayFrame);
+            if(probe == expectedPlaybackFrame) {
+                previousFrameJson = inputFrameToJson(inputFrame);
             }
-            if(const InputFrame* nextFrame = innerEmu.inputBuffer().findByFrame(frame + 1u, timelineEpoch); nextFrame != nullptr) {
-                nextFrameJson = inputFrameToJson(*nextFrame);
+            if(probe == expectedPlaybackFrame + 1u) {
+                nextFrameJson = inputFrameToJson(inputFrame);
             }
-            if(const InputFrame* currentFrame = innerEmu.inputBuffer().findByFrame(frame + 2u, timelineEpoch); currentFrame != nullptr) {
-                currentFrameJson = inputFrameToJson(*currentFrame);
+            if(probe == expectedPlaybackFrame + 2u) {
+                currentFrameJson = inputFrameToJson(inputFrame);
             }
-            const uint32_t windowStart = frame > 2u ? frame - 2u : 0u;
-            for(uint32_t probe = windowStart; probe <= frame + 4u; ++probe) {
-                if(const InputFrame* entry = innerEmu.inputBuffer().findByFrame(probe, timelineEpoch); entry != nullptr) {
-                    inputWindow.push_back(inputFrameToJson(*entry));
-                }
-            }
-        });
+            inputWindow.push_back(inputFrameToJson(inputFrame));
+        }
 
         nlohmann::json confirmedWindow = nlohmann::json::array();
         const uint32_t confirmedTail = peer.coordinator.latestConfirmedFrame();
@@ -1207,36 +1201,6 @@ private:
         }
     }
 
-    template<typename InspectFn>
-    static bool emuHasBufferedPattern(InspectFn&& inspect,
-                                      const DeterministicInputGenerator& hostGenerator,
-                                      const DeterministicInputGenerator& clientGenerator,
-                                      uint32_t windowStartFrame,
-                                      uint32_t windowEndFrame,
-                                      ConsoleNetplay::PlayerSlot hostSlot,
-                                      ConsoleNetplay::PlayerSlot clientSlot,
-                                      const Options& options,
-                                      bool swapped)
-    {
-        bool matched = false;
-        inspect([&](auto& innerEmu) {
-            const uint32_t fps = std::max<uint32_t>(1u, innerEmu.getRegionFPS());
-            for(uint32_t probeFrame = windowStartFrame; probeFrame <= windowEndFrame; ++probeFrame) {
-                const InputFrame* inputFrame = innerEmu.inputBuffer().findByFrame(probeFrame, innerEmu.inputTimelineEpoch());
-                if(inputFrame == nullptr) continue;
-
-                const Buttons hostButtons = runtimeButtonsForPeer(options, hostGenerator, true, swapped, probeFrame, fps);
-                const Buttons clientButtons = runtimeButtonsForPeer(options, clientGenerator, false, swapped, probeFrame, fps);
-                if(inputFrameMatchesButtonsForSlot(*inputFrame, hostSlot, hostButtons) &&
-                   inputFrameMatchesButtonsForSlot(*inputFrame, clientSlot, clientButtons)) {
-                    matched = true;
-                    return;
-                }
-            }
-        });
-        return matched;
-    }
-
     template<typename PeerT>
     static bool peerHasBufferedPattern(PeerT& peer,
                                        const DeterministicInputGenerator& hostGenerator,
@@ -1248,19 +1212,22 @@ private:
                                        const Options& options,
                                        bool swapped)
     {
-        return emuHasBufferedPattern(
-            [&](auto&& fn) {
-                peer.emu.withExclusiveAccess(fn);
-            },
-            hostGenerator,
-            clientGenerator,
-            windowStartFrame,
-            windowEndFrame,
-            hostSlot,
-            clientSlot,
-            options,
-            swapped
-        );
+        const uint32_t fps = std::max<uint32_t>(1u, peer.emu.getRegionFPS());
+        for(uint32_t probeFrame = windowStartFrame; probeFrame <= windowEndFrame; ++probeFrame) {
+            ConsoleNetplay::NetplayCoordinator::ConfirmedFrameInputs confirmed;
+            if(!peer.coordinator.tryBuildPlaybackFrame(probeFrame, confirmed)) {
+                continue;
+            }
+
+            const InputFrame inputFrame = GeraNESNetplay::toGeraNESInputFrame(confirmed.netplayFrame);
+            const Buttons hostButtons = runtimeButtonsForPeer(options, hostGenerator, true, swapped, probeFrame, fps);
+            const Buttons clientButtons = runtimeButtonsForPeer(options, clientGenerator, false, swapped, probeFrame, fps);
+            if(inputFrameMatchesButtonsForSlot(inputFrame, hostSlot, hostButtons) &&
+               inputFrameMatchesButtonsForSlot(inputFrame, clientSlot, clientButtons)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     template<typename PeerT>
@@ -1271,21 +1238,19 @@ private:
                                             ConsoleNetplay::PlayerSlot slot,
                                             const Options& options)
     {
-        bool matched = false;
-        peer.emu.withExclusiveAccess([&](auto& innerEmu) {
-            const uint32_t fps = std::max<uint32_t>(1u, innerEmu.getRegionFPS());
-            for(uint32_t probeFrame = windowStartFrame; probeFrame <= windowEndFrame; ++probeFrame) {
-                const InputFrame* inputFrame = innerEmu.inputBuffer().findByFrame(probeFrame, innerEmu.inputTimelineEpoch());
-                if(inputFrame == nullptr) continue;
-
-                const Buttons buttons = runtimeButtonsForPeer(options, generator, true, false, probeFrame, fps);
-                if(inputFrameMatchesButtonsForSlot(*inputFrame, slot, buttons)) {
-                    matched = true;
-                    return;
-                }
+        const uint32_t fps = std::max<uint32_t>(1u, peer.emu.getRegionFPS());
+        for(uint32_t probeFrame = windowStartFrame; probeFrame <= windowEndFrame; ++probeFrame) {
+            ConsoleNetplay::NetplayCoordinator::ConfirmedFrameInputs confirmed;
+            if(!peer.coordinator.tryBuildPlaybackFrame(probeFrame, confirmed)) {
+                continue;
             }
-        });
-        return matched;
+            const InputFrame inputFrame = GeraNESNetplay::toGeraNESInputFrame(confirmed.netplayFrame);
+            const Buttons buttons = runtimeButtonsForPeer(options, generator, true, false, probeFrame, fps);
+            if(inputFrameMatchesButtonsForSlot(inputFrame, slot, buttons)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     static bool peerHasBufferedPattern(AppPeerState& peer,
@@ -1298,10 +1263,8 @@ private:
                                        const Options& options,
                                        bool swapped)
     {
-        return emuHasBufferedPattern(
-            [&](auto&& fn) {
-                peer.emu.withExclusiveAccess(fn);
-            },
+        return peerHasBufferedPattern<AppPeerState>(
+            peer,
             hostGenerator,
             clientGenerator,
             windowStartFrame,
@@ -1344,36 +1307,34 @@ private:
         uint32_t expectedPlaybackFrame = 0;
         bool hasExpectedFrameInput = false;
         bool hasNextFrameInput = false;
-        InputBuffer::EnqueueCounters enqueueCounters{};
         nlohmann::json currentFrameJson;
         nlohmann::json nextFrameJson;
         nlohmann::json inputWindow = nlohmann::json::array();
-        peer.emu.withExclusiveAccess([&](auto& innerEmu) {
-            inputBufferSize = static_cast<uint32_t>(innerEmu.inputBuffer().size());
-            expectedPlaybackFrame = innerEmu.frameCount();
-            const uint32_t timelineEpoch = innerEmu.inputTimelineEpoch();
-            hasExpectedFrameInput = innerEmu.inputBuffer().findByFrame(expectedPlaybackFrame, timelineEpoch) != nullptr;
-            hasNextFrameInput = innerEmu.inputBuffer().findByFrame(expectedPlaybackFrame + 1u, timelineEpoch) != nullptr;
-            if(const InputFrame* current = innerEmu.inputBuffer().findByFrame(expectedPlaybackFrame, timelineEpoch); current != nullptr) {
-                currentFrameJson = inputFrameToJson(*current);
+        expectedPlaybackFrame = peer.emu.frameCount();
+        const uint32_t confirmedThrough = snapshot.room.lastConfirmedFrame;
+        inputBufferSize = confirmedThrough >= expectedPlaybackFrame
+            ? (confirmedThrough - expectedPlaybackFrame + 1u)
+            : 0u;
+        hasExpectedFrameInput = expectedPlaybackFrame <= confirmedThrough;
+        hasNextFrameInput = (expectedPlaybackFrame + 1u) <= confirmedThrough;
+        for(uint32_t probe = expectedPlaybackFrame + 1u; probe <= confirmedThrough; ++probe) {
+            ++futureBufferedFrames;
+        }
+        const uint32_t windowStart = expectedPlaybackFrame > 2u ? expectedPlaybackFrame - 2u : 0u;
+        for(uint32_t probe = windowStart; probe <= expectedPlaybackFrame + 4u; ++probe) {
+            ConsoleNetplay::NetplayCoordinator::ConfirmedFrameInputs confirmed;
+            if(!peer.runtime.tryBuildPlaybackFrame(probe, confirmed)) {
+                continue;
             }
-            if(const InputFrame* next = innerEmu.inputBuffer().findByFrame(expectedPlaybackFrame + 1u, timelineEpoch); next != nullptr) {
-                nextFrameJson = inputFrameToJson(*next);
+            const InputFrame inputFrame = GeraNESNetplay::toGeraNESInputFrame(confirmed.netplayFrame);
+            if(probe == expectedPlaybackFrame) {
+                currentFrameJson = inputFrameToJson(inputFrame);
             }
-            for(uint32_t probe = expectedPlaybackFrame + 1u; probe < expectedPlaybackFrame + 256u; ++probe) {
-                if(innerEmu.inputBuffer().findByFrame(probe, timelineEpoch) == nullptr) {
-                    break;
-                }
-                ++futureBufferedFrames;
+            if(probe == expectedPlaybackFrame + 1u) {
+                nextFrameJson = inputFrameToJson(inputFrame);
             }
-            const uint32_t windowStart = expectedPlaybackFrame > 2u ? expectedPlaybackFrame - 2u : 0u;
-            for(uint32_t probe = windowStart; probe <= expectedPlaybackFrame + 4u; ++probe) {
-                if(const InputFrame* entry = innerEmu.inputBuffer().findByFrame(probe, timelineEpoch); entry != nullptr) {
-                    inputWindow.push_back(inputFrameToJson(*entry));
-                }
-            }
-            enqueueCounters = innerEmu.inputEnqueueCounters();
-        });
+            inputWindow.push_back(inputFrameToJson(inputFrame));
+        }
 
         peer.maxObservedInputBufferSize = std::max(peer.maxObservedInputBufferSize, inputBufferSize);
         peer.maxObservedFutureBufferedFrames = std::max(peer.maxObservedFutureBufferedFrames, futureBufferedFrames);
@@ -1700,10 +1661,10 @@ private:
         if(options.preSessionWarmupFrames > 0) {
             hostPeer.emu.setSimulationSuspended(true);
             const bool warmed = hostPeer.emu.withExclusiveAccess([&](auto& innerEmu) {
-                for(uint32_t frame = 0; frame <= options.preSessionWarmupFrames + 2u; ++frame) {
-                    innerEmu.queueInputFrame(innerEmu.createInputFrame(frame));
-                }
                 for(uint32_t step = 0; step < options.preSessionWarmupFrames; ++step) {
+                    if(!innerEmu.setPlaybackInputFrame(innerEmu.createInputFrame(innerEmu.frameCount()))) {
+                        return false;
+                    }
                     innerEmu.updateUntilFrame(16u);
                 }
                 return innerEmu.frameCount() >= options.preSessionWarmupFrames;
@@ -3210,10 +3171,10 @@ private:
 
         if(options.preSessionWarmupFrames > 0) {
             const bool warmed = hostPeer.emu.withExclusiveAccess([&](auto& innerEmu) {
-                for(uint32_t frame = 1; frame <= options.preSessionWarmupFrames + 2u; ++frame) {
-                    innerEmu.queueInputFrame(innerEmu.createInputFrame(frame));
-                }
                 for(uint32_t step = 0; step < options.preSessionWarmupFrames; ++step) {
+                    if(!innerEmu.setPlaybackInputFrame(innerEmu.createInputFrame(innerEmu.frameCount()))) {
+                        return false;
+                    }
                     innerEmu.updateUntilFrame(16);
                 }
                 return innerEmu.frameCount() >= options.preSessionWarmupFrames;
@@ -3389,9 +3350,6 @@ private:
             (pending->targetFrame == 0u || loadedFrame == pending->targetFrame);
         const uint32_t loadedCrc32 = loadedExpectedFrame ? peer.emu.canonicalNetplayStateCrc32() : 0u;
         if(loadedExpectedFrame) {
-            peer.emu.withExclusiveAccess([&](auto& emu) {
-                emu.setInputTimelineEpoch(peer.coordinator.session().roomState().timelineEpoch);
-            });
             peer.coordinator.setLocalSimulationFrame(pending->targetFrame);
             peer.emu.seedNetplaySnapshot(pending->targetFrame, pending->payload, loadedCrc32);
             peer.emu.setAuthoritativeFrameReadyState(
@@ -3466,12 +3424,8 @@ private:
 
     static bool appPeerHasImmediateNextFrameInput(AppPeerState& peer, uint32_t frame)
     {
-        bool hasNextFrameInput = false;
-        peer.emu.withExclusiveAccess([&](auto& innerEmu) {
-            hasNextFrameInput =
-                innerEmu.inputBuffer().findByFrame(frame + 1u, innerEmu.inputTimelineEpoch()) != nullptr;
-        });
-        return hasNextFrameInput;
+        ConsoleNetplay::NetplayCoordinator::ConfirmedFrameInputs confirmed;
+        return peer.coordinator.tryBuildPlaybackFrame(frame + 1u, confirmed);
     }
 
     static bool advanceAppPeerExactlyOneFrame(AppPeerState& peer)
@@ -3730,36 +3684,22 @@ private:
             const uint32_t newHostFrame = hostPeer.emu.exactEmulationFrame();
             const uint32_t newClientFrame = clientPeer.emu.exactEmulationFrame();
 
-            hostPeer.emu.withExclusiveAccess([&](auto& emu) {
-                hostPeer.maxObservedInputBufferSize = std::max<uint32_t>(
-                    hostPeer.maxObservedInputBufferSize,
-                    static_cast<uint32_t>(emu.inputBuffer().size())
-                );
-                uint32_t futureBufferedFrames = 0;
-                const uint32_t frame = emu.frameCount();
-                for(uint32_t probe = frame + 1u; probe < frame + 256u; ++probe) {
-                    if(emu.inputBuffer().findByFrame(probe, emu.inputTimelineEpoch()) == nullptr) {
-                        break;
-                    }
-                    ++futureBufferedFrames;
-                }
+            {
+                const uint32_t frame = hostPeer.emu.frameCount();
+                const uint32_t confirmedThrough = hostPeer.coordinator.latestConfirmedFrame();
+                const uint32_t bufferedCount = confirmedThrough >= frame ? (confirmedThrough - frame + 1u) : 0u;
+                const uint32_t futureBufferedFrames = confirmedThrough > frame ? (confirmedThrough - frame) : 0u;
+                hostPeer.maxObservedInputBufferSize = std::max(hostPeer.maxObservedInputBufferSize, bufferedCount);
                 hostPeer.maxObservedFutureBufferedFrames = std::max(hostPeer.maxObservedFutureBufferedFrames, futureBufferedFrames);
-            });
-            clientPeer.emu.withExclusiveAccess([&](auto& emu) {
-                clientPeer.maxObservedInputBufferSize = std::max<uint32_t>(
-                    clientPeer.maxObservedInputBufferSize,
-                    static_cast<uint32_t>(emu.inputBuffer().size())
-                );
-                uint32_t futureBufferedFrames = 0;
-                const uint32_t frame = emu.frameCount();
-                for(uint32_t probe = frame + 1u; probe < frame + 256u; ++probe) {
-                    if(emu.inputBuffer().findByFrame(probe, emu.inputTimelineEpoch()) == nullptr) {
-                        break;
-                    }
-                    ++futureBufferedFrames;
-                }
+            }
+            {
+                const uint32_t frame = clientPeer.emu.frameCount();
+                const uint32_t confirmedThrough = clientPeer.coordinator.latestConfirmedFrame();
+                const uint32_t bufferedCount = confirmedThrough >= frame ? (confirmedThrough - frame + 1u) : 0u;
+                const uint32_t futureBufferedFrames = confirmedThrough > frame ? (confirmedThrough - frame) : 0u;
+                clientPeer.maxObservedInputBufferSize = std::max(clientPeer.maxObservedInputBufferSize, bufferedCount);
                 clientPeer.maxObservedFutureBufferedFrames = std::max(clientPeer.maxObservedFutureBufferedFrames, futureBufferedFrames);
-            });
+            }
             hostPeer.maxObservedPendingFrameCount = std::max(hostPeer.maxObservedPendingFrameCount, hostPeer.driver.pendingFrameCount());
             clientPeer.maxObservedPendingFrameCount = std::max(clientPeer.maxObservedPendingFrameCount, clientPeer.driver.pendingFrameCount());
 
@@ -4132,12 +4072,14 @@ private:
             queueConfirmedFrames(hostPeer);
             queueConfirmedFrames(clientPeer);
 
+            ConsoleNetplay::NetplayCoordinator::ConfirmedFrameInputs hostNextFrame;
+            ConsoleNetplay::NetplayCoordinator::ConfirmedFrameInputs clientNextFrame;
             const bool hostCanAdvance =
                 hostPeer.emu.frameCount() < options.frames &&
-                hostPeer.emu.inputBuffer().findByFrame(hostPeer.emu.frameCount() + 1u, hostPeer.emu.inputTimelineEpoch()) != nullptr;
+                hostPeer.coordinator.tryBuildPlaybackFrame(hostPeer.emu.frameCount(), hostNextFrame);
             const bool clientCanAdvance =
                 clientPeer.emu.frameCount() < options.frames &&
-                clientPeer.emu.inputBuffer().findByFrame(clientPeer.emu.frameCount() + 1u, clientPeer.emu.inputTimelineEpoch()) != nullptr;
+                clientPeer.coordinator.tryBuildPlaybackFrame(clientPeer.emu.frameCount(), clientNextFrame);
 
             if(hostCanAdvance != clientCanAdvance) {
                 failureReason = "Only one peer can advance the next frame.";
