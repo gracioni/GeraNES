@@ -2671,10 +2671,6 @@ public:
         if(inputFrame.frame != m_frameCounter) {
             return false;
         }
-        if(m_currentFrameInputLocked && m_frameStarted) {
-            return false;
-        }
-
         m_lockedPlaybackInputFrame = inputFrame;
         m_lockedPlaybackInputFrame.frame = m_frameCounter;
         m_currentFrameInputLocked = true;

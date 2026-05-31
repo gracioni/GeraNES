@@ -748,8 +748,8 @@ private:
             {"inputBufferSize", peer.queuedThroughFrame > peer.emu.frameCount()
                 ? (peer.queuedThroughFrame - peer.emu.frameCount() + 1u)
                 : 0u},
-            {"inputFrame0", frame0 != nullptr ? inputFrameToJson(toGeraNESInputFrame(frame0->netplayFrame)) : nlohmann::json()},
-            {"inputFrame1", frame1 != nullptr ? inputFrameToJson(toGeraNESInputFrame(frame1->netplayFrame)) : nlohmann::json()},
+            {"inputFrame0", frame0 != nullptr ? inputFrameToJson(GeraNESNetplay::toGeraNESInputFrame(frame0->netplayFrame)) : nlohmann::json()},
+            {"inputFrame1", frame1 != nullptr ? inputFrameToJson(GeraNESNetplay::toGeraNESInputFrame(frame1->netplayFrame)) : nlohmann::json()},
             {"localTimelineSize", peer.coordinator.localInputs().size()},
             {"remoteTimelineSize", peer.coordinator.remoteInputs().size()},            {"latestLocalFrame", latestLocal != nullptr ? nlohmann::json{
                 {"frame", latestLocal->frame},
@@ -1202,6 +1202,18 @@ private:
     }
 
     template<typename PeerT>
+    static auto& playbackFrameSourceForPeer(PeerT& peer)
+    {
+        return peer.coordinator;
+    }
+
+    template<typename HostT>
+    static auto& playbackFrameSourceForPeer(RuntimePeerStateT<HostT>& peer)
+    {
+        return peer.runtime;
+    }
+
+    template<typename PeerT>
     static bool peerHasBufferedPattern(PeerT& peer,
                                        const DeterministicInputGenerator& hostGenerator,
                                        const DeterministicInputGenerator& clientGenerator,
@@ -1213,9 +1225,10 @@ private:
                                        bool swapped)
     {
         const uint32_t fps = std::max<uint32_t>(1u, peer.emu.getRegionFPS());
+        auto& playbackSource = playbackFrameSourceForPeer(peer);
         for(uint32_t probeFrame = windowStartFrame; probeFrame <= windowEndFrame; ++probeFrame) {
             ConsoleNetplay::NetplayCoordinator::ConfirmedFrameInputs confirmed;
-            if(!peer.coordinator.tryBuildPlaybackFrame(probeFrame, confirmed)) {
+            if(!playbackSource.tryBuildPlaybackFrame(probeFrame, confirmed)) {
                 continue;
             }
 
@@ -1239,9 +1252,10 @@ private:
                                             const Options& options)
     {
         const uint32_t fps = std::max<uint32_t>(1u, peer.emu.getRegionFPS());
+        auto& playbackSource = playbackFrameSourceForPeer(peer);
         for(uint32_t probeFrame = windowStartFrame; probeFrame <= windowEndFrame; ++probeFrame) {
             ConsoleNetplay::NetplayCoordinator::ConfirmedFrameInputs confirmed;
-            if(!peer.coordinator.tryBuildPlaybackFrame(probeFrame, confirmed)) {
+            if(!playbackSource.tryBuildPlaybackFrame(probeFrame, confirmed)) {
                 continue;
             }
             const InputFrame inputFrame = GeraNESNetplay::toGeraNESInputFrame(confirmed.netplayFrame);
@@ -1419,13 +1433,6 @@ private:
             {"currentFrameInput", currentFrameJson},
             {"nextFrameInput", nextFrameJson},
             {"inputWindow", inputWindow},
-            {"inputEnqueueCounters", {
-                {"inserted", enqueueCounters.inserted},
-                {"updatedPending", enqueueCounters.updatedPending},
-                {"rejectedConsumed", enqueueCounters.rejectedConsumed},
-                {"rejectedEpoch", enqueueCounters.rejectedEpoch},
-                {"rejectedOutOfSequence", enqueueCounters.rejectedOutOfSequence}
-            }},
             {"participants", participants},
             {"eventLogTail", snapshot.eventLog}
         };
