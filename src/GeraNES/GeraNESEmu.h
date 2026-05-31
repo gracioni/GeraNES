@@ -2268,7 +2268,7 @@ public:
 
             PendingNetplaySnapshot snapshot;
         snapshot.frame = m_frameCounter;
-            snapshot.data = saveNetplayStateToMemory();
+            snapshot.data = saveStateToMemory();
             m_netplaySnapshotResult = std::move(snapshot);
             return;
         }
@@ -2358,25 +2358,10 @@ public:
         return saveCanonicalStateToMemory();
     }
 
-    std::vector<uint8_t> saveCanonicalNetplayStateToMemory()
-    {
-        return saveCanonicalStateToMemory();
-    }
-
-    std::vector<uint8_t> saveNetplayStateToMemory()
-    {
-        return saveCanonicalStateToMemory();
-    }
-
-    std::vector<uint8_t> saveNetplaySnapshotStateToMemory()
-    {
-        return saveCanonicalStateToMemory();
-    }
-
     NetplaySnapshotWithCrc32 saveNetplaySnapshotWithCrc32()
     {
         NetplaySnapshotWithCrc32 snapshot;
-        snapshot.data = saveCanonicalNetplayStateToMemory();
+        snapshot.data = saveStateToMemory();
         snapshot.crc32 = canonicalNetplayStateCrc32();
         return snapshot;
     }

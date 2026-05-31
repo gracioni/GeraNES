@@ -206,7 +206,6 @@ public:
     virtual void updateUntilFrame(uint32_t dt) = 0;
     virtual void configureNetplaySnapshots(size_t snapshotCapacity) = 0;
     virtual std::vector<uint8_t> saveStateToMemory() = 0;
-    virtual std::vector<uint8_t> saveNetplayStateToMemory() = 0;
     virtual bool loadStateFromMemory(const std::vector<uint8_t>& data) = 0;
     virtual bool loadStateFromMemoryOnCleanBoot(const std::vector<uint8_t>& data) = 0;
     virtual bool loadStateFromMemoryAsManualStateChange(const std::vector<uint8_t>& data) = 0;

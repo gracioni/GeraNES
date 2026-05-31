@@ -58,7 +58,7 @@ public:
     virtual void setInputTimelineEpoch(uint32_t epoch) = 0;
     virtual void discardQueuedInputFramesAfter(FrameNumber frame) = 0;
     virtual bool loadStateFromMemoryOnCleanBoot(const std::vector<uint8_t>& payload) = 0;
-    virtual std::vector<uint8_t> saveNetplayStateToMemory() = 0;
+    virtual std::vector<uint8_t> saveStateToMemory() = 0;
     virtual uint32_t canonicalNetplayStateCrc32() = 0;
 };
 
@@ -95,7 +95,7 @@ public:
     {
         return m_host.loadStateFromMemoryOnCleanBoot(payload);
     }
-    std::vector<uint8_t> saveNetplayStateToMemory() override { return m_host.saveNetplayStateToMemory(); }
+    std::vector<uint8_t> saveStateToMemory() override { return m_host.saveStateToMemory(); }
     uint32_t canonicalNetplayStateCrc32() override { return m_host.canonicalNetplayStateCrc32(); }
 
 private:

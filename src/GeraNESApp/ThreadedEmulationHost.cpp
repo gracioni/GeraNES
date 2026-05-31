@@ -824,15 +824,9 @@ void ThreadedEmulationHost::configureNetplaySnapshots(size_t snapshotCapacity)
 
 std::vector<uint8_t> ThreadedEmulationHost::saveStateToMemory()
 {
-    std::scoped_lock emuLock(m_emuMutex);
-    return m_emu.saveStateToMemory();
-}
-
-std::vector<uint8_t> ThreadedEmulationHost::saveNetplayStateToMemory()
-{
     if(hasDirectEmuAccess()) {
         const auto saveStart = HostTimingClock::now();
-        std::vector<uint8_t> data = m_emu.saveNetplayStateToMemory();
+        std::vector<uint8_t> data = m_emu.saveStateToMemory();
         const uint64_t elapsedUs = elapsedMicrosSince(saveStart);
         {
             std::scoped_lock netplayLock(m_netplaySnapshotMutex);
@@ -847,7 +841,7 @@ std::vector<uint8_t> ThreadedEmulationHost::saveNetplayStateToMemory()
     {
         std::scoped_lock emuLock(m_emuMutex);
         const auto saveStart = HostTimingClock::now();
-        data = m_emu.saveNetplayStateToMemory();
+        data = m_emu.saveStateToMemory();
         elapsedUs = elapsedMicrosSince(saveStart);
     }
     {

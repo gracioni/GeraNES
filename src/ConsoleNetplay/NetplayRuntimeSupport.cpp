@@ -243,7 +243,7 @@ std::vector<uint8_t> runtimeBuildAuthoritativeStatePayload(INetplayStateBridge& 
         }
     }
 
-    return emu.saveNetplayStateToMemory();
+    return emu.saveStateToMemory();
 }
 
 uint32_t runtimeComputeAuthoritativeStateCrc32(INetplayStateBridge& emu,

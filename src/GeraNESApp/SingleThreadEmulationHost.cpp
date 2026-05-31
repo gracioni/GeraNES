@@ -606,13 +606,8 @@ void SingleThreadEmulationHost::configureNetplaySnapshots(size_t snapshotCapacit
 
 std::vector<uint8_t> SingleThreadEmulationHost::saveStateToMemory()
 {
-    return m_emu.saveStateToMemory();
-}
-
-std::vector<uint8_t> SingleThreadEmulationHost::saveNetplayStateToMemory()
-{
     const auto saveStart = HostTimingClock::now();
-    std::vector<uint8_t> data = m_emu.saveNetplayStateToMemory();
+    std::vector<uint8_t> data = m_emu.saveStateToMemory();
     m_netplayDiagnostics.netplayStateSaveTiming.record(elapsedMicrosSince(saveStart));
     m_netplayDiagnostics.netplayStateSerializedBytes.record(data.size());
     return data;

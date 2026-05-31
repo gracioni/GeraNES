@@ -446,7 +446,7 @@ public:
         lastDiscardedAfterFrame = frame;
     }
     bool loadStateFromMemoryOnCleanBoot(const std::vector<uint8_t>&) override { return true; }
-    std::vector<uint8_t> saveNetplayStateToMemory() override
+    std::vector<uint8_t> saveStateToMemory() override
     {
         ++loadStateCallCount;
         return savedStateData;
@@ -4496,7 +4496,7 @@ TEST_CASE("Netplay ENet host observer with three clients survives repeated host 
         }
 
         const ConsoleNetplay::FrameNumber authoritativeFrame = hostEmu.frameCount();
-        const std::vector<uint8_t> statePayload = hostEmu.saveNetplayStateToMemory();
+        const std::vector<uint8_t> statePayload = hostEmu.saveStateToMemory();
         REQUIRE_FALSE(statePayload.empty());
 
         const uint32_t payloadCrc32 =
@@ -4647,7 +4647,7 @@ TEST_CASE("Netplay observer ignores stale pending resync apply when newer host l
         queueFrameAndAdvance(hostEmu, frame);
     }
     const ConsoleNetplay::FrameNumber firstFrame = hostEmu.frameCount();
-    const std::vector<uint8_t> firstPayload = hostEmu.saveNetplayStateToMemory();
+    const std::vector<uint8_t> firstPayload = hostEmu.saveStateToMemory();
     REQUIRE_FALSE(firstPayload.empty());
     const uint32_t firstPayloadCrc32 =
         Crc32::calc(reinterpret_cast<const char*>(firstPayload.data()), firstPayload.size());
@@ -4657,7 +4657,7 @@ TEST_CASE("Netplay observer ignores stale pending resync apply when newer host l
         queueFrameAndAdvance(hostEmu, frame);
     }
     const ConsoleNetplay::FrameNumber secondFrame = hostEmu.frameCount();
-    const std::vector<uint8_t> secondPayload = hostEmu.saveNetplayStateToMemory();
+    const std::vector<uint8_t> secondPayload = hostEmu.saveStateToMemory();
     REQUIRE_FALSE(secondPayload.empty());
     const uint32_t secondPayloadCrc32 =
         Crc32::calc(reinterpret_cast<const char*>(secondPayload.data()), secondPayload.size());
@@ -7486,7 +7486,7 @@ TEST_CASE("Netplay clean-boot state load reopens IPS patch source", "[netplay][s
     REQUIRE(patchedSource.frameCount() > 0u);
 
     const uint32_t savedFrame = patchedSource.frameCount();
-    const std::vector<uint8_t> state = patchedSource.saveNetplayStateToMemory();
+    const std::vector<uint8_t> state = patchedSource.saveStateToMemory();
     REQUIRE_FALSE(state.empty());
 
     GeraNESEmu cleanBoot;
@@ -7710,7 +7710,7 @@ TEST_CASE("Netplay audio state-load policy does not change canonical netplay CRC
         applyInputFrameAndAdvance(source, input, frameDt);
     }
 
-    const std::vector<uint8_t> state = source.saveNetplayStateToMemory();
+    const std::vector<uint8_t> state = source.saveStateToMemory();
     REQUIRE_FALSE(state.empty());
 
     GeraNESEmu resetAudio(DummyAudioOutput::instance());
@@ -7751,7 +7751,7 @@ TEST_CASE("Netplay host loaded state canonicalizes local future inputs before re
     REQUIRE(hostLoaded.valid());
     REQUIRE(hostLoaded.frameCount() == 1u);
 
-    const std::vector<uint8_t> canonicalPayload = hostLoaded.saveNetplayStateToMemory();
+    const std::vector<uint8_t> canonicalPayload = hostLoaded.saveStateToMemory();
     REQUIRE_FALSE(canonicalPayload.empty());
 
     GeraNESEmu hostCanonicalized(DummyAudioOutput::instance());
@@ -8036,7 +8036,7 @@ TEST_CASE("Netplay state restore branch converges to baseline canonical CRC at l
         queueFrameAndAdvance(baselineEmu, frame);
         baselineFrameCrc[frame] = baselineEmu.canonicalNetplayStateCrc32();
         if(frame == restoreFrame) {
-            restoreSnapshot = baselineEmu.saveNetplaySnapshotStateToMemory();
+            restoreSnapshot = baselineEmu.saveStateToMemory();
         }
     }
     REQUIRE_FALSE(restoreSnapshot.empty());
@@ -8294,7 +8294,7 @@ TEST_CASE("Netplay clean-boot load and dirty-instance replay produce identical f
         applyInputFrameAndAdvance(source, input, frameDt);
     }
 
-    const std::vector<uint8_t> saveState = source.saveNetplayStateToMemory();
+    const std::vector<uint8_t> saveState = source.saveStateToMemory();
     REQUIRE_FALSE(saveState.empty());
 
     GeraNESEmu cleanBoot(DummyAudioOutput::instance());

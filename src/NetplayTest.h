@@ -3393,8 +3393,8 @@ private:
             initialSessionSync ? std::nullopt : peer.emu.netplaySnapshotForFrame(authoritativeFrame);
         const std::vector<uint8_t> statePayload =
             initialSessionSync
-                ? peer.emu.saveNetplayStateToMemory()
-                : (confirmedSnapshot.has_value() ? **confirmedSnapshot : peer.emu.saveNetplayStateToMemory());
+                ? peer.emu.saveStateToMemory()
+                : (confirmedSnapshot.has_value() ? **confirmedSnapshot : peer.emu.saveStateToMemory());
         if(statePayload.empty()) return;
 
         const uint32_t payloadCrc32 =
@@ -3530,7 +3530,7 @@ private:
         if(peer.coordinator.session().roomState().state != ConsoleNetplay::SessionState::Starting) return false;
 
         const ConsoleNetplay::FrameNumber authoritativeFrame = peer.emu.exactEmulationFrame();
-        const std::vector<uint8_t> statePayload = peer.emu.saveNetplayStateToMemory();
+        const std::vector<uint8_t> statePayload = peer.emu.saveStateToMemory();
         if(statePayload.empty()) return false;
 
         const uint32_t payloadCrc32 =
@@ -3823,8 +3823,8 @@ private:
                        hostPeer.emu.lastFrameReadyNetplayCrc32() == clientPeer.emu.lastFrameReadyNetplayCrc32()) {
                         continue;
                     }
-                    const std::vector<uint8_t> hostState = hostPeer.emu.saveNetplayStateToMemory();
-                    const std::vector<uint8_t> clientState = clientPeer.emu.saveNetplayStateToMemory();
+                    const std::vector<uint8_t> hostState = hostPeer.emu.saveStateToMemory();
+                    const std::vector<uint8_t> clientState = clientPeer.emu.saveStateToMemory();
                     size_t firstDiff = std::min(hostState.size(), clientState.size());
                     for(size_t i = 0; i < std::min(hostState.size(), clientState.size()); ++i) {
                         if(hostState[i] != clientState[i]) {

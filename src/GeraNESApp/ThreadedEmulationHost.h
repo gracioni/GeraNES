@@ -786,7 +786,6 @@ public:
     void updateUntilFrame(uint32_t dt) override;
     void configureNetplaySnapshots(size_t snapshotCapacity) override;
     std::vector<uint8_t> saveStateToMemory() override;
-    std::vector<uint8_t> saveNetplayStateToMemory() override;
     bool loadStateFromMemory(const std::vector<uint8_t>& data) override;
     bool loadStateFromMemoryOnCleanBoot(const std::vector<uint8_t>& data) override;
     bool loadStateFromMemoryAsManualStateChange(const std::vector<uint8_t>& data) override;
