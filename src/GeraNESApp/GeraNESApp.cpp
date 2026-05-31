@@ -1395,7 +1395,6 @@ bool GeraNESApp::startReplayRecording()
     const auto inputTopology = m_inputTopology;
 
     m_replayManager.beginRecording(romName, romCrc, inputTopology);
-    refreshReplayFrameInputResolver();
     m_imGuiWindowFocusBlocksEmulator = false;
     if(ImGui::GetCurrentContext() != nullptr) {
         ImGui::SetWindowFocus(nullptr);
@@ -1408,6 +1407,10 @@ bool GeraNESApp::startReplayRecording()
     }
 
     applyReplayInputTopology(inputTopology);
+    m_replayManager.setCursorState(0u, std::nullopt);
+    m_replaySliderValue = 0;
+    m_replaySliderDragging = false;
+    refreshReplayFrameInputResolver();
     m_showReplayWindow = true;
 
     if(m_emu.paused()) {
