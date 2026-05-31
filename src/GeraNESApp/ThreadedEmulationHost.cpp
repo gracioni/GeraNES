@@ -72,7 +72,7 @@ void ThreadedEmulationHost::recordFrameReadyNetplayState(GeraNESEmu& emu)
 {
     const uint32_t frame = emu.frameCount();
     const auto snapshotSaveStart = HostTimingClock::now();
-    GeraNESEmu::NetplaySnapshotWithCrc32 snapshot = emu.saveNetplaySnapshotWithCrc32();
+    GeraNESEmu::SaveStateWithCrc32 snapshot = emu.saveStateWithCrc32();
     const uint64_t snapshotSaveElapsedUs = elapsedMicrosSince(snapshotSaveStart);
     const uint32_t crc32 = snapshot.crc32;
     m_lastFrameReadyFrameValue = frame;

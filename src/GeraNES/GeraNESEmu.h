@@ -60,7 +60,7 @@ public:
         std::vector<uint8_t> data;
     };
 
-    struct NetplaySnapshotWithCrc32
+    struct SaveStateWithCrc32
     {
         std::vector<uint8_t> data;
         uint32_t crc32 = 0;
@@ -2305,7 +2305,7 @@ public:
         return result;
     }
 
-    std::vector<uint8_t> saveCanonicalStateToMemory()
+    std::vector<uint8_t> saveStateToMemory()
     {
         const InputFrame savedLastAppliedInputFrame = m_lastAppliedInputFrame;
         const InputFrame savedLockedPlaybackInputFrame = m_lockedPlaybackInputFrame;
@@ -2353,14 +2353,9 @@ public:
         return data;
     }
 
-    std::vector<uint8_t> saveStateToMemory()
+    SaveStateWithCrc32 saveStateWithCrc32()
     {
-        return saveCanonicalStateToMemory();
-    }
-
-    NetplaySnapshotWithCrc32 saveNetplaySnapshotWithCrc32()
-    {
-        NetplaySnapshotWithCrc32 snapshot;
+        SaveStateWithCrc32 snapshot;
         snapshot.data = saveStateToMemory();
         snapshot.crc32 = canonicalNetplayStateCrc32();
         return snapshot;
@@ -2375,7 +2370,7 @@ public:
 
     uint32_t canonicalNetplayStateCrc32() const
     {
-        const std::vector<uint8_t> data = const_cast<GeraNESEmu*>(this)->saveCanonicalStateToMemory();
+        const std::vector<uint8_t> data = const_cast<GeraNESEmu*>(this)->saveStateToMemory();
         if(data.empty()) return 0;
         return Crc32::calc(reinterpret_cast<const char*>(data.data()), data.size());
     }
