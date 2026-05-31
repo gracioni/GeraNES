@@ -54,12 +54,6 @@ enum class AccessType
 class GeraNESEmu : public Ibus, public SigSlot::SigSlotBase, public IRewindable
 {
 public:
-    struct PendingNetplaySnapshot
-    {
-        uint32_t frame = 0;
-        std::vector<uint8_t> data;
-    };
-
     struct SaveStateWithCrc32
     {
         std::vector<uint8_t> data;
@@ -217,12 +211,6 @@ private:
     uint8_t m_pendingLoadStateSlot = 0;
     bool m_resetRequested;
 
-    bool m_netplaySnapshotFlag = false;
-    std::optional<PendingNetplaySnapshot> m_netplaySnapshotResult;
-    bool m_netplayLoadStateFlag = false;
-    bool m_netplayLoadStateCleanBoot = false;
-    std::vector<uint8_t> m_netplayLoadStateData;
-    std::optional<bool> m_netplayLoadStateResult;
     uint32_t m_manualResetGeneration = 0;
     uint32_t m_manualLoadStateGeneration = 0;
     bool m_forceSilentAudio = false;
@@ -477,9 +465,6 @@ private:
             _loadState(m_pendingLoadStateSlot);
             m_loadStateFlag = false;
         }
-
-        processDeferredNetplaySnapshot();
-        processDeferredNetplayLoad();        
 
         return newFrame;
     }
@@ -1229,33 +1214,6 @@ private:
         }
     }
 
-    void processDeferredNetplaySnapshot()
-    {
-        if(!m_netplaySnapshotFlag || !m_cartridge.isValid()) return;
-
-        PendingNetplaySnapshot snapshot;
-            snapshot.frame = m_frameCounter;
-        snapshot.data = saveStateToMemory();
-        m_netplaySnapshotResult = std::move(snapshot);
-        m_netplaySnapshotFlag = false;
-    }
-
-    void processDeferredNetplayLoad()
-    {
-        if(!m_netplayLoadStateFlag) return;
-
-        const std::vector<uint8_t> data = m_netplayLoadStateData;
-        const bool cleanBoot = m_netplayLoadStateCleanBoot;
-        m_netplayLoadStateData.clear();
-        m_netplayLoadStateFlag = false;
-        m_netplayLoadStateCleanBoot = false;
-
-        const bool loaded = cleanBoot
-            ? loadStateFromMemoryOnCleanBoot(data)
-            : (loadStateFromMemory(data), valid());
-        m_netplayLoadStateResult = loaded;
-    }
-
     bool debugBreakpointsActive() const
     {
         return m_debugBreakpointsArmed &&
@@ -1710,12 +1668,6 @@ public:
         m_saveStateFlag = false;
         m_loadStateFlag = false;
         m_resetRequested = false;
-        m_netplaySnapshotFlag = false;
-        m_netplaySnapshotResult.reset();
-        m_netplayLoadStateFlag = false;
-        m_netplayLoadStateCleanBoot = false;
-        m_netplayLoadStateData.clear();
-        m_netplayLoadStateResult.reset();
         m_runningLoop = false;
         m_paused = false;
         clearDebugBreakpointHit();
@@ -2072,9 +2024,6 @@ public:
             m_loadStateFlag = false;
         }
 
-        processDeferredNetplaySnapshot();
-        processDeferredNetplayLoad();
-
         m_paused = wasPaused;
         return advancedAny && steppedInstruction;
     }
@@ -2245,52 +2194,6 @@ public:
 
         loadStateFromMemoryWithAudioPolicy(data, audioPolicy);
         return valid();
-    }
-
-    void requestNetplaySnapshotAtSafePoint()
-    {
-        if(!m_runningLoop) {
-            processDeferredNetplaySnapshot();
-            if(m_netplaySnapshotResult.has_value()) return;
-            if(!m_cartridge.isValid()) return;
-
-            PendingNetplaySnapshot snapshot;
-        snapshot.frame = m_frameCounter;
-            snapshot.data = saveStateToMemory();
-            m_netplaySnapshotResult = std::move(snapshot);
-            return;
-        }
-
-        m_netplaySnapshotFlag = true;
-    }
-
-    std::optional<PendingNetplaySnapshot> consumeNetplaySnapshotAtSafePoint()
-    {
-        std::optional<PendingNetplaySnapshot> result = std::move(m_netplaySnapshotResult);
-        m_netplaySnapshotResult.reset();
-        return result;
-    }
-
-    void requestNetplayLoadStateAtSafePoint(const std::vector<uint8_t>& data, bool cleanBoot = false)
-    {
-        if(!m_runningLoop) {
-            const bool loaded = cleanBoot
-                ? loadStateFromMemoryOnCleanBoot(data)
-                : (loadStateFromMemory(data), valid());
-            m_netplayLoadStateResult = loaded;
-            return;
-        }
-
-        m_netplayLoadStateData = data;
-        m_netplayLoadStateCleanBoot = cleanBoot;
-        m_netplayLoadStateFlag = true;
-    }
-
-    std::optional<bool> consumeNetplayLoadStateResult()
-    {
-        std::optional<bool> result = m_netplayLoadStateResult;
-        m_netplayLoadStateResult.reset();
-        return result;
     }
 
     std::vector<uint8_t> saveStateToMemory()
@@ -2802,12 +2705,6 @@ public:
         //m_runningLoop = false;
         //m_saveStateFlag = false;
         //m_loadStateFlag = false;
-        m_netplaySnapshotFlag = false;
-        m_netplaySnapshotResult.reset();
-        m_netplayLoadStateFlag = false;
-        m_netplayLoadStateCleanBoot = false;
-        m_netplayLoadStateData.clear();
-        m_netplayLoadStateResult.reset();
         // m_frameCounter = 0;
 
         m_nsfPlayer.onEmulatorReset();
