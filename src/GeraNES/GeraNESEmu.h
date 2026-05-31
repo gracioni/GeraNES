@@ -54,12 +54,6 @@ enum class AccessType
 class GeraNESEmu : public Ibus, public SigSlot::SigSlotBase, public IRewindable
 {
 public:
-    struct SaveStateWithCrc32
-    {
-        std::vector<uint8_t> data;
-        uint32_t crc32 = 0;
-    };
-
     struct ExecutionPoint
     {
         uint32_t frame = 0;
@@ -2175,14 +2169,6 @@ public:
         m_updateCyclesAcc = savedUpdateCyclesAcc;
         m_audioRenderCyclesAcc = savedAudioRenderCyclesAcc;
         return data;
-    }
-
-    SaveStateWithCrc32 saveStateWithCrc32()
-    {
-        SaveStateWithCrc32 snapshot;
-        snapshot.data = saveStateToMemory();
-        snapshot.crc32 = canonicalNetplayStateCrc32();
-        return snapshot;
     }
 
     uint32_t canonicalStateCrc32() const

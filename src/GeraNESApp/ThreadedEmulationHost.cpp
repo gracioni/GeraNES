@@ -6,6 +6,12 @@ namespace
 {
 using HostTimingClock = std::chrono::steady_clock;
 
+struct SaveStateWithCrc32
+{
+    std::vector<uint8_t> data;
+    uint32_t crc32 = 0;
+};
+
 uint64_t elapsedMicrosSince(HostTimingClock::time_point start)
 {
     return static_cast<uint64_t>(
@@ -13,6 +19,14 @@ uint64_t elapsedMicrosSince(HostTimingClock::time_point start)
             HostTimingClock::now() - start
         ).count()
     );
+}
+
+SaveStateWithCrc32 captureSaveStateWithCrc32(GeraNESEmu& emu)
+{
+    SaveStateWithCrc32 snapshot;
+    snapshot.data = emu.saveStateToMemory();
+    snapshot.crc32 = emu.canonicalNetplayStateCrc32();
+    return snapshot;
 }
 }
 
@@ -72,7 +86,7 @@ void ThreadedEmulationHost::recordFrameReadyNetplayState(GeraNESEmu& emu)
 {
     const uint32_t frame = emu.frameCount();
     const auto snapshotSaveStart = HostTimingClock::now();
-    GeraNESEmu::SaveStateWithCrc32 snapshot = emu.saveStateWithCrc32();
+    SaveStateWithCrc32 snapshot = captureSaveStateWithCrc32(emu);
     const uint64_t snapshotSaveElapsedUs = elapsedMicrosSince(snapshotSaveStart);
     const uint32_t crc32 = snapshot.crc32;
     m_lastFrameReadyFrameValue = frame;
