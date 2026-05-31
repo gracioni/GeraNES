@@ -401,7 +401,7 @@ uint64_t buildMask(bool a, bool b, bool select, bool start, bool up, bool down, 
     return mask;
 }
 
-InputFrame::PadButtons padButtonsFromMask(uint64_t mask)
+InputState::PadButtons padButtonsFromMask(uint64_t mask)
 {
     return {
         (mask & (1ull << 0)) != 0,
@@ -425,7 +425,7 @@ InputFrame::PadButtons padButtonsFromMask(uint64_t mask)
 
 void applyMask(InputFrame& frame, PlayerSlot slot, uint64_t mask)
 {
-    const InputFrame::PadButtons buttons = padButtonsFromMask(mask);
+    const InputState::PadButtons buttons = padButtonsFromMask(mask);
 
     switch(slot) {
         case kPort1PlayerSlot:
@@ -528,19 +528,19 @@ std::vector<uint8_t> makeSlotPayload(const InputFrame& inputFrame, PlayerSlot sl
     switch(slot) {
         case kPort1PlayerSlot:
             if(port1Device == Settings::Device::ZAPPER) {
-                const InputFrame::PointerState state = inputFrame.state.zapper(1);
+                const InputState::PointerState state = inputFrame.state.zapper(1);
                 writeHeader(AdapterSlotPayloadKind::Zapper);
                 writer.writePod(static_cast<int16_t>(state.x));
                 writer.writePod(static_cast<int16_t>(state.y));
                 writer.writePod(boolMask(state.trigger));
             } else if(port1Device == Settings::Device::ARKANOID_CONTROLLER) {
-                const InputFrame::ArkanoidState state = inputFrame.state.arkanoidController(1);
+                const InputState::ArkanoidState state = inputFrame.state.arkanoidController(1);
                 writeHeader(AdapterSlotPayloadKind::Arkanoid);
                 writer.writePod(state.position);
                 writer.writePod(boolMask(state.button));
             } else if(port1Device == Settings::Device::SNES_MOUSE || port1Device == Settings::Device::SUBOR_MOUSE) {
                 const bool subor = port1Device == Settings::Device::SUBOR_MOUSE;
-                const InputFrame::RelativePointerState state = subor ? inputFrame.state.suborMouse(1) : inputFrame.state.snesMouse(1);
+                const InputState::RelativePointerState state = subor ? inputFrame.state.suborMouse(1) : inputFrame.state.snesMouse(1);
                 writeHeader(AdapterSlotPayloadKind::Mouse);
                 writer.writePod(static_cast<int16_t>(state.deltaX));
                 writer.writePod(static_cast<int16_t>(state.deltaY));
@@ -552,19 +552,19 @@ std::vector<uint8_t> makeSlotPayload(const InputFrame& inputFrame, PlayerSlot sl
             break;
         case kPort2PlayerSlot:
             if(port2Device == Settings::Device::ZAPPER) {
-                const InputFrame::PointerState state = inputFrame.state.zapper(2);
+                const InputState::PointerState state = inputFrame.state.zapper(2);
                 writeHeader(AdapterSlotPayloadKind::Zapper);
                 writer.writePod(static_cast<int16_t>(state.x));
                 writer.writePod(static_cast<int16_t>(state.y));
                 writer.writePod(boolMask(state.trigger));
             } else if(port2Device == Settings::Device::ARKANOID_CONTROLLER) {
-                const InputFrame::ArkanoidState state = inputFrame.state.arkanoidController(2);
+                const InputState::ArkanoidState state = inputFrame.state.arkanoidController(2);
                 writeHeader(AdapterSlotPayloadKind::Arkanoid);
                 writer.writePod(state.position);
                 writer.writePod(boolMask(state.button));
             } else if(port2Device == Settings::Device::SNES_MOUSE || port2Device == Settings::Device::SUBOR_MOUSE) {
                 const bool subor = port2Device == Settings::Device::SUBOR_MOUSE;
-                const InputFrame::RelativePointerState state = subor ? inputFrame.state.suborMouse(2) : inputFrame.state.snesMouse(2);
+                const InputState::RelativePointerState state = subor ? inputFrame.state.suborMouse(2) : inputFrame.state.snesMouse(2);
                 writeHeader(AdapterSlotPayloadKind::Mouse);
                 writer.writePod(static_cast<int16_t>(state.deltaX));
                 writer.writePod(static_cast<int16_t>(state.deltaY));
@@ -576,18 +576,18 @@ std::vector<uint8_t> makeSlotPayload(const InputFrame& inputFrame, PlayerSlot sl
             break;
         case kExpansionPlayerSlot:
             if(expansionDevice == Settings::ExpansionDevice::BANDAI_HYPERSHOT) {
-                const InputFrame::PointerState state = inputFrame.state.bandaiPointer();
+                const InputState::PointerState state = inputFrame.state.bandaiPointer();
                 writeHeader(AdapterSlotPayloadKind::BandaiPointer);
                 writer.writePod(static_cast<int16_t>(state.x));
                 writer.writePod(static_cast<int16_t>(state.y));
                 writer.writePod(boolMask(state.trigger));
             } else if(expansionDevice == Settings::ExpansionDevice::ARKANOID_CONTROLLER) {
-                const InputFrame::ArkanoidState state = inputFrame.state.arkanoidExpansion();
+                const InputState::ArkanoidState state = inputFrame.state.arkanoidExpansion();
                 writeHeader(AdapterSlotPayloadKind::Arkanoid);
                 writer.writePod(state.position);
                 writer.writePod(boolMask(state.button));
             } else if(expansionDevice == Settings::ExpansionDevice::KONAMI_HYPERSHOT) {
-                const InputFrame::KonamiHyperShotState state = inputFrame.state.konamiHyperShot();
+                const InputState::KonamiHyperShotState state = inputFrame.state.konamiHyperShot();
                 writeHeader(AdapterSlotPayloadKind::KonamiHyperShot);
                 writer.writePod(boolMask(state.p1Run, state.p1Jump, state.p2Run, state.p2Jump));
             } else if(expansionDevice == Settings::ExpansionDevice::SUBOR_KEYBOARD) {
@@ -764,11 +764,11 @@ bool applySlotPayload(InputFrame& frame,
 
 NetplayInputFrame toNetplayInputFrame(const InputFrame& inputFrame)
 {
-    const InputFrame::PadButtons p1 = inputFrame.state.portButtons(1);
-    const InputFrame::PadButtons p2 = inputFrame.state.portButtons(2);
-    const InputFrame::PadButtons p3 = inputFrame.state.portButtons(3);
-    const InputFrame::PadButtons p4 = inputFrame.state.portButtons(4);
-    const InputFrame::PadButtons bandai = inputFrame.state.bandaiButtons();
+    const InputState::PadButtons p1 = inputFrame.state.portButtons(1);
+    const InputState::PadButtons p2 = inputFrame.state.portButtons(2);
+    const InputState::PadButtons p3 = inputFrame.state.portButtons(3);
+    const InputState::PadButtons p4 = inputFrame.state.portButtons(4);
+    const InputState::PadButtons bandai = inputFrame.state.bandaiButtons();
     NetplayInputFrame frame;
     frame.frame = inputFrame.frame;
     frame.framePayload = makeAdapterFramePayload(inputFrame);

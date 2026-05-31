@@ -602,7 +602,7 @@ void updateControllerState(unsigned port)
 
     if(g_emu.getPortDevice(emuPort) == std::optional<Settings::Device>(Settings::Device::VIRTUAL_BOY_CONTROLLER)) {
         InputFrame frame = libretroInputFrameForNextFrame();
-        InputFrame::PadButtons buttons;
+        InputState::PadButtons buttons;
         buttons.a = a;
         buttons.b = b;
         buttons.select = select;
@@ -869,14 +869,14 @@ void updateSnesMouseState(unsigned port)
     const bool right = readInput(port, RETRO_DEVICE_MOUSE, RETRO_DEVICE_ID_MOUSE_RIGHT) != 0;
     InputFrame frame = libretroInputFrameForNextFrame();
     if(emuPort == Settings::Port::P_1) {
-        InputFrame::RelativePointerState state = frame.state.snesMouse(1);
+        InputState::RelativePointerState state = frame.state.snesMouse(1);
         state.deltaX += mouseDeltaX;
         state.deltaY += mouseDeltaY;
         state.primary = left;
         state.secondary = right;
         frame.state.setSnesMouse(1, state);
     } else {
-        InputFrame::RelativePointerState state = frame.state.snesMouse(2);
+        InputState::RelativePointerState state = frame.state.snesMouse(2);
         state.deltaX += mouseDeltaX;
         state.deltaY += mouseDeltaY;
         state.primary = left;
@@ -897,14 +897,14 @@ void updateSuborMouseState(unsigned port)
     const bool right = readInput(port, RETRO_DEVICE_MOUSE, RETRO_DEVICE_ID_MOUSE_RIGHT) != 0;
     InputFrame frame = libretroInputFrameForNextFrame();
     if(emuPort == Settings::Port::P_1) {
-        InputFrame::RelativePointerState state = frame.state.suborMouse(1);
+        InputState::RelativePointerState state = frame.state.suborMouse(1);
         state.deltaX += mouseDeltaX;
         state.deltaY += mouseDeltaY;
         state.primary = left;
         state.secondary = right;
         frame.state.setSuborMouse(1, state);
     } else {
-        InputFrame::RelativePointerState state = frame.state.suborMouse(2);
+        InputState::RelativePointerState state = frame.state.suborMouse(2);
         state.deltaX += mouseDeltaX;
         state.deltaY += mouseDeltaY;
         state.primary = left;

@@ -8,12 +8,6 @@
 
 struct InputFrame
 {
-    using PadButtons = InputState::PadButtons;
-    using PointerState = InputState::PointerState;
-    using RelativePointerState = InputState::RelativePointerState;
-    using ArkanoidState = InputState::ArkanoidState;
-    using KonamiHyperShotState = InputState::KonamiHyperShotState;
-
     uint32_t frame = 0;
     InputState state;
 

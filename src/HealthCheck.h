@@ -427,7 +427,7 @@ public:
             const Buttons& buttons = input.buttonsForFrame(frame, fps);
             const std::string buttonsLabel = buttonsToString(buttons);
             InputFrame inputFrame = emu.createInputFrame(emu.frameCount());
-            InputFrame::PadButtons pad;
+            InputState::PadButtons pad;
             pad.a = buttons.a;
             pad.b = buttons.b;
             pad.select = buttons.select;
