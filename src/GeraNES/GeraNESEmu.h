@@ -228,9 +228,8 @@ private:
     bool m_forceSilentAudio = false;
     std::optional<uint32_t> m_lastAudiblyRenderedPlaybackFrame;
     bool m_currentPlaybackFrameRenderedAudibly = false;
-    InputFrame m_lastAppliedInputFrame;
-    bool m_currentFrameInputLocked = false;
-    InputFrame m_lockedPlaybackInputFrame;
+
+    InputFrame m_currentInputFrame;
 
     Rewind m_rewind;
     NsfPlayer m_nsfPlayer;
@@ -1056,18 +1055,16 @@ private:
         m_nsfPlayer.onFrameStart();
         updateCyclesPerSecond();        
         
-        if(m_currentFrameInputLocked &&
-           m_lockedPlaybackInputFrame.frame == m_frameCounter) {
-            applyInputFrame(m_lockedPlaybackInputFrame);
-            m_lastAppliedInputFrame = m_lockedPlaybackInputFrame;
+        if(m_currentInputFrame.frame == m_frameCounter) {
+            applyInputFrame(m_currentInputFrame);
+            signalInputFrameSelected(m_currentInputFrame);
         }
 
-        signalInputFrameSelected(m_lastAppliedInputFrame);
+        
     }    
 
     void onFrameReady() {
         ++m_frameCounter;
-        m_currentFrameInputLocked = false;
     }
 
     void onPPUScanlineStart()
@@ -1224,8 +1221,6 @@ private:
         m_forceSilentAudio = false;
         m_audioOutputRewinding = m_rewind.isRewinding();
         m_currentPlaybackFrameRenderedAudibly = false;
-        m_lockedPlaybackInputFrame = m_lastAppliedInputFrame;
-        m_currentFrameInputLocked = m_lockedPlaybackInputFrame.frame == m_frameCounter;
         ++m_ppuViewerMapperWriteGeneration;
         m_ppuViewerScanlineSnapshots.clear();
         for(auto& lineState : m_ppuViewerScanlineStates) {
@@ -1442,8 +1437,7 @@ private:
                                           bool silentAudio)
     {
         const uint32_t playbackFrame = m_frameCounter;
-        if(!m_currentFrameInputLocked ||
-           m_lockedPlaybackInputFrame.frame != playbackFrame) {
+        if(m_currentInputFrame.frame != playbackFrame) {
             return false;
         }
         const bool playbackFrameAlreadyRenderedAudibly =
@@ -1711,9 +1705,7 @@ public:
         m_currentPlaybackFrameRenderedAudibly = false;
 
         m_frameCounter = 0;
-        m_lastAppliedInputFrame = makeDefaultInputFrame(0);
-        m_currentFrameInputLocked = false;
-        m_lockedPlaybackInputFrame = m_lastAppliedInputFrame;
+        m_currentInputFrame = makeDefaultInputFrame(0);
 
         m_saveStateFlag = false;
         m_loadStateFlag = false;
@@ -1724,8 +1716,6 @@ public:
         m_netplayLoadStateCleanBoot = false;
         m_netplayLoadStateData.clear();
         m_netplayLoadStateResult.reset();
-        m_currentFrameInputLocked = false;
-        m_lockedPlaybackInputFrame = m_lastAppliedInputFrame;
         m_runningLoop = false;
         m_paused = false;
         clearDebugBreakpointHit();
@@ -1944,9 +1934,7 @@ public:
 
             updateCyclesPerSecond();
 
-            m_lastAppliedInputFrame = makeDefaultInputFrame(0);
-            m_currentFrameInputLocked = false;
-            m_lockedPlaybackInputFrame = m_lastAppliedInputFrame;
+            m_currentInputFrame = makeDefaultInputFrame(0);
 
             m_ppu.setVsPpuModel(m_cartridge.vsPpuModel());
             m_cartridge.reset();
@@ -2307,24 +2295,18 @@ public:
 
     std::vector<uint8_t> saveStateToMemory()
     {
-        const InputFrame savedLastAppliedInputFrame = m_lastAppliedInputFrame;
-        const InputFrame savedLockedPlaybackInputFrame = m_lockedPlaybackInputFrame;
-        const bool savedCurrentFrameInputLocked = m_currentFrameInputLocked;
+        const InputFrame savedCurrentInputFrame = m_currentInputFrame;
         const bool savedNewFrame = m_newFrame;
         const bool savedFrameStarted = m_frameStarted;
         const bool savedRunningLoop = m_runningLoop;
         const HardwareActions savedHardwareActions = m_hardwareActions;
         const uint32_t savedUpdateCyclesAcc = m_updateCyclesAcc;
         const uint32_t savedAudioRenderCyclesAcc = m_audioRenderCyclesAcc;
-        InputFrame serializedPlaybackInput = m_lastAppliedInputFrame;
-        if(m_currentFrameInputLocked && m_lockedPlaybackInputFrame.frame == m_frameCounter) {
-            serializedPlaybackInput = m_lockedPlaybackInputFrame;
-        } else if(serializedPlaybackInput.frame != m_frameCounter) {
+        InputFrame serializedPlaybackInput = m_currentInputFrame;
+        if(serializedPlaybackInput.frame != m_frameCounter) {
             serializedPlaybackInput = InputFrame::repeatedFrom(serializedPlaybackInput, m_frameCounter);
         }
-        m_lastAppliedInputFrame = serializedPlaybackInput;
-        m_lockedPlaybackInputFrame = serializedPlaybackInput;
-        m_currentFrameInputLocked = serializedPlaybackInput.frame == m_frameCounter;
+        m_currentInputFrame = serializedPlaybackInput;
         m_newFrame = false;
         m_frameStarted = false;
         m_runningLoop = false;
@@ -2341,9 +2323,7 @@ public:
         std::vector<uint8_t> data = s.takeData();
         reserveHint = data.size();
 
-        m_lastAppliedInputFrame = savedLastAppliedInputFrame;
-        m_lockedPlaybackInputFrame = savedLockedPlaybackInputFrame;
-        m_currentFrameInputLocked = savedCurrentFrameInputLocked;
+        m_currentInputFrame = savedCurrentInputFrame;
         m_newFrame = savedNewFrame;
         m_frameStarted = savedFrameStarted;
         m_runningLoop = savedRunningLoop;
@@ -2605,7 +2585,7 @@ public:
         if(m_expansionDevice) m_expansionDevice->serialization(s);
         if(m_fourScore) m_fourScore->serialization(s);
         if(m_HoriAdapter) m_HoriAdapter->serialization(s);
-        m_lastAppliedInputFrame.serialization(s);
+
         SERIALIZEDATA(s, m_updateCyclesAcc);
         SERIALIZEDATA(s, m_cpuCyclesAcc);
         SERIALIZEDATA(s, m_cyclesPerSecond);
@@ -2636,15 +2616,14 @@ public:
         if(inputFrame.frame != m_frameCounter) {
             return false;
         }
-        m_lockedPlaybackInputFrame = inputFrame;
-        m_lockedPlaybackInputFrame.frame = m_frameCounter;
-        m_currentFrameInputLocked = true;
+        m_currentInputFrame = inputFrame;
+        m_currentInputFrame.frame = m_frameCounter;
         return true;
     }
 
     bool hasPlaybackInputFrame(uint32_t frame) const
     {
-        return m_currentFrameInputLocked && m_lockedPlaybackInputFrame.frame == frame;
+        return m_currentInputFrame.frame == frame;
     }
 
     void setForceSilentAudio(bool silent)
@@ -2829,11 +2808,7 @@ public:
         m_netplayLoadStateCleanBoot = false;
         m_netplayLoadStateData.clear();
         m_netplayLoadStateResult.reset();
-        //m_lastAppliedInputFrame = InputFrame::repeatedFrom(m_lastAppliedInputFrame, m_frameCounter);
         // m_frameCounter = 0;
-        // m_inputBuffer.clear();
-        // m_lastAppliedInputFrame = makeDefaultInputFrame(0);
-        // m_inputBuffer.push(m_lastAppliedInputFrame);
 
         m_nsfPlayer.onEmulatorReset();
         m_hardwareActions.reset();
