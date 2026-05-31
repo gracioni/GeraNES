@@ -304,8 +304,6 @@ void ThreadedEmulationHost::refreshSnapshotLocked()
     const uint32_t frameCount = m_emu.frameCount();
     const uint32_t inputTimelineEpoch = m_pendingInputTimelineEpoch;
     const uint32_t regionFps = m_emu.getRegionFPS();
-    const uint32_t manualResetGeneration = m_emu.manualResetGeneration();
-    const uint32_t manualLoadStateGeneration = m_emu.manualLoadStateGeneration();
     const Settings::Region region = m_emu.region();
     const GameDatabase::System cartridgeSystem =
         valid
@@ -365,8 +363,6 @@ void ThreadedEmulationHost::refreshSnapshotLocked()
         m_snapshot.frameCount = frameCount;
         m_snapshot.inputTimelineEpoch = inputTimelineEpoch;
         m_snapshot.regionFps = regionFps;
-        m_snapshot.manualResetGeneration = manualResetGeneration;
-        m_snapshot.manualLoadStateGeneration = manualLoadStateGeneration;
         m_snapshot.region = region;
         m_snapshot.cartridgeSystem = cartridgeSystem;
         m_snapshot.inputTopology = inputTopology;
@@ -715,18 +711,6 @@ bool ThreadedEmulationHost::getPpuEventViewerSnapshot(PpuEventViewerSnapshot& ou
     std::scoped_lock snapshotLock(m_ppuEventViewerSnapshotMutex);
     out = m_ppuEventViewerSnapshot;
     return out.valid || out.traceEnabled;
-}
-
-uint32_t ThreadedEmulationHost::manualResetGeneration() const
-{
-    std::scoped_lock snapshotLock(m_snapshotMutex);
-    return m_snapshot.manualResetGeneration;
-}
-
-uint32_t ThreadedEmulationHost::manualLoadStateGeneration() const
-{
-    std::scoped_lock snapshotLock(m_snapshotMutex);
-    return m_snapshot.manualLoadStateGeneration;
 }
 
 uint32_t ThreadedEmulationHost::exactEmulationFrame() const

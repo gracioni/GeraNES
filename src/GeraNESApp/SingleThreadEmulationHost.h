@@ -135,8 +135,6 @@ private:
         uint32_t frameCount = 0;
         uint32_t lastFrameReadyFrame = 0;
         uint32_t lastFrameReadyNetplayCrc32 = 0;
-        uint32_t manualResetGeneration = 0;
-        uint32_t manualLoadStateGeneration = 0;
         uint32_t regionFps = 60;
         Settings::Region region = Settings::Region::NTSC;
         GameDatabase::System cartridgeSystem = GameDatabase::System::Unknown;
@@ -571,8 +569,6 @@ public:
         return m_emu.frameCount();
     }
 
-    uint32_t manualResetGeneration() const override;
-    uint32_t manualLoadStateGeneration() const override;
     uint32_t exactEmulationFrame() const override;
     uint32_t getRegionFPS() const override;
     void configureInputBufferCapacity(size_t capacity) override

@@ -187,8 +187,6 @@ public:
     virtual void nsfSetSong(int song1Based) = 0;
     virtual bool isRewinding() const = 0;
     virtual uint32_t frameCount() const = 0;
-    virtual uint32_t manualResetGeneration() const = 0;
-    virtual uint32_t manualLoadStateGeneration() const = 0;
     virtual uint32_t exactEmulationFrame() const = 0;
     virtual uint32_t getRegionFPS() const = 0;
     virtual void configureInputBufferCapacity(size_t capacity) = 0;

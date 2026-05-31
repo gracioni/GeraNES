@@ -474,16 +474,6 @@ bool SingleThreadEmulationHost::open(const std::string& path, bool autoConfigure
     return opened;
 }
 
-uint32_t SingleThreadEmulationHost::manualResetGeneration() const
-{
-    return m_emu.manualResetGeneration();
-}
-
-uint32_t SingleThreadEmulationHost::manualLoadStateGeneration() const
-{
-    return m_emu.manualLoadStateGeneration();
-}
-
 uint32_t SingleThreadEmulationHost::exactEmulationFrame() const
 {
     const_cast<SingleThreadEmulationHost*>(this)->serviceBackgroundWork();

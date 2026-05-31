@@ -197,8 +197,6 @@ private:
     uint8_t m_pendingLoadStateSlot = 0;
     bool m_resetRequested;
 
-    uint32_t m_manualResetGeneration = 0;
-    uint32_t m_manualLoadStateGeneration = 0;
     bool m_forceSilentAudio = false;
     std::optional<uint32_t> m_lastAudiblyRenderedPlaybackFrame;
     bool m_currentPlaybackFrameRenderedAudibly = false;
@@ -2061,7 +2059,6 @@ public:
             serialization(d);
             resyncAudioAfterStateLoad();
             resetVolatileStateAfterStateLoad();
-            ++m_manualLoadStateGeneration;
             signalLoadExecuted(m_frameCounter);
             Logger::instance().log("State loaded from slot " + std::to_string(static_cast<unsigned>(clampedSlot)), Logger::Type::USER);
         }
@@ -2632,19 +2629,8 @@ public:
         m_rewind.reset();
         updateCyclesPerSecond();
         m_cpu.reset();
-        ++m_manualResetGeneration;
         signalResetExecuted(m_frameCounter);
         Logger::instance().log("Emulator reset", Logger::Type::USER);
-    }
-
-    uint32_t manualResetGeneration() const
-    {
-        return m_manualResetGeneration;
-    }
-
-    uint32_t manualLoadStateGeneration() const
-    {
-        return m_manualLoadStateGeneration;
     }
 
 };
