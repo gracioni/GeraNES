@@ -5,7 +5,7 @@
 #include <string>
 #include <vector>
 
-#include "GeraNES/InputBuffer.h"
+#include "GeraNES/InputFrame.h"
 #include "GeraNES/InputTopology.h"
 
 namespace fs = std::filesystem;

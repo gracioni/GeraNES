@@ -29,7 +29,7 @@
 #include "Console.h"
 #include "HardwareActions.h"
 #include "NsfPlayer.h"
-#include "InputBuffer.h"
+#include "InputFrame.h"
 
 #include "Serialization.h"
 #include "util/Crc32.h"

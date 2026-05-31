@@ -3,7 +3,7 @@
 #include <optional>
 #include <vector>
 
-#include "GeraNES/InputBuffer.h"
+#include "GeraNES/InputFrame.h"
 #include "GeraNES/InputTopology.h"
 #include "GeraNES/Settings.h"
 #include "GeraNESNetplay/GeraNESInputState.h"

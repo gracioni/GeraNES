@@ -1,4 +1,4 @@
-#include "GeraNES/InputBuffer.h"
+#include "GeraNES/InputFrame.h"
 
 namespace
 {

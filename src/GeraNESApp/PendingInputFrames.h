@@ -6,7 +6,7 @@
 #include <map>
 #include <optional>
 
-#include "GeraNES/InputBuffer.h"
+#include "GeraNES/InputFrame.h"
 
 class PendingInputFrames
 {
