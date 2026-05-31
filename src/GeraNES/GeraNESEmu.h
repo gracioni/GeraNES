@@ -1355,18 +1355,6 @@ private:
         }
     }
 
-    static bool executionPointLessThan(const ExecutionPoint& lhs, const ExecutionPoint& rhs)
-    {
-        if(lhs.frame != rhs.frame) return lhs.frame < rhs.frame;
-        return lhs.emulationTick < rhs.emulationTick;
-    }
-
-    static bool executionPointEqual(const ExecutionPoint& lhs, const ExecutionPoint& rhs)
-    {
-        return lhs.frame == rhs.frame &&
-               lhs.emulationTick == rhs.emulationTick;
-    }
-
     GERANES_INLINE bool renderAudioMs(uint32_t ms, bool skipRender = false, bool forceSilence = false)
     {
         if(ms == 0) return false;
@@ -2036,53 +2024,6 @@ public:
             static_cast<uint32_t>(std::max(m_cpuCyclesAcc, 0)),
             m_emulationTickCounter
         };
-    }
-
-    bool resimulateSilentlyToExecutionPoint(const ExecutionPoint& target, uint32_t maxTicks = 20000000u)
-    {
-        applyPendingNsfControllerActions();
-        if(!m_cartridge.isValid()) return false;
-        if(m_paused) return false;
-
-        const ExecutionPoint start = executionPoint();
-        if(executionPointLessThan(target, start)) return false;
-        if(executionPointEqual(start, target)) return true;
-
-        const uint32_t audioRenderCycles = m_cyclesPerSecond * 1;
-        uint32_t renderedAudioMs = 0;
-        uint32_t ticks = 0;
-        const bool previousSilentAudio = m_forceSilentAudio;
-        m_forceSilentAudio = true;
-
-        const auto restoreSilentAudio = [&]() {
-            m_forceSilentAudio = previousSilentAudio;
-            m_lastAudioRenderedMs = renderedAudioMs;
-            m_runningLoop = false;
-        };
-
-        m_audioOutput.discardQueuedAudio();
-        m_runningLoop = true;
-
-        while(executionPointLessThan(executionPoint(), target)) {
-            if(++ticks > maxTicks) {
-                restoreSilentAudio();
-                return false;
-            }
-
-            bool frameReady = false;
-            if(!stepEmulationTick<false>(audioRenderCycles, renderedAudioMs, frameReady, true)) {
-                restoreSilentAudio();
-                return false;
-            }
-
-            if(m_paused) {
-                restoreSilentAudio();
-                return false;
-            }
-        }
-
-        restoreSilentAudio();
-        return executionPointEqual(executionPoint(), target);
     }
 
     GERANES_INLINE const uint32_t* getFramebuffer() const
