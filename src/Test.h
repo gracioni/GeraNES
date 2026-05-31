@@ -424,7 +424,7 @@ public:
 
         while(true) {
             emu.queueInputFrame(emu.createInputFrame(emu.executionPoint().frame));
-            emu.update(STEP_MS);
+            (void)emu.updateUntilFrame(STEP_MS, false);
             const bool beepStepActive = beepAudio.onStep();
 
             const uint8_t status = emu.read(0x6000);

@@ -370,8 +370,6 @@ public:
     static int runHeadless(const Options& options)
     {
         namespace fs = std::filesystem;
-        constexpr uint32_t HEADLESS_STEP_MS = 1;
-
         if(options.romPath.empty() || options.outDir.empty()) {
             std::cerr << "HealthCheck requires romPath and outDir." << std::endl;
             return 2;
@@ -428,7 +426,7 @@ public:
         for(uint32_t frame = 1; frame <= totalFrames; ++frame) {
             const Buttons& buttons = input.buttonsForFrame(frame, fps);
             const std::string buttonsLabel = buttonsToString(buttons);
-            InputFrame inputFrame = emu.createInputFrame(emu.frameCount() + 1u);
+            InputFrame inputFrame = emu.createInputFrame(emu.frameCount());
             InputFrame::PadButtons pad;
             pad.a = buttons.a;
             pad.b = buttons.b;
@@ -442,8 +440,9 @@ public:
             emu.queueInputFrame(inputFrame);
 
             const uint32_t prevFrameCount = emu.frameCount();
-            while(emu.valid() && emu.frameCount() == prevFrameCount) {
-                emu.update(HEADLESS_STEP_MS);
+            const uint32_t frameDtMs = std::max<uint32_t>(1u, 1000u / std::max<uint32_t>(1u, fps));
+            if(emu.valid() && emu.frameCount() == prevFrameCount) {
+                (void)emu.updateUntilFrame(frameDtMs, false);
             }
             if(!emu.valid()) {
                 break;

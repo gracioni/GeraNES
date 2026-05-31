@@ -81,6 +81,28 @@ private:
         return true;
     }
 
+    bool prepareCurrentFrameInput()
+    {
+        if(!m_autoQueuePendingInputOnFrameStart && !m_frameInputResolver) {
+            return false;
+        }
+
+        ReplayFrameInput input;
+        if(m_frameInputResolver) {
+            if(!m_frameInputResolver(m_emu.frameCount(), input)) {
+                return false;
+            }
+        } else {
+            input.state = m_pendingInput;
+            input.rewind = m_pendingRuntimeControls.rewind;
+        }
+
+        const InputFrame queuedFrame = queueReplayFrameInputToEmu(m_emu, m_emu.frameCount(), input);
+        notifyQueuedInputObserver(queuedFrame);
+        notifySelectedInputObserver(queuedFrame);
+        return true;
+    }
+
     struct Snapshot
     {
         bool valid = false;
@@ -175,8 +197,6 @@ private:
     bool m_ppuEventViewerCaptureEnabled = false;
 
     void resetFreeRunningPacing();
-    void applyPendingInput();
-    void applyStartupInput();
     void notifyQueuedInputObserver(const InputFrame& frame);
     void notifySelectedInputObserver(const InputFrame& frame);
     bool runPreAdvanceHook();
@@ -598,11 +618,13 @@ public:
         size_t nextSnapshotIndex = 0;
         while(m_emu.valid() && m_emu.frameCount() < targetFrame) {
             const uint32_t frameBefore = m_emu.frameCount();
+            prepareCurrentFrameInput();
             m_emu.updateUntilFrame(frameDt, false);
             if(m_emu.frameCount() <= frameBefore) {
                 m_frameInputResolver = previousResolver;
                 return false;
             }
+            onFrameReady();
             while(nextSnapshotIndex < snapshotFramesToCapture.size() &&
                   m_emu.frameCount() >= snapshotFramesToCapture[nextSnapshotIndex]) {
                 if(snapshotObserver) {
@@ -633,13 +655,19 @@ public:
         ReplayFrameInput lastReplayInput{};
         bool hasLastReplayInput = false;
         while(m_emu.frameCount() < targetFrame) {
-            const uint32_t nextFrame = m_emu.frameCount() + 1;
-            const ReplayFrameInput replayInput = std::forward<InputProvider>(inputProvider)(nextFrame);
+            const uint32_t currentFrame = m_emu.frameCount();
+            const ReplayFrameInput replayInput = std::forward<InputProvider>(inputProvider)(currentFrame);
             m_pendingInput = replayInput.state;
-            queueReplayFrameInputToEmu(m_emu, nextFrame, replayInput);
+            const InputFrame queuedFrame = queueReplayFrameInputToEmu(m_emu, currentFrame, replayInput);
+            notifyQueuedInputObserver(queuedFrame);
+            notifySelectedInputObserver(queuedFrame);
             lastReplayInput = replayInput;
             hasLastReplayInput = true;
+            const uint32_t frameBefore = m_emu.frameCount();
             m_emu.updateUntilFrame(frameDt, false);
+            if(m_emu.frameCount() > frameBefore) {
+                onFrameReady();
+            }
         }
         if(hasLastReplayInput) {
             m_pendingInput = lastReplayInput.state;

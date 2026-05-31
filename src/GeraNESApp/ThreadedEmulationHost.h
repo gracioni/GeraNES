@@ -89,6 +89,24 @@ private:
         return queueReplayFrameInputToEmu(m_emu, targetFrame, input);
     }
 
+    std::optional<InputFrame> prepareCurrentFrameInputLocked()
+    {
+        if(!m_autoQueuePendingInputOnFrameStart.load(std::memory_order_acquire)) {
+            std::scoped_lock resolverLock(m_frameInputResolverMutex);
+            if(!m_frameInputResolver) {
+                return std::nullopt;
+            }
+        }
+
+        const std::optional<InputFrame> queuedFrame =
+            queueResolvedOrPendingInputLocked(m_emu.frameCount());
+        if(queuedFrame.has_value()) {
+            notifyQueuedInputObserverLocked(*queuedFrame);
+            notifySelectedInputObserverLocked(*queuedFrame);
+        }
+        return queuedFrame;
+    }
+
     struct Snapshot
     {
         bool valid = false;
@@ -209,8 +227,6 @@ private:
     std::chrono::steady_clock::time_point m_lastSlowSnapshotRefresh = {};
 
     void runPreAdvanceHookLocked();
-    void applyPendingInputLocked();
-    void applyStartupInputLocked();
     void notifyQueuedInputObserverLocked(const InputFrame& frame);
     void notifySelectedInputObserverLocked(const InputFrame& frame);
     void onCommand(std::function<void(GeraNESEmu&)> command);
@@ -776,12 +792,12 @@ public:
         {
             std::scoped_lock resolverLock(m_frameInputResolverMutex);
             previousResolver = m_frameInputResolver;
-            m_frameInputResolver = [&replayFrames](uint32_t nextFrame, ReplayFrameInput& input) {
-                if(nextFrame >= replayFrames.size()) {
+            m_frameInputResolver = [&replayFrames](uint32_t targetFrame, ReplayFrameInput& input) {
+                if(targetFrame >= replayFrames.size()) {
                     return false;
                 }
                 input.hasFrameOverride = true;
-                input.frameOverride = replayFrames[static_cast<size_t>(nextFrame)];
+                input.frameOverride = replayFrames[static_cast<size_t>(targetFrame)];
                 return true;
             };
         }
@@ -802,6 +818,7 @@ public:
         size_t nextSnapshotIndex = 0;
         while(m_emu.frameCount() < targetFrame) {
             const uint32_t frameBefore = m_emu.frameCount();
+            prepareCurrentFrameInputLocked();
             m_emu.updateUntilFrame(frameDt, false);
             if(m_emu.frameCount() <= frameBefore) {
                 {
@@ -811,6 +828,7 @@ public:
                 refreshSnapshotLocked();
                 return false;
             }
+            onFrameReadyLocked();
             while(nextSnapshotIndex < snapshotFramesToCapture.size() &&
                   m_emu.frameCount() >= snapshotFramesToCapture[nextSnapshotIndex]) {
                 if(snapshotObserver) {
@@ -847,16 +865,22 @@ public:
         ReplayFrameInput lastReplayInput{};
         bool hasLastReplayInput = false;
         while(m_emu.frameCount() < targetFrame) {
-            const uint32_t nextFrame = m_emu.frameCount() + 1;
-            const ReplayFrameInput replayInput = std::forward<InputProvider>(inputProvider)(nextFrame);
+            const uint32_t currentFrame = m_emu.frameCount();
+            const ReplayFrameInput replayInput = std::forward<InputProvider>(inputProvider)(currentFrame);
             {
                 std::scoped_lock pendingInputLock(m_pendingInputMutex);
                 m_pendingInput = replayInput.state;
             }
-            queueReplayFrameInputToEmu(m_emu, nextFrame, replayInput);
+            const InputFrame queuedFrame = queueReplayFrameInputToEmu(m_emu, currentFrame, replayInput);
+            notifyQueuedInputObserverLocked(queuedFrame);
+            notifySelectedInputObserverLocked(queuedFrame);
             lastReplayInput = replayInput;
             hasLastReplayInput = true;
+            const uint32_t frameBefore = m_emu.frameCount();
             m_emu.updateUntilFrame(frameDt, false);
+            if(m_emu.frameCount() > frameBefore) {
+                onFrameReadyLocked();
+            }
         }
 
         if(hasLastReplayInput) {

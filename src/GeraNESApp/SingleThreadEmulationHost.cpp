@@ -121,20 +121,6 @@ void SingleThreadEmulationHost::resetFreeRunningPacing()
     m_freeRunningClockInitialized = false;
 }
 
-void SingleThreadEmulationHost::applyPendingInput()
-{
-    if(!m_autoQueuePendingInputOnFrameStart && !m_frameInputResolver) {
-        return;
-    }
-
-    (void)queueResolvedOrPendingInputForFrame(m_emu.frameCount() + 1u);
-}
-
-void SingleThreadEmulationHost::applyStartupInput()
-{
-    (void)queueResolvedOrPendingInputForFrame(m_emu.frameCount());
-}
-
 void SingleThreadEmulationHost::notifyQueuedInputObserver(const InputFrame& frame)
 {
     if(m_queuedInputObserver) {
@@ -173,8 +159,8 @@ void SingleThreadEmulationHost::dispatchQueuedCommands()
 bool SingleThreadEmulationHost::pumpFreeRunningWorkerSteps()
 {
     using clock = std::chrono::steady_clock;
-    constexpr uint32_t STEP_MS = 1;
     const uint32_t fps = std::max<uint32_t>(1u, m_emu.getRegionFPS());
+    const uint32_t frameDtMs = std::max<uint32_t>(1u, 1000u / fps);
     const uint32_t maxCatchupSteps = ((1000u + fps - 1u) / fps) + 1u;
 
     auto now = clock::now();
@@ -187,9 +173,9 @@ bool SingleThreadEmulationHost::pumpFreeRunningWorkerSteps()
     uint32_t stepsToRun = 0;
     if(now >= m_freeRunningNextTick) {
         const auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(now - m_freeRunningNextTick).count();
-        stepsToRun = static_cast<uint32_t>(elapsed) + 1u;
+        stepsToRun = static_cast<uint32_t>(elapsed / std::max<int64_t>(1, frameDtMs)) + 1u;
         stepsToRun = std::min<uint32_t>(stepsToRun, maxCatchupSteps);
-        m_freeRunningNextTick += std::chrono::milliseconds(stepsToRun * STEP_MS);
+        m_freeRunningNextTick += std::chrono::milliseconds(stepsToRun * frameDtMs);
     }
 
     if(stepsToRun == 0u) {
@@ -201,7 +187,12 @@ bool SingleThreadEmulationHost::pumpFreeRunningWorkerSteps()
                 return m_emu.frameCount() != frameBefore;
             }
             if(m_emu.valid()) {
-                m_emu.update(STEP_MS);
+                const uint32_t stepFrameBefore = m_emu.frameCount();
+                prepareCurrentFrameInput();
+                m_emu.updateUntilFrame(frameDtMs);
+                if(m_emu.frameCount() > stepFrameBefore) {
+                    onFrameReady();
+                }
             }
         }
     }
@@ -338,10 +329,6 @@ SingleThreadEmulationHost::SingleThreadEmulationHost(IAudioOutput& audioOutput)
 {
     m_emu.signalResetExecuted.bind(&SingleThreadEmulationHost::onResetExecutedLocked, this);
     m_emu.signalLoadExecuted.bind(&SingleThreadEmulationHost::onLoadExecutedLocked, this);
-    m_emu.signalSimulationStart.bind(&SingleThreadEmulationHost::applyStartupInput, this);
-    m_emu.signalInputFrameSelected.bind(&SingleThreadEmulationHost::notifySelectedInputObserver, this);
-    m_emu.signalFrameStart.bind(&SingleThreadEmulationHost::applyPendingInput, this);
-    m_emu.signalFrameReady.bind(&SingleThreadEmulationHost::onFrameReady, this);
 }
 
 SingleThreadEmulationHost::~SingleThreadEmulationHost()
@@ -580,10 +567,20 @@ void SingleThreadEmulationHost::updateUntilFrame(uint32_t dt)
         return;
     }
     if(m_emu.valid() && m_pendingPresenterTicks > 0u) {
+        const uint32_t frameBefore = m_emu.frameCount();
+        prepareCurrentFrameInput();
         m_emu.updateUntilFrame(m_presenterTickDtMs);
+        if(m_emu.frameCount() > frameBefore) {
+            onFrameReady();
+        }
         m_pendingPresenterTicks = 0u;
     } else if(m_emu.valid() && m_allowPresenterTimeoutAdvance) {
-        m_emu.update(m_presenterTickDtMs);
+        const uint32_t frameBefore = m_emu.frameCount();
+        prepareCurrentFrameInput();
+        m_emu.updateUntilFrame(m_presenterTickDtMs);
+        if(m_emu.frameCount() > frameBefore) {
+            onFrameReady();
+        }
     }
     refreshPresentedFramebuffer();
     (void)frameBefore;

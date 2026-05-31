@@ -176,10 +176,9 @@ private:
         if(!emu.valid()) return false;
 
         const uint32_t targetFrame = emu.frameCount() + 1u;
-        uint32_t elapsedMs = 0u;
-        while(emu.valid() && emu.frameCount() < targetFrame && elapsedMs < 20000u) {
-            emu.update(1u);
-            ++elapsedMs;
+        const uint32_t frameDtMs = std::max<uint32_t>(1u, 1000u / std::max<uint32_t>(1u, emu.getRegionFPS()));
+        if(emu.valid() && emu.frameCount() < targetFrame) {
+            (void)emu.updateUntilFrame(frameDtMs, false);
         }
         return emu.valid() && emu.frameCount() == targetFrame;
     }

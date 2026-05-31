@@ -142,31 +142,6 @@ void ThreadedEmulationHost::runPreAdvanceHookLocked()
     }
 }
 
-void ThreadedEmulationHost::applyPendingInputLocked()
-{
-    if(!m_autoQueuePendingInputOnFrameStart.load(std::memory_order_acquire)) {
-        std::scoped_lock resolverLock(m_frameInputResolverMutex);
-        if(!m_frameInputResolver) {
-            return;
-        }
-    }
-
-    const std::optional<InputFrame> queuedFrame =
-        queueResolvedOrPendingInputLocked(m_emu.frameCount() + 1u);
-    if(queuedFrame.has_value()) {
-        notifyQueuedInputObserverLocked(*queuedFrame);
-    }
-}
-
-void ThreadedEmulationHost::applyStartupInputLocked()
-{
-    const std::optional<InputFrame> queuedFrame =
-        queueResolvedOrPendingInputLocked(m_emu.frameCount());
-    if(queuedFrame.has_value()) {
-        notifyQueuedInputObserverLocked(*queuedFrame);
-    }
-}
-
 void ThreadedEmulationHost::notifyQueuedInputObserverLocked(const InputFrame& frame)
 {
     QueuedInputObserver observer;
@@ -431,7 +406,6 @@ void ThreadedEmulationHost::onFrameReadyLocked()
 void ThreadedEmulationHost::workerLoop(std::stop_token stopToken)
 {
     using clock = std::chrono::steady_clock;
-    constexpr uint32_t STEP_MS = 1;
 
     move_to_current_thread();
     {
@@ -492,13 +466,23 @@ void ThreadedEmulationHost::workerLoop(std::stop_token stopToken)
                 runPreAdvanceHookLocked();
 
                 if(m_emu.valid() && ticksToConsume > 0) {
+                    const uint32_t frameBefore = m_emu.frameCount();
+                    prepareCurrentFrameInputLocked();
                     m_emu.updateUntilFrame(dtMs);
+                    if(m_emu.frameCount() > frameBefore) {
+                        onFrameReadyLocked();
+                    }
                 }
                 else if(m_emu.valid() &&
                         timedOutWaitingPresenter &&
                         !wakeOnly &&
                         m_allowPresenterTimeoutAdvance.load(std::memory_order_acquire)) {
-                    m_emu.update(dtMs);
+                    const uint32_t frameBefore = m_emu.frameCount();
+                    prepareCurrentFrameInputLocked();
+                    m_emu.updateUntilFrame(dtMs);
+                    if(m_emu.frameCount() > frameBefore) {
+                        onFrameReadyLocked();
+                    }
                 }
 
                 (void)wakeOnly;
@@ -517,17 +501,23 @@ void ThreadedEmulationHost::workerLoop(std::stop_token stopToken)
 
         uint32_t catchupSteps = 0;
         const uint32_t fps = std::max<uint32_t>(1u, m_emu.getRegionFPS());
+        const uint32_t frameDtMs = std::max<uint32_t>(1u, 1000u / fps);
         const uint32_t maxCatchupSteps = ((1000u + fps - 1u) / fps) + 1u;
         while(now >= nextTick && catchupSteps < maxCatchupSteps && !stopToken.stop_requested()) {
             ++catchupSteps;
-            nextTick += std::chrono::milliseconds(STEP_MS);
+            nextTick += std::chrono::milliseconds(frameDtMs);
 
             {
                 std::scoped_lock emuLock(m_emuMutex);
                 dispatch_queued_calls();
                 runPreAdvanceHookLocked();
                 if(m_emu.valid()) {
-                    m_emu.update(STEP_MS);
+                    const uint32_t frameBefore = m_emu.frameCount();
+                    prepareCurrentFrameInputLocked();
+                    m_emu.updateUntilFrame(frameDtMs);
+                    if(m_emu.frameCount() > frameBefore) {
+                        onFrameReadyLocked();
+                    }
                     refreshSnapshotLocked();
                 } else {
                     refreshSnapshotLocked();
@@ -547,10 +537,6 @@ ThreadedEmulationHost::ThreadedEmulationHost(IAudioOutput& audioOutput)
 {
     m_emu.signalResetExecuted.bind(&ThreadedEmulationHost::onResetExecutedLocked, this);
     m_emu.signalLoadExecuted.bind(&ThreadedEmulationHost::onLoadExecutedLocked, this);
-    m_emu.signalSimulationStart.bind(&ThreadedEmulationHost::applyStartupInputLocked, this);
-    m_emu.signalInputFrameSelected.bind(&ThreadedEmulationHost::notifySelectedInputObserverLocked, this);
-    m_emu.signalFrameStart.bind(&ThreadedEmulationHost::applyPendingInputLocked, this);
-    m_emu.signalFrameReady.bind(&ThreadedEmulationHost::onFrameReadyLocked, this);
     m_signalCommand.bind_auto(&ThreadedEmulationHost::onCommand, this);
     {
         std::scoped_lock emuLock(m_emuMutex);

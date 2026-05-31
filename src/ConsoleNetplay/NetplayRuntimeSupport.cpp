@@ -1244,18 +1244,18 @@ uint32_t runtimeAdvanceToSharedClockIfNeeded(
 
     uint32_t advancedFrames = 0u;
     while(advancedFrames < maxFrames) {
-        const FrameNumber nextFrame = console.frameCount() + 1u;
-        if(nextFrame > confirmedThroughFrame) break;
+        const FrameNumber playbackFrameNumber = console.frameCount();
+        if(playbackFrameNumber > confirmedThroughFrame) break;
 
-        const uint64_t nextFrameClockMicros = coordinator.authoritativeFrameStartClockMicros(nextFrame);
+        const uint64_t nextFrameClockMicros = coordinator.authoritativeFrameStartClockMicros(playbackFrameNumber);
         if(nextFrameClockMicros == 0u) break;
 
         const uint64_t nowSharedClockMicros = coordinator.sharedClockNowMicros();
         if(nowSharedClockMicros == 0u || nowSharedClockMicros < nextFrameClockMicros) break;
 
-        NetplayCoordinator::ConfirmedFrameInputs playbackFrame;
-        if(!coordinator.tryBuildPlaybackFrame(nextFrame, playbackFrame)) break;
-        if(!console.queuePlaybackInputFrame(playbackFrame)) break;
+        NetplayCoordinator::ConfirmedFrameInputs confirmedPlaybackFrame;
+        if(!coordinator.tryBuildPlaybackFrame(playbackFrameNumber, confirmedPlaybackFrame)) break;
+        if(!console.queuePlaybackInputFrame(confirmedPlaybackFrame)) break;
         if(!console.updateUntilFrame(frameDt, false)) break;
 
         ++advancedFrames;
@@ -1314,10 +1314,10 @@ uint32_t runtimeAdvanceObserverPeerIfNeeded(NetplayCoordinator& coordinator,
 
     uint32_t advancedFrames = 0u;
     while(console.frameCount() < targetFrame) {
-        const FrameNumber nextFrame = console.frameCount() + 1u;
-        NetplayCoordinator::ConfirmedFrameInputs playbackFrame;
-        if(!coordinator.tryBuildPlaybackFrame(nextFrame, playbackFrame)) break;
-        if(!console.queuePlaybackInputFrame(playbackFrame)) break;
+        const FrameNumber playbackFrameNumber = console.frameCount();
+        NetplayCoordinator::ConfirmedFrameInputs confirmedPlaybackFrame;
+        if(!coordinator.tryBuildPlaybackFrame(playbackFrameNumber, confirmedPlaybackFrame)) break;
+        if(!console.queuePlaybackInputFrame(confirmedPlaybackFrame)) break;
         if(!console.updateUntilFrame(frameDt, false)) break;
         ++advancedFrames;
         coordinator.setLocalSimulationFrame(console.frameCount());

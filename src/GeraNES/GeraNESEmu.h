@@ -413,6 +413,86 @@ private:
         return false;
     }
 
+    /**
+     * Return true on new frame
+     */
+    template<bool waitForNewFrame>
+    GERANES_INLINE bool _update(uint32_t dt, bool renderAudio = true) //miliseconds
+    {
+        const int AUDIO_RENDER_TIME_STEP = 1; //ms
+
+        if(!m_cartridge.isValid()) return false;        
+
+        dt = std::min(dt, (uint32_t)1000/10);  //0.1s
+
+        if constexpr(!waitForNewFrame)
+            m_updateCyclesAcc += m_cyclesPerSecond * dt;
+
+        const uint32_t audioRenderCycles = m_cyclesPerSecond * AUDIO_RENDER_TIME_STEP;
+
+        bool newFrame = false;
+        uint32_t renderedAudioMs = 0;
+
+        bool loop = false;
+
+        if constexpr(waitForNewFrame)
+            loop = true;
+        else
+            loop = m_updateCyclesAcc >= 1000;
+
+        m_runningLoop = true;
+
+        
+
+        const bool silentAudio = m_forceSilentAudio || !renderAudio;
+
+        while(loop)
+        {
+            bool advanced = false;
+            if constexpr(waitForNewFrame) {
+                advanced = stepEmulationTick<false>(audioRenderCycles, renderedAudioMs, newFrame, silentAudio);
+            }
+            else {
+                advanced = stepEmulationTick<true>(audioRenderCycles, renderedAudioMs, newFrame, silentAudio);
+            }
+            if(!advanced) break;
+
+            if(m_paused) {
+                break;
+            }
+
+            if constexpr(waitForNewFrame)
+                loop = !newFrame;
+            else
+                loop = m_updateCyclesAcc >= 1000;
+
+        }
+
+        m_lastAudioRenderedMs = renderedAudioMs;
+        m_runningLoop = false;
+
+        if(m_saveStateFlag) {
+            _saveState(m_pendingSaveStateSlot);
+            m_saveStateFlag = false;
+        }
+
+        if(m_loadStateFlag) {
+            _loadState(m_pendingLoadStateSlot);
+            m_loadStateFlag = false;
+        }
+
+        processDeferredNetplaySnapshot();
+        processDeferredNetplayLoad();        
+
+        return newFrame;
+    }
+
+    GERANES_INLINE bool update(uint32_t dt, bool renderAudio = true) {
+        applyPendingNsfControllerActions();
+        if(m_paused) return false;
+        return _update<false>(dt, renderAudio);
+    }
+
     void updateInputDevicePixelCheckers()
     {
         auto pixelChecker = [&](int x, int y) {
@@ -990,7 +1070,6 @@ private:
         }
 
         signalInputFrameSelected(m_lastAppliedInputFrame);
-        signalFrameStart();
     }    
 
     void onFrameReady() {
@@ -1414,7 +1493,6 @@ private:
                 m_currentPlaybackFrameRenderedAudibly = false;
                 m_rewind.newFrame();
                 frameReady = true;
-                signalFrameReady();
                 m_newFrame = false;
             }
         }
@@ -1571,10 +1649,7 @@ public:
     }
 
     SigSlot::Signal<const std::string&> signalError;
-    SigSlot::Signal<> signalSimulationStart;
     SigSlot::Signal<const InputFrame&> signalInputFrameSelected;
-    SigSlot::Signal<> signalFrameStart;
-    SigSlot::Signal<> signalFrameReady;
     SigSlot::Signal<uint32_t> signalResetExecuted;
     SigSlot::Signal<uint32_t> signalLoadExecuted;
 
@@ -1901,7 +1976,6 @@ public:
             m_nsfPlayer.onOpen();
 
             resetRewindSystem();
-            signalSimulationStart();
         }
 
         return result;
@@ -1972,87 +2046,7 @@ public:
                 m_cartridge.writeMapperRegister(addr & 0x1FFF, data);
             }
         }
-    }
-
-    /**
-     * Return true on new frame
-     */
-    template<bool waitForNewFrame>
-    GERANES_INLINE bool _update(uint32_t dt, bool renderAudio = true) //miliseconds
-    {
-        const int AUDIO_RENDER_TIME_STEP = 1; //ms
-
-        if(!m_cartridge.isValid()) return false;        
-
-        dt = std::min(dt, (uint32_t)1000/10);  //0.1s
-
-        if constexpr(!waitForNewFrame)
-            m_updateCyclesAcc += m_cyclesPerSecond * dt;
-
-        const uint32_t audioRenderCycles = m_cyclesPerSecond * AUDIO_RENDER_TIME_STEP;
-
-        bool ret = false;
-        uint32_t renderedAudioMs = 0;
-
-        bool loop = false;
-
-        if constexpr(waitForNewFrame)
-            loop = true;
-        else
-            loop = m_updateCyclesAcc >= 1000;
-
-        m_runningLoop = true;
-
-        
-
-        const bool silentAudio = m_forceSilentAudio || !renderAudio;
-
-        while(loop)
-        {
-            bool advanced = false;
-            if constexpr(waitForNewFrame) {
-                advanced = stepEmulationTick<false>(audioRenderCycles, renderedAudioMs, ret, silentAudio);
-            }
-            else {
-                advanced = stepEmulationTick<true>(audioRenderCycles, renderedAudioMs, ret, silentAudio);
-            }
-            if(!advanced) break;
-
-            if(m_paused) {
-                break;
-            }
-
-            if constexpr(waitForNewFrame)
-                loop = !ret;
-            else
-                loop = m_updateCyclesAcc >= 1000;
-
-        }
-
-        m_lastAudioRenderedMs = renderedAudioMs;
-        m_runningLoop = false;
-
-        if(m_saveStateFlag) {
-            _saveState(m_pendingSaveStateSlot);
-            m_saveStateFlag = false;
-        }
-
-        if(m_loadStateFlag) {
-            _loadState(m_pendingLoadStateSlot);
-            m_loadStateFlag = false;
-        }
-
-        processDeferredNetplaySnapshot();
-        processDeferredNetplayLoad();        
-
-        return ret;
-    }
-
-    GERANES_INLINE bool update(uint32_t dt, bool renderAudio = true) {
-        applyPendingNsfControllerActions();
-        if(m_paused) return false;
-        return _update<false>(dt, renderAudio);
-    }
+    }    
 
     GERANES_INLINE bool updateUntilFrame(uint32_t dt, bool renderAudio = true) {
         applyPendingNsfControllerActions();
