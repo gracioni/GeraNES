@@ -153,11 +153,7 @@ NetplayInputFrame buildGeraNESLocalInputContribution(PlayerSlot slot,
 {
     EmulationHost::InputState stampedState = localInputState;
     const InputFrame baseFrame = makeRoomTopologyBaseFrame(frame, room);
-    stampedState.port1Device = baseFrame.port1Device;
-    stampedState.port2Device = baseFrame.port2Device;
-    stampedState.expansionDevice = baseFrame.expansionDevice;
-    stampedState.nesMultitapDevice = baseFrame.nesMultitapDevice;
-    stampedState.famicomMultitapDevice = baseFrame.famicomMultitapDevice;
+    stampedState.topology = baseFrame.state.topology;
     const GeraNESInputState inputState = toGeraNESInputState(stampedState);
     return toNetplayInputFrame(buildAssignedContribution(slot, inputState, makeRoomTopologyBaseFrame(frame, room)));
 }

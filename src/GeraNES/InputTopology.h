@@ -11,4 +11,7 @@ struct InputTopology
     Settings::ExpansionDevice expansionDevice = Settings::ExpansionDevice::NONE;
     Settings::NesMultitapDevice nesMultitapDevice = Settings::NesMultitapDevice::NONE;
     Settings::FamicomMultitapDevice famicomMultitapDevice = Settings::FamicomMultitapDevice::NONE;
+
+    bool operator==(const InputTopology&) const = default;
+    bool operator!=(const InputTopology&) const = default;
 };

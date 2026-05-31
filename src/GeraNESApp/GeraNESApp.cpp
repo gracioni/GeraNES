@@ -1226,11 +1226,7 @@ InputFrame GeraNESApp::buildReplayRecordedFrame(const InputTopology& topology,
 {
     InputFrame frame{};
     frame.frame = frameNumber;
-    frame.port1Device = topology.port1Device.value_or(Settings::Device::NONE);
-    frame.port2Device = topology.port2Device.value_or(Settings::Device::NONE);
-    frame.expansionDevice = topology.expansionDevice;
-    frame.nesMultitapDevice = topology.nesMultitapDevice;
-    frame.famicomMultitapDevice = topology.famicomMultitapDevice;
+    frame.state.topology = topology;
     frame.state.serializedInputData = input.serializedInputData;
     return frame;
 }
@@ -4247,11 +4243,7 @@ void GeraNESApp::pollAndPrepareInput()
         m_arkanoidFamicomPosition = std::clamp(arkanoidFamicomPosition, 0.0f, 1.0f);
 
         EmulationHost::InputState inputState;
-        inputState.port1Device = inputTopology.port1Device.value_or(Settings::Device::NONE);
-        inputState.port2Device = inputTopology.port2Device.value_or(Settings::Device::NONE);
-        inputState.expansionDevice = inputTopology.expansionDevice;
-        inputState.nesMultitapDevice = inputTopology.nesMultitapDevice;
-        inputState.famicomMultitapDevice = inputTopology.famicomMultitapDevice;
+        inputState.topology = inputTopology;
         inputState.setPortButtons(1, {p1PrimaryA, p1PrimaryB, p1PrimarySelect, p1PrimaryStart, p1PrimaryUp, p1PrimaryDown, p1PrimaryLeft, p1PrimaryRight,
                                       p1X, p1Y, p1PrimaryL, p1PrimaryR, p1Up2, p1Down2, p1Left2, p1Right2});
         inputState.setPortButtons(2, {p2PrimaryA, p2PrimaryB, p2PrimarySelect, p2PrimaryStart, p2PrimaryUp, p2PrimaryDown, p2PrimaryLeft, p2PrimaryRight,

@@ -178,22 +178,12 @@ InputTopology roomInputTopology(const RoomState& room)
 
 InputTopology frameInputTopology(const InputFrame& inputFrame)
 {
-    InputTopology inputTopology;
-    inputTopology.port1Device = inputFrame.port1Device;
-    inputTopology.port2Device = inputFrame.port2Device;
-    inputTopology.expansionDevice = inputFrame.expansionDevice;
-    inputTopology.nesMultitapDevice = inputFrame.nesMultitapDevice;
-    inputTopology.famicomMultitapDevice = inputFrame.famicomMultitapDevice;
-    return inputTopology;
+    return inputFrame.state.topology;
 }
 
 void applyInputTopology(InputFrame& inputFrame, const InputTopology& inputTopology)
 {
-    inputFrame.port1Device = inputTopology.port1Device.value_or(Settings::Device::NONE);
-    inputFrame.port2Device = inputTopology.port2Device.value_or(Settings::Device::NONE);
-    inputFrame.expansionDevice = inputTopology.expansionDevice;
-    inputFrame.nesMultitapDevice = inputTopology.nesMultitapDevice;
-    inputFrame.famicomMultitapDevice = inputTopology.famicomMultitapDevice;
+    inputFrame.state.topology = inputTopology;
 }
 
 } // namespace
@@ -439,26 +429,26 @@ void applyMask(InputFrame& frame, PlayerSlot slot, uint64_t mask)
 
     switch(slot) {
         case kPort1PlayerSlot:
-            frame.setPortButtons(1, buttons);
+            frame.state.setPortButtons(1, buttons);
             break;
         case kPort2PlayerSlot:
-            frame.setPortButtons(2, buttons);
+            frame.state.setPortButtons(2, buttons);
             break;
         case kExpansionPlayerSlot:
-            frame.setPortButtons(3, buttons);
-            frame.setBandaiButtons(buttons);
+            frame.state.setPortButtons(3, buttons);
+            frame.state.setBandaiButtons(buttons);
             break;
         case kMultitapP1PlayerSlot:
-            frame.setPortButtons(1, buttons);
+            frame.state.setPortButtons(1, buttons);
             break;
         case kMultitapP2PlayerSlot:
-            frame.setPortButtons(2, buttons);
+            frame.state.setPortButtons(2, buttons);
             break;
         case kMultitapP3PlayerSlot:
-            frame.setPortButtons(3, buttons);
+            frame.state.setPortButtons(3, buttons);
             break;
         case kMultitapP4PlayerSlot:
-            frame.setPortButtons(4, buttons);
+            frame.state.setPortButtons(4, buttons);
             break;
         default:
             break;
@@ -467,7 +457,7 @@ void applyMask(InputFrame& frame, PlayerSlot slot, uint64_t mask)
 
 void applyBandaiPadMask(InputFrame& frame, uint64_t mask)
 {
-    frame.setBandaiButtons(padButtonsFromMask(mask));
+    frame.state.setBandaiButtons(padButtonsFromMask(mask));
 }
 
 uint8_t boolMask(bool bit0, bool bit1 = false, bool bit2 = false, bool bit3 = false)
@@ -531,87 +521,88 @@ std::vector<uint8_t> makeSlotPayload(const InputFrame& inputFrame, PlayerSlot sl
         writer.writePod(kind);
     };
 
-    const Settings::Device port1Device = inputFrame.port1Device;
-    const Settings::Device port2Device = inputFrame.port2Device;
-    const Settings::ExpansionDevice expansionDevice = inputFrame.expansionDevice;
+    const InputTopology& topology = inputFrame.state.topology;
+    const Settings::Device port1Device = topology.port1Device.value_or(Settings::Device::NONE);
+    const Settings::Device port2Device = topology.port2Device.value_or(Settings::Device::NONE);
+    const Settings::ExpansionDevice expansionDevice = topology.expansionDevice;
     switch(slot) {
         case kPort1PlayerSlot:
             if(port1Device == Settings::Device::ZAPPER) {
-                const InputFrame::PointerState state = inputFrame.zapper(1);
+                const InputFrame::PointerState state = inputFrame.state.zapper(1);
                 writeHeader(AdapterSlotPayloadKind::Zapper);
                 writer.writePod(static_cast<int16_t>(state.x));
                 writer.writePod(static_cast<int16_t>(state.y));
                 writer.writePod(boolMask(state.trigger));
             } else if(port1Device == Settings::Device::ARKANOID_CONTROLLER) {
-                const InputFrame::ArkanoidState state = inputFrame.arkanoidController(1);
+                const InputFrame::ArkanoidState state = inputFrame.state.arkanoidController(1);
                 writeHeader(AdapterSlotPayloadKind::Arkanoid);
                 writer.writePod(state.position);
                 writer.writePod(boolMask(state.button));
             } else if(port1Device == Settings::Device::SNES_MOUSE || port1Device == Settings::Device::SUBOR_MOUSE) {
                 const bool subor = port1Device == Settings::Device::SUBOR_MOUSE;
-                const InputFrame::RelativePointerState state = subor ? inputFrame.suborMouse(1) : inputFrame.snesMouse(1);
+                const InputFrame::RelativePointerState state = subor ? inputFrame.state.suborMouse(1) : inputFrame.state.snesMouse(1);
                 writeHeader(AdapterSlotPayloadKind::Mouse);
                 writer.writePod(static_cast<int16_t>(state.deltaX));
                 writer.writePod(static_cast<int16_t>(state.deltaY));
                 writer.writePod(boolMask(state.primary, state.secondary));
             } else if(port1Device == Settings::Device::POWER_PAD_SIDE_A || port1Device == Settings::Device::POWER_PAD_SIDE_B) {
                 writeHeader(AdapterSlotPayloadKind::PowerPad);
-                writer.writePod(powerPadMask(inputFrame.powerPadButtons(1)));
+                writer.writePod(powerPadMask(inputFrame.state.powerPadButtons(1)));
             }
             break;
         case kPort2PlayerSlot:
             if(port2Device == Settings::Device::ZAPPER) {
-                const InputFrame::PointerState state = inputFrame.zapper(2);
+                const InputFrame::PointerState state = inputFrame.state.zapper(2);
                 writeHeader(AdapterSlotPayloadKind::Zapper);
                 writer.writePod(static_cast<int16_t>(state.x));
                 writer.writePod(static_cast<int16_t>(state.y));
                 writer.writePod(boolMask(state.trigger));
             } else if(port2Device == Settings::Device::ARKANOID_CONTROLLER) {
-                const InputFrame::ArkanoidState state = inputFrame.arkanoidController(2);
+                const InputFrame::ArkanoidState state = inputFrame.state.arkanoidController(2);
                 writeHeader(AdapterSlotPayloadKind::Arkanoid);
                 writer.writePod(state.position);
                 writer.writePod(boolMask(state.button));
             } else if(port2Device == Settings::Device::SNES_MOUSE || port2Device == Settings::Device::SUBOR_MOUSE) {
                 const bool subor = port2Device == Settings::Device::SUBOR_MOUSE;
-                const InputFrame::RelativePointerState state = subor ? inputFrame.suborMouse(2) : inputFrame.snesMouse(2);
+                const InputFrame::RelativePointerState state = subor ? inputFrame.state.suborMouse(2) : inputFrame.state.snesMouse(2);
                 writeHeader(AdapterSlotPayloadKind::Mouse);
                 writer.writePod(static_cast<int16_t>(state.deltaX));
                 writer.writePod(static_cast<int16_t>(state.deltaY));
                 writer.writePod(boolMask(state.primary, state.secondary));
             } else if(port2Device == Settings::Device::POWER_PAD_SIDE_A || port2Device == Settings::Device::POWER_PAD_SIDE_B) {
                 writeHeader(AdapterSlotPayloadKind::PowerPad);
-                writer.writePod(powerPadMask(inputFrame.powerPadButtons(2)));
+                writer.writePod(powerPadMask(inputFrame.state.powerPadButtons(2)));
             }
             break;
         case kExpansionPlayerSlot:
             if(expansionDevice == Settings::ExpansionDevice::BANDAI_HYPERSHOT) {
-                const InputFrame::PointerState state = inputFrame.bandaiPointer();
+                const InputFrame::PointerState state = inputFrame.state.bandaiPointer();
                 writeHeader(AdapterSlotPayloadKind::BandaiPointer);
                 writer.writePod(static_cast<int16_t>(state.x));
                 writer.writePod(static_cast<int16_t>(state.y));
                 writer.writePod(boolMask(state.trigger));
             } else if(expansionDevice == Settings::ExpansionDevice::ARKANOID_CONTROLLER) {
-                const InputFrame::ArkanoidState state = inputFrame.arkanoidExpansion();
+                const InputFrame::ArkanoidState state = inputFrame.state.arkanoidExpansion();
                 writeHeader(AdapterSlotPayloadKind::Arkanoid);
                 writer.writePod(state.position);
                 writer.writePod(boolMask(state.button));
             } else if(expansionDevice == Settings::ExpansionDevice::KONAMI_HYPERSHOT) {
-                const InputFrame::KonamiHyperShotState state = inputFrame.konamiHyperShot();
+                const InputFrame::KonamiHyperShotState state = inputFrame.state.konamiHyperShot();
                 writeHeader(AdapterSlotPayloadKind::KonamiHyperShot);
                 writer.writePod(boolMask(state.p1Run, state.p1Jump, state.p2Run, state.p2Jump));
             } else if(expansionDevice == Settings::ExpansionDevice::SUBOR_KEYBOARD) {
                 writeHeader(AdapterSlotPayloadKind::Keyboard);
                 writer.writePod(static_cast<uint8_t>(0));
-                writeKeyboardKeys(writer, inputFrame.suborKeyboardKeys());
+                writeKeyboardKeys(writer, inputFrame.state.suborKeyboardKeys());
             } else if(expansionDevice == Settings::ExpansionDevice::FAMILY_BASIC_KEYBOARD) {
                 writeHeader(AdapterSlotPayloadKind::Keyboard);
                 writer.writePod(static_cast<uint8_t>(1));
-                writeKeyboardKeys(writer, inputFrame.familyBasicKeyboardKeys());
+                writeKeyboardKeys(writer, inputFrame.state.familyBasicKeyboardKeys());
             } else if(expansionDevice == Settings::ExpansionDevice::FAMILY_TRAINER_SIDE_A ||
                       expansionDevice == Settings::ExpansionDevice::FAMILY_TRAINER_SIDE_B) {
                 writeHeader(AdapterSlotPayloadKind::FamilyTrainer);
-                writer.writePod(powerPadMask(inputFrame.powerPadButtons(1)));
-                writer.writePod(powerPadMask(inputFrame.powerPadButtons(2)));
+                writer.writePod(powerPadMask(inputFrame.state.powerPadButtons(1)));
+                writer.writePod(powerPadMask(inputFrame.state.powerPadButtons(2)));
             }
             break;
         default:
@@ -630,9 +621,10 @@ bool isControllerLike(Settings::Device device)
 
 bool slotNeedsAdapterPayload(const InputFrame& inputFrame, PlayerSlot slot)
 {
-    const Settings::Device port1Device = inputFrame.port1Device;
-    const Settings::Device port2Device = inputFrame.port2Device;
-    const Settings::ExpansionDevice expansionDevice = inputFrame.expansionDevice;
+    const InputTopology& topology = inputFrame.state.topology;
+    const Settings::Device port1Device = topology.port1Device.value_or(Settings::Device::NONE);
+    const Settings::Device port2Device = topology.port2Device.value_or(Settings::Device::NONE);
+    const Settings::ExpansionDevice expansionDevice = topology.expansionDevice;
     switch(slot) {
         case kPort1PlayerSlot:
             return port1Device != Settings::Device::NONE && !isControllerLike(port1Device);
@@ -679,55 +671,55 @@ bool applySlotPayload(InputFrame& frame,
         case AdapterSlotPayloadKind::Zapper:
             if(!reader.readPod(x) || !reader.readPod(y) || !reader.readPod(flags)) return false;
             if(slot == kPort1PlayerSlot) {
-                frame.setZapper(1, {x, y, (flags & 1u) != 0});
+                frame.state.setZapper(1, {x, y, (flags & 1u) != 0});
             } else if(slot == kPort2PlayerSlot) {
-                frame.setZapper(2, {x, y, (flags & 1u) != 0});
+                frame.state.setZapper(2, {x, y, (flags & 1u) != 0});
             }
             break;
         case AdapterSlotPayloadKind::Arkanoid:
             if(!reader.readPod(position) || !reader.readPod(flags)) return false;
             if(slot == kPort1PlayerSlot) {
-                frame.setArkanoidController(1, {position, (flags & 1u) != 0});
+                frame.state.setArkanoidController(1, {position, (flags & 1u) != 0});
             } else if(slot == kPort2PlayerSlot) {
-                frame.setArkanoidController(2, {position, (flags & 1u) != 0});
+                frame.state.setArkanoidController(2, {position, (flags & 1u) != 0});
             } else if(slot == kExpansionPlayerSlot) {
-                frame.setArkanoidExpansion({position, (flags & 1u) != 0});
+                frame.state.setArkanoidExpansion({position, (flags & 1u) != 0});
             }
             break;
         case AdapterSlotPayloadKind::Mouse:
             if(!reader.readPod(x) || !reader.readPod(y) || !reader.readPod(flags)) return false;
             if(slot == kPort1PlayerSlot &&
                adapterPayload.inputTopology.port1Device == std::optional<Settings::Device>(Settings::Device::SUBOR_MOUSE)) {
-                frame.setSuborMouse(1, {x, y, (flags & 1u) != 0, (flags & 2u) != 0});
+                frame.state.setSuborMouse(1, {x, y, (flags & 1u) != 0, (flags & 2u) != 0});
             } else if(slot == kPort1PlayerSlot) {
-                frame.setSnesMouse(1, {x, y, (flags & 1u) != 0, (flags & 2u) != 0});
+                frame.state.setSnesMouse(1, {x, y, (flags & 1u) != 0, (flags & 2u) != 0});
             } else if(slot == kPort2PlayerSlot &&
                       adapterPayload.inputTopology.port2Device == std::optional<Settings::Device>(Settings::Device::SUBOR_MOUSE)) {
-                frame.setSuborMouse(2, {x, y, (flags & 1u) != 0, (flags & 2u) != 0});
+                frame.state.setSuborMouse(2, {x, y, (flags & 1u) != 0, (flags & 2u) != 0});
             } else if(slot == kPort2PlayerSlot) {
-                frame.setSnesMouse(2, {x, y, (flags & 1u) != 0, (flags & 2u) != 0});
+                frame.state.setSnesMouse(2, {x, y, (flags & 1u) != 0, (flags & 2u) != 0});
             }
             break;
         case AdapterSlotPayloadKind::PowerPad:
             if(!reader.readPod(mask)) return false;
             if(slot == kPort1PlayerSlot) {
-                auto buttons = frame.powerPadButtons(1);
+                auto buttons = frame.state.powerPadButtons(1);
                 applyPowerPadMask(buttons, mask);
-                frame.setPowerPadButtons(1, buttons);
+                frame.state.setPowerPadButtons(1, buttons);
             }
             if(slot == kPort2PlayerSlot) {
-                auto buttons = frame.powerPadButtons(2);
+                auto buttons = frame.state.powerPadButtons(2);
                 applyPowerPadMask(buttons, mask);
-                frame.setPowerPadButtons(2, buttons);
+                frame.state.setPowerPadButtons(2, buttons);
             }
             break;
         case AdapterSlotPayloadKind::BandaiPointer:
             if(!reader.readPod(x) || !reader.readPod(y) || !reader.readPod(flags)) return false;
-            frame.setBandaiPointer({x, y, (flags & 1u) != 0});
+            frame.state.setBandaiPointer({x, y, (flags & 1u) != 0});
             break;
         case AdapterSlotPayloadKind::KonamiHyperShot:
             if(!reader.readPod(flags)) return false;
-            frame.setKonamiHyperShot({
+            frame.state.setKonamiHyperShot({
                 (flags & 1u) != 0,
                 (flags & 2u) != 0,
                 (flags & 4u) != 0,
@@ -737,13 +729,13 @@ bool applySlotPayload(InputFrame& frame,
         case AdapterSlotPayloadKind::Keyboard:
             if(!reader.readPod(flags)) return false;
             if(flags == 0) {
-                auto keys = frame.suborKeyboardKeys();
+                auto keys = frame.state.suborKeyboardKeys();
                 if(!readKeyboardKeys(reader, keys)) return false;
-                frame.setSuborKeyboardKeys(keys);
+                frame.state.setSuborKeyboardKeys(keys);
             } else if(flags == 1) {
-                auto keys = frame.familyBasicKeyboardKeys();
+                auto keys = frame.state.familyBasicKeyboardKeys();
                 if(!readKeyboardKeys(reader, keys)) return false;
-                frame.setFamilyBasicKeyboardKeys(keys);
+                frame.state.setFamilyBasicKeyboardKeys(keys);
             } else {
                 return false;
             }
@@ -751,12 +743,12 @@ bool applySlotPayload(InputFrame& frame,
         case AdapterSlotPayloadKind::FamilyTrainer:
             if(!reader.readPod(mask) || !reader.readPod(mask2)) return false;
             {
-                auto buttons1 = frame.powerPadButtons(1);
-                auto buttons2 = frame.powerPadButtons(2);
+                auto buttons1 = frame.state.powerPadButtons(1);
+                auto buttons2 = frame.state.powerPadButtons(2);
                 applyPowerPadMask(buttons1, mask);
                 applyPowerPadMask(buttons2, mask2);
-                frame.setPowerPadButtons(1, buttons1);
-                frame.setPowerPadButtons(2, buttons2);
+                frame.state.setPowerPadButtons(1, buttons1);
+                frame.state.setPowerPadButtons(2, buttons2);
             }
             break;
         default:
@@ -772,11 +764,11 @@ bool applySlotPayload(InputFrame& frame,
 
 NetplayInputFrame toNetplayInputFrame(const InputFrame& inputFrame)
 {
-    const InputFrame::PadButtons p1 = inputFrame.portButtons(1);
-    const InputFrame::PadButtons p2 = inputFrame.portButtons(2);
-    const InputFrame::PadButtons p3 = inputFrame.portButtons(3);
-    const InputFrame::PadButtons p4 = inputFrame.portButtons(4);
-    const InputFrame::PadButtons bandai = inputFrame.bandaiButtons();
+    const InputFrame::PadButtons p1 = inputFrame.state.portButtons(1);
+    const InputFrame::PadButtons p2 = inputFrame.state.portButtons(2);
+    const InputFrame::PadButtons p3 = inputFrame.state.portButtons(3);
+    const InputFrame::PadButtons p4 = inputFrame.state.portButtons(4);
+    const InputFrame::PadButtons bandai = inputFrame.state.bandaiButtons();
     NetplayInputFrame frame;
     frame.frame = inputFrame.frame;
     frame.framePayload = makeAdapterFramePayload(inputFrame);
@@ -859,11 +851,7 @@ InputFrame makeContributionBase(const InputFrame& baseFrame)
 {
     InputFrame contribution{};
     contribution.frame = baseFrame.frame;
-    contribution.port1Device = baseFrame.port1Device;
-    contribution.port2Device = baseFrame.port2Device;
-    contribution.expansionDevice = baseFrame.expansionDevice;
-    contribution.nesMultitapDevice = baseFrame.nesMultitapDevice;
-    contribution.famicomMultitapDevice = baseFrame.famicomMultitapDevice;
+    contribution.state.topology = baseFrame.state.topology;
     return contribution;
 }
 
@@ -876,56 +864,56 @@ InputFrame buildAssignedContribution(PlayerSlot slot,
     InputFrame contribution = makeContributionBase(baseFrame);
     switch(slot) {
         case kPort1PlayerSlot: {
-            const Settings::Device device = baseFrame.port1Device;
+            const Settings::Device device = baseFrame.state.topology.port1Device.value_or(Settings::Device::NONE);
             if(device == Settings::Device::CONTROLLER ||
                device == Settings::Device::FAMICOM_CONTROLLER ||
                device == Settings::Device::SNES_CONTROLLER ||
                device == Settings::Device::VIRTUAL_BOY_CONTROLLER) {
-                contribution.setPortButtons(1, {
+                contribution.state.setPortButtons(1, {
                     state.p1A, state.p1B, state.p1Select, state.p1Start,
                     state.p1Up, state.p1Down, state.p1Left, state.p1Right,
                     state.p1X, state.p1Y, state.p1L, state.p1R,
                     state.p1Up2, state.p1Down2, state.p1Left2, state.p1Right2
                 });
             } else if(device == Settings::Device::ZAPPER) {
-                contribution.setZapper(1, {state.zapperX, state.zapperY, state.zapperP1Trigger});
+                contribution.state.setZapper(1, {state.zapperX, state.zapperY, state.zapperP1Trigger});
             } else if(device == Settings::Device::ARKANOID_CONTROLLER) {
-                contribution.setArkanoidController(1, {state.arkanoidNesPosition, state.mousePrimaryButton});
+                contribution.state.setArkanoidController(1, {state.arkanoidNesPosition, state.mousePrimaryButton});
             } else if(device == Settings::Device::SNES_MOUSE) {
-                contribution.setSnesMouse(1, {state.mouseDeltaX, state.mouseDeltaY, state.mousePrimaryButton, state.mouseSecondaryButton});
+                contribution.state.setSnesMouse(1, {state.mouseDeltaX, state.mouseDeltaY, state.mousePrimaryButton, state.mouseSecondaryButton});
             } else if(device == Settings::Device::SUBOR_MOUSE) {
-                contribution.setSuborMouse(1, {state.mouseDeltaX, state.mouseDeltaY, state.mousePrimaryButton, state.mouseSecondaryButton});
+                contribution.state.setSuborMouse(1, {state.mouseDeltaX, state.mouseDeltaY, state.mousePrimaryButton, state.mouseSecondaryButton});
             } else if(device == Settings::Device::POWER_PAD_SIDE_A ||
                       device == Settings::Device::POWER_PAD_SIDE_B) {
-                contribution.setPowerPadButtons(1, state.p1PowerPadButtons);
+                contribution.state.setPowerPadButtons(1, state.p1PowerPadButtons);
             }
             break;
         }
         case kPort2PlayerSlot: {
-            const Settings::Device device = baseFrame.port2Device;
+            const Settings::Device device = baseFrame.state.topology.port2Device.value_or(Settings::Device::NONE);
             if(device == Settings::Device::CONTROLLER ||
                device == Settings::Device::FAMICOM_CONTROLLER ||
                device == Settings::Device::SNES_CONTROLLER ||
                device == Settings::Device::VIRTUAL_BOY_CONTROLLER) {
-                contribution.setPortButtons(2, {
+                contribution.state.setPortButtons(2, {
                     state.p2A, state.p2B, state.p2Select, state.p2Start,
                     state.p2Up, state.p2Down, state.p2Left, state.p2Right,
                     state.p2X, state.p2Y, state.p2L, state.p2R,
                     state.p2Up2, state.p2Down2, state.p2Left2, state.p2Right2
                 });
             } else if(device == Settings::Device::ZAPPER) {
-                contribution.setZapper(2, {state.zapperX, state.zapperY, state.zapperP2Trigger});
+                contribution.state.setZapper(2, {state.zapperX, state.zapperY, state.zapperP2Trigger});
             } else if(device == Settings::Device::ARKANOID_CONTROLLER) {
-                contribution.setArkanoidController(2, {state.arkanoidNesPosition, state.mousePrimaryButton});
+                contribution.state.setArkanoidController(2, {state.arkanoidNesPosition, state.mousePrimaryButton});
             } else if(device == Settings::Device::SNES_MOUSE) {
-                contribution.setSnesMouse(2, {state.mouseDeltaX, state.mouseDeltaY, state.mousePrimaryButton, state.mouseSecondaryButton});
+                contribution.state.setSnesMouse(2, {state.mouseDeltaX, state.mouseDeltaY, state.mousePrimaryButton, state.mouseSecondaryButton});
             } else if(device == Settings::Device::SUBOR_MOUSE) {
-                contribution.setSuborMouse(2, {state.mouseDeltaX, state.mouseDeltaY, state.mousePrimaryButton, state.mouseSecondaryButton});
+                contribution.state.setSuborMouse(2, {state.mouseDeltaX, state.mouseDeltaY, state.mousePrimaryButton, state.mouseSecondaryButton});
             } else if(device == Settings::Device::POWER_PAD_SIDE_A ||
                       device == Settings::Device::POWER_PAD_SIDE_B) {
-                contribution.setPowerPadButtons(2, state.p2PowerPadButtons);
+                contribution.state.setPowerPadButtons(2, state.p2PowerPadButtons);
             } else if(device == Settings::Device::BANDAI_HYPERSHOT) {
-                contribution.setBandaiButtons({
+                contribution.state.setBandaiButtons({
                     state.p2A, state.p2B, state.p2Select, state.p2Start,
                     state.p2Up, state.p2Down, state.p2Left, state.p2Right
                 });
@@ -933,40 +921,40 @@ InputFrame buildAssignedContribution(PlayerSlot slot,
             break;
         }
         case kExpansionPlayerSlot: {
-            const Settings::ExpansionDevice expansionDevice = baseFrame.expansionDevice;
+            const Settings::ExpansionDevice expansionDevice = baseFrame.state.topology.expansionDevice;
             if(expansionDevice == Settings::ExpansionDevice::STANDARD_CONTROLLER_FAMICOM) {
-                contribution.setPortButtons(3, {
+                contribution.state.setPortButtons(3, {
                     state.p3A, state.p3B, state.p3Select, state.p3Start,
                     state.p3Up, state.p3Down, state.p3Left, state.p3Right
                 });
             } else if(expansionDevice == Settings::ExpansionDevice::BANDAI_HYPERSHOT) {
-                contribution.setBandaiPointer({state.zapperX, state.zapperY, state.bandaiTrigger});
+                contribution.state.setBandaiPointer({state.zapperX, state.zapperY, state.bandaiTrigger});
             } else if(expansionDevice == Settings::ExpansionDevice::ARKANOID_CONTROLLER) {
-                contribution.setArkanoidExpansion({state.arkanoidFamicomPosition, state.mousePrimaryButton});
+                contribution.state.setArkanoidExpansion({state.arkanoidFamicomPosition, state.mousePrimaryButton});
             } else if(expansionDevice == Settings::ExpansionDevice::KONAMI_HYPERSHOT) {
-                contribution.setKonamiHyperShot({state.konamiP1Run, state.konamiP1Jump, state.konamiP2Run, state.konamiP2Jump});
+                contribution.state.setKonamiHyperShot({state.konamiP1Run, state.konamiP1Jump, state.konamiP2Run, state.konamiP2Jump});
             } else if(expansionDevice == Settings::ExpansionDevice::SUBOR_KEYBOARD) {
-                contribution.setSuborKeyboardKeys(state.suborKeyboardKeys);
+                contribution.state.setSuborKeyboardKeys(state.suborKeyboardKeys);
             } else if(expansionDevice == Settings::ExpansionDevice::FAMILY_BASIC_KEYBOARD) {
-                contribution.setFamilyBasicKeyboardKeys(state.familyBasicKeyboardKeys);
+                contribution.state.setFamilyBasicKeyboardKeys(state.familyBasicKeyboardKeys);
             } else if(expansionDevice == Settings::ExpansionDevice::FAMILY_TRAINER_SIDE_A ||
                       expansionDevice == Settings::ExpansionDevice::FAMILY_TRAINER_SIDE_B) {
-                contribution.setPowerPadButtons(1, state.p1PowerPadButtons);
-                contribution.setPowerPadButtons(2, state.p2PowerPadButtons);
+                contribution.state.setPowerPadButtons(1, state.p1PowerPadButtons);
+                contribution.state.setPowerPadButtons(2, state.p2PowerPadButtons);
             }
             break;
         }
         case kMultitapP1PlayerSlot:
-            contribution.setPortButtons(1, {state.p1A, state.p1B, state.p1Select, state.p1Start, state.p1Up, state.p1Down, state.p1Left, state.p1Right});
+            contribution.state.setPortButtons(1, {state.p1A, state.p1B, state.p1Select, state.p1Start, state.p1Up, state.p1Down, state.p1Left, state.p1Right});
             break;
         case kMultitapP2PlayerSlot:
-            contribution.setPortButtons(2, {state.p2A, state.p2B, state.p2Select, state.p2Start, state.p2Up, state.p2Down, state.p2Left, state.p2Right});
+            contribution.state.setPortButtons(2, {state.p2A, state.p2B, state.p2Select, state.p2Start, state.p2Up, state.p2Down, state.p2Left, state.p2Right});
             break;
         case kMultitapP3PlayerSlot:
-            contribution.setPortButtons(3, {state.p3A, state.p3B, state.p3Select, state.p3Start, state.p3Up, state.p3Down, state.p3Left, state.p3Right});
+            contribution.state.setPortButtons(3, {state.p3A, state.p3B, state.p3Select, state.p3Start, state.p3Up, state.p3Down, state.p3Left, state.p3Right});
             break;
         case kMultitapP4PlayerSlot:
-            contribution.setPortButtons(4, {state.p4A, state.p4B, state.p4Select, state.p4Start, state.p4Up, state.p4Down, state.p4Left, state.p4Right});
+            contribution.state.setPortButtons(4, {state.p4A, state.p4B, state.p4Select, state.p4Start, state.p4Up, state.p4Down, state.p4Left, state.p4Right});
             break;
         default:
             break;
@@ -978,81 +966,81 @@ void applyAssignedContribution(InputFrame& target, PlayerSlot slot, const InputF
 {
     switch(slot) {
         case kPort1PlayerSlot: {
-            const Settings::Device device = target.port1Device;
+            const Settings::Device device = target.state.topology.port1Device.value_or(Settings::Device::NONE);
             if(device == Settings::Device::CONTROLLER ||
                device == Settings::Device::FAMICOM_CONTROLLER ||
                device == Settings::Device::SNES_CONTROLLER ||
                device == Settings::Device::VIRTUAL_BOY_CONTROLLER) {
-                target.setPortButtons(1, contribution.portButtons(1));
+                target.state.setPortButtons(1, contribution.state.portButtons(1));
             } else if(device == Settings::Device::ZAPPER) {
-                target.setZapper(1, contribution.zapper(1));
+                target.state.setZapper(1, contribution.state.zapper(1));
             } else if(device == Settings::Device::ARKANOID_CONTROLLER) {
-                target.setArkanoidController(1, contribution.arkanoidController(1));
+                target.state.setArkanoidController(1, contribution.state.arkanoidController(1));
             } else if(device == Settings::Device::SNES_MOUSE) {
-                target.setSnesMouse(1, contribution.snesMouse(1));
+                target.state.setSnesMouse(1, contribution.state.snesMouse(1));
             } else if(device == Settings::Device::SUBOR_MOUSE) {
-                target.setSuborMouse(1, contribution.suborMouse(1));
+                target.state.setSuborMouse(1, contribution.state.suborMouse(1));
             } else if(device == Settings::Device::POWER_PAD_SIDE_A ||
                       device == Settings::Device::POWER_PAD_SIDE_B) {
-                target.setPowerPadButtons(1, contribution.powerPadButtons(1));
+                target.state.setPowerPadButtons(1, contribution.state.powerPadButtons(1));
             }
             break;
         }
         case kPort2PlayerSlot: {
-            const Settings::Device device = target.port2Device;
+            const Settings::Device device = target.state.topology.port2Device.value_or(Settings::Device::NONE);
             if(device == Settings::Device::CONTROLLER ||
                device == Settings::Device::FAMICOM_CONTROLLER ||
                device == Settings::Device::SNES_CONTROLLER ||
                device == Settings::Device::VIRTUAL_BOY_CONTROLLER) {
-                target.setPortButtons(2, contribution.portButtons(2));
+                target.state.setPortButtons(2, contribution.state.portButtons(2));
             } else if(device == Settings::Device::ZAPPER) {
-                target.setZapper(2, contribution.zapper(2));
+                target.state.setZapper(2, contribution.state.zapper(2));
             } else if(device == Settings::Device::ARKANOID_CONTROLLER) {
-                target.setArkanoidController(2, contribution.arkanoidController(2));
+                target.state.setArkanoidController(2, contribution.state.arkanoidController(2));
             } else if(device == Settings::Device::SNES_MOUSE) {
-                target.setSnesMouse(2, contribution.snesMouse(2));
+                target.state.setSnesMouse(2, contribution.state.snesMouse(2));
             } else if(device == Settings::Device::SUBOR_MOUSE) {
-                target.setSuborMouse(2, contribution.suborMouse(2));
+                target.state.setSuborMouse(2, contribution.state.suborMouse(2));
             } else if(device == Settings::Device::POWER_PAD_SIDE_A ||
                       device == Settings::Device::POWER_PAD_SIDE_B) {
-                target.setPowerPadButtons(2, contribution.powerPadButtons(2));
+                target.state.setPowerPadButtons(2, contribution.state.powerPadButtons(2));
             } else if(device == Settings::Device::BANDAI_HYPERSHOT) {
-                target.setBandaiButtons(contribution.bandaiButtons());
+                target.state.setBandaiButtons(contribution.state.bandaiButtons());
             }
             break;
         }
         case kExpansionPlayerSlot: {
-            const Settings::ExpansionDevice expansionDevice = target.expansionDevice;
+            const Settings::ExpansionDevice expansionDevice = target.state.topology.expansionDevice;
             if(expansionDevice == Settings::ExpansionDevice::STANDARD_CONTROLLER_FAMICOM) {
-                target.setPortButtons(3, contribution.portButtons(3));
+                target.state.setPortButtons(3, contribution.state.portButtons(3));
             } else if(expansionDevice == Settings::ExpansionDevice::BANDAI_HYPERSHOT) {
-                target.setBandaiPointer(contribution.bandaiPointer());
+                target.state.setBandaiPointer(contribution.state.bandaiPointer());
             } else if(expansionDevice == Settings::ExpansionDevice::ARKANOID_CONTROLLER) {
-                target.setArkanoidExpansion(contribution.arkanoidExpansion());
+                target.state.setArkanoidExpansion(contribution.state.arkanoidExpansion());
             } else if(expansionDevice == Settings::ExpansionDevice::KONAMI_HYPERSHOT) {
-                target.setKonamiHyperShot(contribution.konamiHyperShot());
+                target.state.setKonamiHyperShot(contribution.state.konamiHyperShot());
             } else if(expansionDevice == Settings::ExpansionDevice::SUBOR_KEYBOARD) {
-                target.setSuborKeyboardKeys(contribution.suborKeyboardKeys());
+                target.state.setSuborKeyboardKeys(contribution.state.suborKeyboardKeys());
             } else if(expansionDevice == Settings::ExpansionDevice::FAMILY_BASIC_KEYBOARD) {
-                target.setFamilyBasicKeyboardKeys(contribution.familyBasicKeyboardKeys());
+                target.state.setFamilyBasicKeyboardKeys(contribution.state.familyBasicKeyboardKeys());
             } else if(expansionDevice == Settings::ExpansionDevice::FAMILY_TRAINER_SIDE_A ||
                       expansionDevice == Settings::ExpansionDevice::FAMILY_TRAINER_SIDE_B) {
-                target.setPowerPadButtons(1, contribution.powerPadButtons(1));
-                target.setPowerPadButtons(2, contribution.powerPadButtons(2));
+                target.state.setPowerPadButtons(1, contribution.state.powerPadButtons(1));
+                target.state.setPowerPadButtons(2, contribution.state.powerPadButtons(2));
             }
             break;
         }
         case kMultitapP1PlayerSlot:
-            target.setPortButtons(1, contribution.portButtons(1));
+            target.state.setPortButtons(1, contribution.state.portButtons(1));
             break;
         case kMultitapP2PlayerSlot:
-            target.setPortButtons(2, contribution.portButtons(2));
+            target.state.setPortButtons(2, contribution.state.portButtons(2));
             break;
         case kMultitapP3PlayerSlot:
-            target.setPortButtons(3, contribution.portButtons(3));
+            target.state.setPortButtons(3, contribution.state.portButtons(3));
             break;
         case kMultitapP4PlayerSlot:
-            target.setPortButtons(4, contribution.portButtons(4));
+            target.state.setPortButtons(4, contribution.state.portButtons(4));
             break;
         default:
             break;

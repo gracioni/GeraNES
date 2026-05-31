@@ -312,20 +312,20 @@ private:
 
     static nlohmann::json inputFrameToJson(const InputFrame& frame)
     {
-        const auto p1 = frame.portButtons(1);
-        const auto p2 = frame.portButtons(2);
-        const auto p3 = frame.portButtons(3);
-        const auto p4 = frame.portButtons(4);
-        const auto zapper1 = frame.zapper(1);
-        const auto zapper2 = frame.zapper(2);
+        const auto p1 = frame.state.portButtons(1);
+        const auto p2 = frame.state.portButtons(2);
+        const auto p3 = frame.state.portButtons(3);
+        const auto p4 = frame.state.portButtons(4);
+        const auto zapper1 = frame.state.zapper(1);
+        const auto zapper2 = frame.state.zapper(2);
 
         return {
             {"frame", frame.frame},
-            {"port1Device", static_cast<int>(frame.port1Device)},
-            {"port2Device", static_cast<int>(frame.port2Device)},
-            {"expansionDevice", static_cast<int>(frame.expansionDevice)},
-            {"nesMultitapDevice", static_cast<int>(frame.nesMultitapDevice)},
-            {"famicomMultitapDevice", static_cast<int>(frame.famicomMultitapDevice)},
+            {"port1Device", static_cast<int>(frame.state.topology.port1Device.value_or(Settings::Device::NONE))},
+            {"port2Device", static_cast<int>(frame.state.topology.port2Device.value_or(Settings::Device::NONE))},
+            {"expansionDevice", static_cast<int>(frame.state.topology.expansionDevice)},
+            {"nesMultitapDevice", static_cast<int>(frame.state.topology.nesMultitapDevice)},
+            {"famicomMultitapDevice", static_cast<int>(frame.state.topology.famicomMultitapDevice)},
             {"p1", {{"a", p1.a}, {"b", p1.b}, {"select", p1.select}, {"start", p1.start}, {"up", p1.up}, {"down", p1.down}, {"left", p1.left}, {"right", p1.right}}},
             {"p2", {{"a", p2.a}, {"b", p2.b}, {"select", p2.select}, {"start", p2.start}, {"up", p2.up}, {"down", p2.down}, {"left", p2.left}, {"right", p2.right}}},
             {"p3", {{"a", p3.a}, {"b", p3.b}, {"select", p3.select}, {"start", p3.start}, {"up", p3.up}, {"down", p3.down}, {"left", p3.left}, {"right", p3.right}}},
@@ -1048,24 +1048,24 @@ private:
         switch(slot) {
             case GeraNESNetplay::kPort1PlayerSlot:
             case GeraNESNetplay::kMultitapP1PlayerSlot:
-                inputState.port1Device = Settings::Device::CONTROLLER;
-                inputState.port2Device = Settings::Device::CONTROLLER;
+                inputState.topology.port1Device = Settings::Device::CONTROLLER;
+                inputState.topology.port2Device = Settings::Device::CONTROLLER;
                 break;
             case GeraNESNetplay::kPort2PlayerSlot:
             case GeraNESNetplay::kMultitapP2PlayerSlot:
-                inputState.port1Device = Settings::Device::CONTROLLER;
-                inputState.port2Device = Settings::Device::CONTROLLER;
+                inputState.topology.port1Device = Settings::Device::CONTROLLER;
+                inputState.topology.port2Device = Settings::Device::CONTROLLER;
                 break;
             case GeraNESNetplay::kExpansionPlayerSlot:
             case GeraNESNetplay::kMultitapP3PlayerSlot:
-                inputState.port1Device = Settings::Device::CONTROLLER;
-                inputState.port2Device = Settings::Device::CONTROLLER;
-                inputState.expansionDevice = Settings::ExpansionDevice::STANDARD_CONTROLLER_FAMICOM;
+                inputState.topology.port1Device = Settings::Device::CONTROLLER;
+                inputState.topology.port2Device = Settings::Device::CONTROLLER;
+                inputState.topology.expansionDevice = Settings::ExpansionDevice::STANDARD_CONTROLLER_FAMICOM;
                 break;
             case GeraNESNetplay::kMultitapP4PlayerSlot:
-                inputState.port1Device = Settings::Device::CONTROLLER;
-                inputState.port2Device = Settings::Device::CONTROLLER;
-                inputState.nesMultitapDevice = Settings::NesMultitapDevice::FOUR_SCORE;
+                inputState.topology.port1Device = Settings::Device::CONTROLLER;
+                inputState.topology.port2Device = Settings::Device::CONTROLLER;
+                inputState.topology.nesMultitapDevice = Settings::NesMultitapDevice::FOUR_SCORE;
                 break;
             default:
                 break;
@@ -1073,9 +1073,9 @@ private:
         if(slot == GeraNESNetplay::kMultitapP1PlayerSlot ||
            slot == GeraNESNetplay::kMultitapP2PlayerSlot ||
            slot == GeraNESNetplay::kMultitapP3PlayerSlot) {
-            inputState.port1Device = Settings::Device::CONTROLLER;
-            inputState.port2Device = Settings::Device::CONTROLLER;
-            inputState.nesMultitapDevice = Settings::NesMultitapDevice::FOUR_SCORE;
+            inputState.topology.port1Device = Settings::Device::CONTROLLER;
+            inputState.topology.port2Device = Settings::Device::CONTROLLER;
+            inputState.topology.nesMultitapDevice = Settings::NesMultitapDevice::FOUR_SCORE;
         }
         GeraNESNetplay::applyPadMaskToInputState(inputState, slot, buildPadMask(buttons));
         return inputState;
@@ -1086,8 +1086,8 @@ private:
         IEmulationHost::InputState inputState{};
 
         const uint32_t startupQuietFrames = std::max<uint32_t>(fps / 2u, 20u);
-        inputState.port1Device = Settings::Device::CONTROLLER;
-        inputState.port2Device = Settings::Device::ZAPPER;
+        inputState.topology.port1Device = Settings::Device::CONTROLLER;
+        inputState.topology.port2Device = Settings::Device::ZAPPER;
         if(frameIndex < startupQuietFrames) {
             inputState.setZapper(2, {128, 96, false});
             return inputState;
@@ -1148,7 +1148,7 @@ private:
             case GeraNESNetplay::kPort1PlayerSlot:
             case GeraNESNetplay::kMultitapP1PlayerSlot:
             {
-                const auto port = inputFrame.portButtons(1);
+                const auto port = inputFrame.state.portButtons(1);
                 return port.a == buttons.a &&
                        port.b == buttons.b &&
                        port.select == buttons.select &&
@@ -1161,7 +1161,7 @@ private:
             case GeraNESNetplay::kPort2PlayerSlot:
             case GeraNESNetplay::kMultitapP2PlayerSlot:
             {
-                const auto port = inputFrame.portButtons(2);
+                const auto port = inputFrame.state.portButtons(2);
                 return port.a == buttons.a &&
                        port.b == buttons.b &&
                        port.select == buttons.select &&
@@ -1174,7 +1174,7 @@ private:
             case GeraNESNetplay::kExpansionPlayerSlot:
             case GeraNESNetplay::kMultitapP3PlayerSlot:
             {
-                const auto port = inputFrame.portButtons(3);
+                const auto port = inputFrame.state.portButtons(3);
                 return port.a == buttons.a &&
                        port.b == buttons.b &&
                        port.select == buttons.select &&
@@ -1186,7 +1186,7 @@ private:
             }
             case GeraNESNetplay::kMultitapP4PlayerSlot:
             {
-                const auto port = inputFrame.portButtons(4);
+                const auto port = inputFrame.state.portButtons(4);
                 return port.a == buttons.a &&
                        port.b == buttons.b &&
                        port.select == buttons.select &&

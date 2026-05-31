@@ -6,8 +6,8 @@
 #include <vector>
 
 #include "IExpansionDevice.h"
+#include "InputTopology.h"
 #include "Serialization.h"
-#include "Settings.h"
 
 struct InputState
 {
@@ -55,11 +55,7 @@ struct InputState
         bool p2Jump = false;
     };
 
-    Settings::Device port1Device = Settings::Device::NONE;
-    Settings::Device port2Device = Settings::Device::NONE;
-    Settings::ExpansionDevice expansionDevice = Settings::ExpansionDevice::NONE;
-    Settings::NesMultitapDevice nesMultitapDevice = Settings::NesMultitapDevice::NONE;
-    Settings::FamicomMultitapDevice famicomMultitapDevice = Settings::FamicomMultitapDevice::NONE;
+    InputTopology topology;
     std::vector<uint8_t> serializedInputData;
 
     bool operator==(const InputState&) const = default;
@@ -67,8 +63,21 @@ struct InputState
 
     bool multitapActive() const
     {
-        return nesMultitapDevice == Settings::NesMultitapDevice::FOUR_SCORE ||
-               famicomMultitapDevice == Settings::FamicomMultitapDevice::HORI_ADAPTER;
+        return topology.nesMultitapDevice == Settings::NesMultitapDevice::FOUR_SCORE ||
+               topology.famicomMultitapDevice == Settings::FamicomMultitapDevice::HORI_ADAPTER;
+    }
+
+    Settings::Device portDevice(int port) const
+    {
+        if(port == 1) return topology.port1Device.value_or(Settings::Device::NONE);
+        if(port == 2) return topology.port2Device.value_or(Settings::Device::NONE);
+        return Settings::Device::NONE;
+    }
+
+    void setPortDevice(int port, std::optional<Settings::Device> device)
+    {
+        if(port == 1) topology.port1Device = device;
+        else if(port == 2) topology.port2Device = device;
     }
 
     PadButtons portButtons(int port) const;
@@ -98,11 +107,11 @@ struct InputState
 
     void serialization(SerializationBase& s)
     {
-        SERIALIZEDATA(s, port1Device);
-        SERIALIZEDATA(s, port2Device);
-        SERIALIZEDATA(s, expansionDevice);
-        SERIALIZEDATA(s, nesMultitapDevice);
-        SERIALIZEDATA(s, famicomMultitapDevice);
+        SERIALIZEDATA(s, topology.port1Device);
+        SERIALIZEDATA(s, topology.port2Device);
+        SERIALIZEDATA(s, topology.expansionDevice);
+        SERIALIZEDATA(s, topology.nesMultitapDevice);
+        SERIALIZEDATA(s, topology.famicomMultitapDevice);
         uint32_t serializedSize = static_cast<uint32_t>(serializedInputData.size());
         SERIALIZEDATA(s, serializedSize);
         if(auto* deserialize = dynamic_cast<Deserialize*>(&s); deserialize != nullptr) {
@@ -116,3 +125,5 @@ struct InputState
     }
 
 };
+
+#include "InputState.inl"

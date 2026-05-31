@@ -566,37 +566,38 @@ private:
     {
         InputFrame inputFrame;
         inputFrame.frame = frame;
-        inputFrame.port1Device = m_settings.getPortDevice(Settings::Port::P_1).value_or(Settings::Device::NONE);
-        inputFrame.port2Device = m_settings.getPortDevice(Settings::Port::P_2).value_or(Settings::Device::NONE);
-        inputFrame.expansionDevice = m_settings.getExpansionDevice();
-        inputFrame.nesMultitapDevice = m_settings.getNesMultitapDevice();
-        inputFrame.famicomMultitapDevice = m_settings.getFamicomMultitapDevice();
+        inputFrame.state.topology.port1Device = m_settings.getPortDevice(Settings::Port::P_1);
+        inputFrame.state.topology.port2Device = m_settings.getPortDevice(Settings::Port::P_2);
+        inputFrame.state.topology.expansionDevice = m_settings.getExpansionDevice();
+        inputFrame.state.topology.nesMultitapDevice = m_settings.getNesMultitapDevice();
+        inputFrame.state.topology.famicomMultitapDevice = m_settings.getFamicomMultitapDevice();
         return inputFrame;
     }
 
     void applyInputFrame(const InputFrame& inputFrame)
     {
-        const Settings::Device port1Device = inputFrame.port1Device;
-        const Settings::Device port2Device = inputFrame.port2Device;
-        const Settings::ExpansionDevice expansionDevice = inputFrame.expansionDevice;
-        const Settings::NesMultitapDevice nesMultitapDevice = inputFrame.nesMultitapDevice;
-        const Settings::FamicomMultitapDevice famicomMultitapDevice = inputFrame.famicomMultitapDevice;
-        const InputFrame::PadButtons p1 = inputFrame.portButtons(1);
-        const InputFrame::PadButtons p2 = inputFrame.portButtons(2);
-        const InputFrame::PadButtons p3 = inputFrame.portButtons(3);
-        const InputFrame::PadButtons p4 = inputFrame.portButtons(4);
-        const InputFrame::PadButtons bandaiButtons = inputFrame.bandaiButtons();
-        const InputFrame::PointerState zapper1 = inputFrame.zapper(1);
-        const InputFrame::PointerState zapper2 = inputFrame.zapper(2);
-        const InputFrame::PointerState bandaiPointer = inputFrame.bandaiPointer();
-        const InputFrame::ArkanoidState arkanoid1 = inputFrame.arkanoidController(1);
-        const InputFrame::ArkanoidState arkanoid2 = inputFrame.arkanoidController(2);
-        const InputFrame::ArkanoidState arkanoidExpansion = inputFrame.arkanoidExpansion();
-        const InputFrame::KonamiHyperShotState konami = inputFrame.konamiHyperShot();
-        const InputFrame::RelativePointerState snes1 = inputFrame.snesMouse(1);
-        const InputFrame::RelativePointerState snes2 = inputFrame.snesMouse(2);
-        const InputFrame::RelativePointerState subor1 = inputFrame.suborMouse(1);
-        const InputFrame::RelativePointerState subor2 = inputFrame.suborMouse(2);
+        const InputTopology& topology = inputFrame.state.topology;
+        const Settings::Device port1Device = topology.port1Device.value_or(Settings::Device::NONE);
+        const Settings::Device port2Device = topology.port2Device.value_or(Settings::Device::NONE);
+        const Settings::ExpansionDevice expansionDevice = topology.expansionDevice;
+        const Settings::NesMultitapDevice nesMultitapDevice = topology.nesMultitapDevice;
+        const Settings::FamicomMultitapDevice famicomMultitapDevice = topology.famicomMultitapDevice;
+        const InputState::PadButtons p1 = inputFrame.state.portButtons(1);
+        const InputState::PadButtons p2 = inputFrame.state.portButtons(2);
+        const InputState::PadButtons p3 = inputFrame.state.portButtons(3);
+        const InputState::PadButtons p4 = inputFrame.state.portButtons(4);
+        const InputState::PadButtons bandaiButtons = inputFrame.state.bandaiButtons();
+        const InputState::PointerState zapper1 = inputFrame.state.zapper(1);
+        const InputState::PointerState zapper2 = inputFrame.state.zapper(2);
+        const InputState::PointerState bandaiPointer = inputFrame.state.bandaiPointer();
+        const InputState::ArkanoidState arkanoid1 = inputFrame.state.arkanoidController(1);
+        const InputState::ArkanoidState arkanoid2 = inputFrame.state.arkanoidController(2);
+        const InputState::ArkanoidState arkanoidExpansion = inputFrame.state.arkanoidExpansion();
+        const InputState::KonamiHyperShotState konami = inputFrame.state.konamiHyperShot();
+        const InputState::RelativePointerState snes1 = inputFrame.state.snesMouse(1);
+        const InputState::RelativePointerState snes2 = inputFrame.state.snesMouse(2);
+        const InputState::RelativePointerState subor1 = inputFrame.state.suborMouse(1);
+        const InputState::RelativePointerState subor2 = inputFrame.state.suborMouse(2);
 
         if(m_settings.getNesMultitapDevice() != nesMultitapDevice) {
             setNesMultitapDevice(nesMultitapDevice);
@@ -692,17 +693,17 @@ private:
             m_portDevice2->setSecondaryTrigger(subor2.secondary);
         }
 
-        if(m_settings.getExpansionDevice() == Settings::ExpansionDevice::SUBOR_KEYBOARD && m_expansionDevice) m_expansionDevice->setSuborKeyboardKeys(inputFrame.suborKeyboardKeys());
-        if(m_settings.getExpansionDevice() == Settings::ExpansionDevice::FAMILY_BASIC_KEYBOARD && m_expansionDevice) m_expansionDevice->setFamilyBasicKeyboardKeys(inputFrame.familyBasicKeyboardKeys());
+        if(m_settings.getExpansionDevice() == Settings::ExpansionDevice::SUBOR_KEYBOARD && m_expansionDevice) m_expansionDevice->setSuborKeyboardKeys(inputFrame.state.suborKeyboardKeys());
+        if(m_settings.getExpansionDevice() == Settings::ExpansionDevice::FAMILY_BASIC_KEYBOARD && m_expansionDevice) m_expansionDevice->setFamilyBasicKeyboardKeys(inputFrame.state.familyBasicKeyboardKeys());
 
         const auto p1Device = m_settings.getPortDevice(Settings::Port::P_1);
         const auto p2Device = m_settings.getPortDevice(Settings::Port::P_2);
         const bool familyTrainer =
             m_settings.getExpansionDevice() == Settings::ExpansionDevice::FAMILY_TRAINER_SIDE_A ||
             m_settings.getExpansionDevice() == Settings::ExpansionDevice::FAMILY_TRAINER_SIDE_B;
-        if((p1Device == std::optional<Settings::Device>(Settings::Device::POWER_PAD_SIDE_A) || p1Device == std::optional<Settings::Device>(Settings::Device::POWER_PAD_SIDE_B)) && m_portDevice1) m_portDevice1->setPowerPadButtons(inputFrame.powerPadButtons(1));
-        if((p2Device == std::optional<Settings::Device>(Settings::Device::POWER_PAD_SIDE_A) || p2Device == std::optional<Settings::Device>(Settings::Device::POWER_PAD_SIDE_B)) && m_portDevice2) m_portDevice2->setPowerPadButtons(inputFrame.powerPadButtons(2));
-        if(familyTrainer && m_expansionDevice) m_expansionDevice->setPowerPadButtons(inputFrame.powerPadButtons(1));
+        if((p1Device == std::optional<Settings::Device>(Settings::Device::POWER_PAD_SIDE_A) || p1Device == std::optional<Settings::Device>(Settings::Device::POWER_PAD_SIDE_B)) && m_portDevice1) m_portDevice1->setPowerPadButtons(inputFrame.state.powerPadButtons(1));
+        if((p2Device == std::optional<Settings::Device>(Settings::Device::POWER_PAD_SIDE_A) || p2Device == std::optional<Settings::Device>(Settings::Device::POWER_PAD_SIDE_B)) && m_portDevice2) m_portDevice2->setPowerPadButtons(inputFrame.state.powerPadButtons(2));
+        if(familyTrainer && m_expansionDevice) m_expansionDevice->setPowerPadButtons(inputFrame.state.powerPadButtons(1));
     }
 
     GERANES_INLINE void setPortDevice(Settings::Port port, Settings::Device device)

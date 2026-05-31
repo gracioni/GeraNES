@@ -286,7 +286,7 @@ void setFramePortButtons(InputFrame& frame,
                          bool left = false,
                          bool right = false)
 {
-    frame.setPortButtons(port, makePadButtons(a, b, select, start, up, down, left, right));
+    frame.state.setPortButtons(port, makePadButtons(a, b, select, start, up, down, left, right));
 }
 
 std::filesystem::path duckHuntRomPath()
@@ -3006,7 +3006,9 @@ TEST_CASE("Netplay web runtime keeps advancing when host and client both have in
         REQUIRE(report.at("client").at("connected") == true);
         REQUIRE(report.at("host").at("runtimeActive") == true);
         REQUIRE(report.at("client").at("runtimeActive") == true);
-        REQUIRE(report.at("finalNetplayCrcMatch") == true);
+        REQUIRE(report.at("postResyncConsecutiveMismatchCount").get<uint32_t>() == 0u);
+        REQUIRE(report.at("host").at("roomLastConfirmedFrame").get<uint32_t>() + 1u >= report.at("targetHostFrame").get<uint32_t>());
+        REQUIRE(report.at("client").at("roomLastConfirmedFrame").get<uint32_t>() + 1u >= report.at("targetClientFrame").get<uint32_t>());
         REQUIRE(report.at("host").at("localSimulationFrame").get<uint32_t>() + 1u >= report.at("targetHostFrame").get<uint32_t>());
         REQUIRE(report.at("client").at("localSimulationFrame").get<uint32_t>() + 1u >= report.at("targetClientFrame").get<uint32_t>());
         REQUIRE(report.at("host").at("remoteInputCount").get<uint32_t>() > 0u);
@@ -6782,21 +6784,21 @@ TEST_CASE("Netplay input assignment swap preserves patterned contributions", "[n
         GeraNESNetplay::applyAssignedContribution(beforeSwap, GeraNESNetplay::kPort1PlayerSlot, GeraNESNetplay::buildAssignedContribution(GeraNESNetplay::kPort1PlayerSlot, hostState, beforeSwap));
         GeraNESNetplay::applyAssignedContribution(beforeSwap, GeraNESNetplay::kPort2PlayerSlot, GeraNESNetplay::buildAssignedContribution(GeraNESNetplay::kPort2PlayerSlot, clientState, beforeSwap));
 
-        REQUIRE(beforeSwap.portButtons(1).start == true);
-        REQUIRE(beforeSwap.portButtons(1).right == true);
-        REQUIRE(beforeSwap.portButtons(2).a == true);
-        REQUIRE(beforeSwap.portButtons(2).up == true);
+        REQUIRE(beforeSwap.state.portButtons(1).start == true);
+        REQUIRE(beforeSwap.state.portButtons(1).right == true);
+        REQUIRE(beforeSwap.state.portButtons(2).a == true);
+        REQUIRE(beforeSwap.state.portButtons(2).up == true);
 
         auto afterSwap = GeraNESNetplay::makeRoomTopologyBaseFrame(31u, room);
         GeraNESNetplay::applyAssignedContribution(afterSwap, GeraNESNetplay::kPort2PlayerSlot, GeraNESNetplay::buildAssignedContribution(GeraNESNetplay::kPort2PlayerSlot, hostSwappedState, afterSwap));
         GeraNESNetplay::applyAssignedContribution(afterSwap, GeraNESNetplay::kPort1PlayerSlot, GeraNESNetplay::buildAssignedContribution(GeraNESNetplay::kPort1PlayerSlot, clientSwappedState, afterSwap));
 
-        REQUIRE(afterSwap.portButtons(1).a == true);
-        REQUIRE(afterSwap.portButtons(1).up == true);
-        REQUIRE(afterSwap.portButtons(1).start == false);
-        REQUIRE(afterSwap.portButtons(2).start == true);
-        REQUIRE(afterSwap.portButtons(2).right == true);
-        REQUIRE(afterSwap.portButtons(2).a == false);
+        REQUIRE(afterSwap.state.portButtons(1).a == true);
+        REQUIRE(afterSwap.state.portButtons(1).up == true);
+        REQUIRE(afterSwap.state.portButtons(1).start == false);
+        REQUIRE(afterSwap.state.portButtons(2).start == true);
+        REQUIRE(afterSwap.state.portButtons(2).right == true);
+        REQUIRE(afterSwap.state.portButtons(2).a == false);
     }
 
     SECTION("multitap assignments also preserve patterns when swapped")
@@ -6820,21 +6822,21 @@ TEST_CASE("Netplay input assignment swap preserves patterned contributions", "[n
         GeraNESNetplay::applyAssignedContribution(beforeSwap, GeraNESNetplay::kMultitapP1PlayerSlot, GeraNESNetplay::buildAssignedContribution(GeraNESNetplay::kMultitapP1PlayerSlot, p1State, beforeSwap));
         GeraNESNetplay::applyAssignedContribution(beforeSwap, GeraNESNetplay::kMultitapP4PlayerSlot, GeraNESNetplay::buildAssignedContribution(GeraNESNetplay::kMultitapP4PlayerSlot, p4State, beforeSwap));
 
-        REQUIRE(beforeSwap.portButtons(1).start == true);
-        REQUIRE(beforeSwap.portButtons(1).right == true);
-        REQUIRE(beforeSwap.portButtons(4).a == true);
-        REQUIRE(beforeSwap.portButtons(4).up == true);
+        REQUIRE(beforeSwap.state.portButtons(1).start == true);
+        REQUIRE(beforeSwap.state.portButtons(1).right == true);
+        REQUIRE(beforeSwap.state.portButtons(4).a == true);
+        REQUIRE(beforeSwap.state.portButtons(4).up == true);
 
         auto afterSwap = GeraNESNetplay::makeRoomTopologyBaseFrame(45u, room);
         GeraNESNetplay::applyAssignedContribution(afterSwap, GeraNESNetplay::kMultitapP4PlayerSlot, GeraNESNetplay::buildAssignedContribution(GeraNESNetplay::kMultitapP4PlayerSlot, p1SwappedState, afterSwap));
         GeraNESNetplay::applyAssignedContribution(afterSwap, GeraNESNetplay::kMultitapP1PlayerSlot, GeraNESNetplay::buildAssignedContribution(GeraNESNetplay::kMultitapP1PlayerSlot, p4SwappedState, afterSwap));
 
-        REQUIRE(afterSwap.portButtons(1).a == true);
-        REQUIRE(afterSwap.portButtons(1).up == true);
-        REQUIRE(afterSwap.portButtons(1).start == false);
-        REQUIRE(afterSwap.portButtons(4).start == true);
-        REQUIRE(afterSwap.portButtons(4).right == true);
-        REQUIRE(afterSwap.portButtons(4).a == false);
+        REQUIRE(afterSwap.state.portButtons(1).a == true);
+        REQUIRE(afterSwap.state.portButtons(1).up == true);
+        REQUIRE(afterSwap.state.portButtons(1).start == false);
+        REQUIRE(afterSwap.state.portButtons(4).start == true);
+        REQUIRE(afterSwap.state.portButtons(4).right == true);
+        REQUIRE(afterSwap.state.portButtons(4).a == false);
     }
 }
 
@@ -6859,10 +6861,10 @@ TEST_CASE("Netplay replay preserves Zapper assignment payloads", "[netplay][assi
     const auto contribution = GeraNESNetplay::buildAssignedContribution(GeraNESNetplay::kPort2PlayerSlot, state, frame);
     GeraNESNetplay::applyAssignedContribution(frame, GeraNESNetplay::kPort2PlayerSlot, contribution);
 
-    REQUIRE(frame.port2Device == Settings::Device::ZAPPER);
-    REQUIRE(frame.zapper(2).x == 87);
-    REQUIRE(frame.zapper(2).y == 53);
-    REQUIRE(frame.zapper(2).trigger == true);
+    REQUIRE(frame.state.topology.port2Device == Settings::Device::ZAPPER);
+    REQUIRE(frame.state.zapper(2).x == 87);
+    REQUIRE(frame.state.zapper(2).y == 53);
+    REQUIRE(frame.state.zapper(2).trigger == true);
 
     EmulationHost::InputState replayState{};
     GeraNESNetplay::applyInputFrameToInputState(replayState, frame);
@@ -6919,10 +6921,10 @@ TEST_CASE("Netplay allows multiple assignments for the same participant", "[netp
         GeraNESNetplay::buildAssignedContribution(GeraNESNetplay::kPort2PlayerSlot, state, frame)
     );
 
-    REQUIRE(frame.portButtons(1).start == true);
-    REQUIRE(frame.zapper(2).x == 112);
-    REQUIRE(frame.zapper(2).y == 64);
-    REQUIRE(frame.zapper(2).trigger == true);
+    REQUIRE(frame.state.portButtons(1).start == true);
+    REQUIRE(frame.state.zapper(2).x == 112);
+    REQUIRE(frame.state.zapper(2).y == 64);
+    REQUIRE(frame.state.zapper(2).trigger == true);
 }
 
 TEST_CASE("Netplay controller assignment does not leak zapper or mouse payload", "[netplay][assignment][controller]")
@@ -6949,15 +6951,15 @@ TEST_CASE("Netplay controller assignment does not leak zapper or mouse payload",
     const auto baseFrame = GeraNESNetplay::makeRoomTopologyBaseFrame(19u, room);
     const auto contribution = GeraNESNetplay::buildAssignedContribution(GeraNESNetplay::kPort1PlayerSlot, state, baseFrame);
 
-    REQUIRE(contribution.portButtons(1).start == true);
-    REQUIRE(contribution.zapper(1).trigger == false);
-    REQUIRE(contribution.zapper(1).x == -1);
-    REQUIRE(contribution.zapper(1).y == -1);
-    REQUIRE(contribution.arkanoidController(1).button == false);
-    REQUIRE(contribution.snesMouse(1).primary == false);
-    REQUIRE(contribution.snesMouse(1).secondary == false);
-    REQUIRE(contribution.snesMouse(1).deltaX == 0);
-    REQUIRE(contribution.snesMouse(1).deltaY == 0);
+    REQUIRE(contribution.state.portButtons(1).start == true);
+    REQUIRE(contribution.state.zapper(1).trigger == false);
+    REQUIRE(contribution.state.zapper(1).x == -1);
+    REQUIRE(contribution.state.zapper(1).y == -1);
+    REQUIRE(contribution.state.arkanoidController(1).button == false);
+    REQUIRE(contribution.state.snesMouse(1).primary == false);
+    REQUIRE(contribution.state.snesMouse(1).secondary == false);
+    REQUIRE(contribution.state.snesMouse(1).deltaX == 0);
+    REQUIRE(contribution.state.snesMouse(1).deltaY == 0);
 }
 
 TEST_CASE("Netplay applyAssignedContribution ignores stale device payload from previous topology", "[netplay][assignment][topology]")
@@ -6972,7 +6974,7 @@ TEST_CASE("Netplay applyAssignedContribution ignores stale device payload from p
             Settings::FamicomMultitapDevice::NONE)
     );
     InputFrame staleZapperContribution = GeraNESNetplay::makeRoomTopologyBaseFrame(21u, oldRoom);
-    staleZapperContribution.setZapper(2, {87, 53, true});
+    staleZapperContribution.state.setZapper(2, {87, 53, true});
 
     ConsoleNetplay::RoomState newRoom = GeraNESNetplay::roomWithGeraNESInputTopology(
         ConsoleNetplay::RoomState{},
@@ -6986,12 +6988,12 @@ TEST_CASE("Netplay applyAssignedContribution ignores stale device payload from p
     InputFrame target = GeraNESNetplay::makeRoomTopologyBaseFrame(21u, newRoom);
     GeraNESNetplay::applyAssignedContribution(target, GeraNESNetplay::kPort2PlayerSlot, staleZapperContribution);
 
-    REQUIRE(target.port2Device == Settings::Device::CONTROLLER);
-    REQUIRE(target.zapper(2).trigger == false);
-    REQUIRE(target.zapper(2).x == -1);
-    REQUIRE(target.zapper(2).y == -1);
-    REQUIRE(target.portButtons(2).a == false);
-    REQUIRE(target.portButtons(2).down == false);
+    REQUIRE(target.state.topology.port2Device == Settings::Device::CONTROLLER);
+    REQUIRE(target.state.zapper(2).trigger == false);
+    REQUIRE(target.state.zapper(2).x == -1);
+    REQUIRE(target.state.zapper(2).y == -1);
+    REQUIRE(target.state.portButtons(2).a == false);
+    REQUIRE(target.state.portButtons(2).down == false);
 }
 
 TEST_CASE("Emulator playback input can be replaced for the current frame before advance", "[netplay][emu][playback-input]")
@@ -7769,7 +7771,7 @@ TEST_CASE("Netplay host loaded state canonicalizes local future inputs before re
         setFramePortButtons(correctedHost, 1, false, (frame % 2u) == 0u, false, false, false, false, frame == 3u);
 
         InputFrame correctedClient = clientAfterResync.createInputFrame(frame);
-        setFramePortButtons(correctedClient, 1, false, correctedHost.portButtons(1).b, false, false, false, false, correctedHost.portButtons(1).left);
+        setFramePortButtons(correctedClient, 1, false, correctedHost.state.portButtons(1).b, false, false, false, false, correctedHost.state.portButtons(1).left);
 
         applyInputFrameAndAdvance(hostCanonicalized, correctedHost, frameDt);
         applyInputFrameAndAdvance(clientAfterResync, correctedClient, frameDt);
@@ -8311,7 +8313,7 @@ TEST_CASE("Netplay clean-boot load and dirty-instance replay produce identical f
         setFramePortButtons(cleanInput, 1, false, (frame % 3u) == 0u, false, false, false, false, frame >= 9u);
 
         InputFrame dirtyInput = dirtyReplay.createInputFrame(frame);
-        setFramePortButtons(dirtyInput, 1, false, cleanInput.portButtons(1).b, false, false, false, false, cleanInput.portButtons(1).left);
+        setFramePortButtons(dirtyInput, 1, false, cleanInput.state.portButtons(1).b, false, false, false, false, cleanInput.state.portButtons(1).left);
 
         applyInputFrameAndAdvance(cleanBoot, cleanInput, frameDt);
         applyInputFrameAndAdvance(dirtyReplay, dirtyInput, frameDt);

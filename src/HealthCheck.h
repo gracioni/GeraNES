@@ -436,7 +436,7 @@ public:
             pad.down = buttons.down;
             pad.left = buttons.left;
             pad.right = buttons.right;
-            inputFrame.setPortButtons(1, pad);
+            inputFrame.state.setPortButtons(1, pad);
             if(!emu.setPlaybackInputFrame(inputFrame)) {
                 return 1;
             }

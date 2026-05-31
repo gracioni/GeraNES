@@ -189,11 +189,7 @@ void initializeFrameTopology(InputFrame& frame,
 {
     frame = {};
     frame.frame = frameNumber;
-    frame.port1Device = topology.port1Device.value_or(Settings::Device::NONE);
-    frame.port2Device = topology.port2Device.value_or(Settings::Device::NONE);
-    frame.expansionDevice = topology.expansionDevice;
-    frame.nesMultitapDevice = topology.nesMultitapDevice;
-    frame.famicomMultitapDevice = topology.famicomMultitapDevice;
+    frame.state.topology = topology;
 }
 
 struct EncodedRun
@@ -212,14 +208,14 @@ bool buildEncodedRuns(const std::vector<InputFrame>& frames,
     for(const InputFrame& frame : frames) {
         if(!runs.empty() &&
            runs.back().repeatCount < std::numeric_limits<uint32_t>::max() &&
-           runs.back().payload == frame.serializedInputData) {
+           runs.back().payload == frame.state.serializedInputData) {
             ++runs.back().repeatCount;
             continue;
         }
 
         EncodedRun run;
         run.repeatCount = 1u;
-        run.payload = frame.serializedInputData;
+        run.payload = frame.state.serializedInputData;
         runs.push_back(std::move(run));
     }
 
@@ -341,7 +337,7 @@ bool ReplayFile::load(const fs::path& path, Data& data, std::string& error)
                 error = reader.error();
                 return false;
             }
-            if(!reader.readBytes(bootstrapPayloadSize, frameZero.serializedInputData)) {
+            if(!reader.readBytes(bootstrapPayloadSize, frameZero.state.serializedInputData)) {
                 error = reader.error();
                 return false;
             }
@@ -382,7 +378,7 @@ bool ReplayFile::load(const fs::path& path, Data& data, std::string& error)
         for(uint32_t i = 0u; i < repeatCount; ++i) {
             InputFrame frame;
             initializeFrameTopology(frame, loadedData.inputTopology, nextFrameNumber++);
-            frame.serializedInputData = payload;
+            frame.state.serializedInputData = payload;
             loadedData.frames.push_back(std::move(frame));
         }
     }

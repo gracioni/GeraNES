@@ -157,7 +157,7 @@ private:
     static bool queuePadMaskForCurrentFrame(GeraNESEmu& emu, uint64_t mask)
     {
         InputFrame frame = emu.createInputFrame(emu.frameCount());
-        frame.setPortButtons(1, {
+        frame.state.setPortButtons(1, {
             (mask & (1ull << 0)) != 0,
             (mask & (1ull << 1)) != 0,
             (mask & (1ull << 2)) != 0,

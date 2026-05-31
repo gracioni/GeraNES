@@ -620,20 +620,20 @@ void updateControllerState(unsigned port)
         buttons.left2 = y;
         buttons.right2 = l;
         if(emuPort == Settings::Port::P_1) {
-            frame.setPortButtons(1, buttons);
+            frame.state.setPortButtons(1, buttons);
         } else {
-            frame.setPortButtons(2, buttons);
+            frame.state.setPortButtons(2, buttons);
         }
         commitLibretroInputFrame(frame);
     }
     else if(port == 0) {
         InputFrame frame = libretroInputFrameForNextFrame();
-        frame.setPortButtons(1, {a, b, select, start, up, down, left, right, x, y, l, r});
+        frame.state.setPortButtons(1, {a, b, select, start, up, down, left, right, x, y, l, r});
         commitLibretroInputFrame(frame);
     }
     else if(port == 1) {
         InputFrame frame = libretroInputFrameForNextFrame();
-        frame.setPortButtons(2, {a, b, select, start, up, down, left, right, x, y, l, r});
+        frame.state.setPortButtons(2, {a, b, select, start, up, down, left, right, x, y, l, r});
         commitLibretroInputFrame(frame);
     }
 }
@@ -820,9 +820,9 @@ void updateZapperState(unsigned port)
     if(lgOffscreen || pointerOffscreen || mouseRight) {
         InputFrame frame = libretroInputFrameForNextFrame();
         if(emuPort == Settings::Port::P_1) {
-            frame.setZapper(1, {-1, -1, trigger});
+            frame.state.setZapper(1, {-1, -1, trigger});
         } else {
-            frame.setZapper(2, {-1, -1, trigger});
+            frame.state.setZapper(2, {-1, -1, trigger});
         }
         commitLibretroInputFrame(frame);
         return;
@@ -830,9 +830,9 @@ void updateZapperState(unsigned port)
 
     InputFrame frame = libretroInputFrameForNextFrame();
     if(emuPort == Settings::Port::P_1) {
-        frame.setZapper(1, {x, y, trigger});
+        frame.state.setZapper(1, {x, y, trigger});
     } else {
-        frame.setZapper(2, {x, y, trigger});
+        frame.state.setZapper(2, {x, y, trigger});
     }
     commitLibretroInputFrame(frame);
 }
@@ -851,9 +851,9 @@ void updateArkanoidState(unsigned port)
 
     InputFrame frame = libretroInputFrameForNextFrame();
     if(emuPort == Settings::Port::P_1) {
-        frame.setArkanoidController(1, {g_arkanoidPosition[port], fire});
+        frame.state.setArkanoidController(1, {g_arkanoidPosition[port], fire});
     } else {
-        frame.setArkanoidController(2, {g_arkanoidPosition[port], fire});
+        frame.state.setArkanoidController(2, {g_arkanoidPosition[port], fire});
     }
     commitLibretroInputFrame(frame);
 }
@@ -869,19 +869,19 @@ void updateSnesMouseState(unsigned port)
     const bool right = readInput(port, RETRO_DEVICE_MOUSE, RETRO_DEVICE_ID_MOUSE_RIGHT) != 0;
     InputFrame frame = libretroInputFrameForNextFrame();
     if(emuPort == Settings::Port::P_1) {
-        InputFrame::RelativePointerState state = frame.snesMouse(1);
+        InputFrame::RelativePointerState state = frame.state.snesMouse(1);
         state.deltaX += mouseDeltaX;
         state.deltaY += mouseDeltaY;
         state.primary = left;
         state.secondary = right;
-        frame.setSnesMouse(1, state);
+        frame.state.setSnesMouse(1, state);
     } else {
-        InputFrame::RelativePointerState state = frame.snesMouse(2);
+        InputFrame::RelativePointerState state = frame.state.snesMouse(2);
         state.deltaX += mouseDeltaX;
         state.deltaY += mouseDeltaY;
         state.primary = left;
         state.secondary = right;
-        frame.setSnesMouse(2, state);
+        frame.state.setSnesMouse(2, state);
     }
     commitLibretroInputFrame(frame);
 }
@@ -897,19 +897,19 @@ void updateSuborMouseState(unsigned port)
     const bool right = readInput(port, RETRO_DEVICE_MOUSE, RETRO_DEVICE_ID_MOUSE_RIGHT) != 0;
     InputFrame frame = libretroInputFrameForNextFrame();
     if(emuPort == Settings::Port::P_1) {
-        InputFrame::RelativePointerState state = frame.suborMouse(1);
+        InputFrame::RelativePointerState state = frame.state.suborMouse(1);
         state.deltaX += mouseDeltaX;
         state.deltaY += mouseDeltaY;
         state.primary = left;
         state.secondary = right;
-        frame.setSuborMouse(1, state);
+        frame.state.setSuborMouse(1, state);
     } else {
-        InputFrame::RelativePointerState state = frame.suborMouse(2);
+        InputFrame::RelativePointerState state = frame.state.suborMouse(2);
         state.deltaX += mouseDeltaX;
         state.deltaY += mouseDeltaY;
         state.primary = left;
         state.secondary = right;
-        frame.setSuborMouse(2, state);
+        frame.state.setSuborMouse(2, state);
     }
     commitLibretroInputFrame(frame);
 }
@@ -926,7 +926,7 @@ void updateExpansionArkanoidState()
     fire = fire || (readInput(0, RETRO_DEVICE_JOYPAD, RETRO_DEVICE_ID_JOYPAD_B) != 0);
 
     InputFrame frame = libretroInputFrameForNextFrame();
-    frame.setArkanoidExpansion({g_arkanoidPosition[0], fire});
+    frame.state.setArkanoidExpansion({g_arkanoidPosition[0], fire});
     commitLibretroInputFrame(frame);
 }
 
@@ -939,7 +939,7 @@ void updateExpansionKonamiHyperShotState()
     const bool p2Run = readInput(1, RETRO_DEVICE_JOYPAD, RETRO_DEVICE_ID_JOYPAD_A) != 0;
     const bool p2Jump = readInput(1, RETRO_DEVICE_JOYPAD, RETRO_DEVICE_ID_JOYPAD_B) != 0;
     InputFrame frame = libretroInputFrameForNextFrame();
-    frame.setKonamiHyperShot({p1Run, p1Jump, p2Run, p2Jump});
+    frame.state.setKonamiHyperShot({p1Run, p1Jump, p2Run, p2Jump});
     commitLibretroInputFrame(frame);
 }
 
