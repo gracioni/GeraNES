@@ -59,7 +59,6 @@ public:
     virtual void discardQueuedInputFramesAfter(FrameNumber frame) = 0;
     virtual bool loadStateFromMemoryOnCleanBoot(const std::vector<uint8_t>& payload) = 0;
     virtual std::vector<uint8_t> saveStateToMemory() = 0;
-    virtual uint32_t canonicalNetplayStateCrc32() = 0;
 };
 
 class INetplayStateHostBridge
@@ -96,7 +95,6 @@ public:
         return m_host.loadStateFromMemoryOnCleanBoot(payload);
     }
     std::vector<uint8_t> saveStateToMemory() override { return m_host.saveStateToMemory(); }
-    uint32_t canonicalNetplayStateCrc32() override { return m_host.canonicalNetplayStateCrc32(); }
 
 private:
     EmulatorHost& m_host;

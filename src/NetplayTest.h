@@ -94,6 +94,11 @@ public:
     };
 
 private:
+    static uint32_t stateCrc32(const std::vector<uint8_t>& data)
+    {
+        return data.empty() ? 0u : Crc32::calc(reinterpret_cast<const char*>(data.data()), data.size());
+    }
+
     struct Buttons
     {
         bool a = false;
@@ -743,7 +748,7 @@ private:
             {"publishedThroughFrame", peer.publishedThroughFrame},
             {"queuedThroughFrame", peer.queuedThroughFrame},
             {"confirmedThroughFrame", confirmedThroughFrame(peer)},
-            {"crc32", peer.emu.valid() ? peer.emu.canonicalStateCrc32() : 0u},
+            {"crc32", peer.emu.valid() ? stateCrc32(peer.emu.saveStateToMemory()) : 0u},
             {"stateSize", state.size()},
             {"inputBufferSize", peer.queuedThroughFrame > peer.emu.frameCount()
                 ? (peer.queuedThroughFrame - peer.emu.frameCount() + 1u)
@@ -801,7 +806,7 @@ private:
             {"assignLateJoinClientToMultitapAfterJoin", options.assignLateJoinClientToMultitapAfterJoin},
             {"lastCheckedFrame", lastCheckedFrame},
             {"finalCrcMatch", hostPeer.emu.valid() && clientPeer.emu.valid()
-                ? (hostPeer.emu.canonicalStateCrc32() == clientPeer.emu.canonicalStateCrc32())
+                ? (stateCrc32(hostPeer.emu.saveStateToMemory()) == stateCrc32(clientPeer.emu.saveStateToMemory()))
                 : false},
             {"host", buildPeerReport(hostPeer)},
             {"client", buildPeerReport(clientPeer)}
@@ -905,8 +910,8 @@ private:
             {"frameReadyCrcType", "frame_ready_canonical_crc32"},
             {"resyncPayloadCrcType", "payload_crc32"},
             {"resyncStateCrcType", "canonical_netplay_state_crc32"},
-            {"crc32", peer.emu.valid() ? peer.emu.canonicalStateCrc32() : 0u},
-            {"netplayCrc32", peer.emu.valid() ? peer.emu.canonicalNetplayStateCrc32() : 0u},
+            {"crc32", peer.emu.valid() ? stateCrc32(peer.emu.saveStateToMemory()) : 0u},
+            {"netplayCrc32", peer.emu.valid() ? stateCrc32(peer.emu.saveStateToMemory()) : 0u},
             {"inputBufferSize", inputBufferSize},
             {"expectedPlaybackFrame", expectedPlaybackFrame},
             {"hasExpectedFrameInput", hasExpectedFrameInput},
@@ -996,10 +1001,10 @@ private:
             {"lastCheckedFrame", lastCheckedFrame},
             {"maxStallSteps", maxStallSteps},
             {"finalCrcMatch", hostPeer.emu.valid() && clientPeer.emu.valid()
-                ? (hostPeer.emu.canonicalStateCrc32() == clientPeer.emu.canonicalStateCrc32())
+                ? (stateCrc32(hostPeer.emu.saveStateToMemory()) == stateCrc32(clientPeer.emu.saveStateToMemory()))
                 : false},
             {"finalNetplayCrcMatch", hostPeer.emu.valid() && clientPeer.emu.valid()
-                ? (hostPeer.emu.canonicalNetplayStateCrc32() == clientPeer.emu.canonicalNetplayStateCrc32())
+                ? (stateCrc32(hostPeer.emu.saveStateToMemory()) == stateCrc32(clientPeer.emu.saveStateToMemory()))
                 : false},
             {"finalFrameReadyFrameAligned", hostReadyFrame == clientReadyFrame},
             {"finalCommonFrameReadyFrame", commonReadyFrame},
@@ -1421,8 +1426,8 @@ private:
             {"localInputCount", snapshot.localInputCount},
             {"remoteInputCount", snapshot.remoteInputCount},
             {"hardResyncCount", snapshot.recoveryStats.hardResyncCount},            {"playbackStopCount", snapshot.recoveryStats.playbackStopCount},            {"sessionBlockedReason", snapshot.sessionBlockedReason},
-            {"crc32", peer.emu.valid() ? peer.emu.canonicalStateCrc32() : 0u},
-            {"netplayCrc32", peer.emu.valid() ? peer.emu.canonicalNetplayStateCrc32() : 0u},
+            {"crc32", peer.emu.valid() ? stateCrc32(peer.emu.saveStateToMemory()) : 0u},
+            {"netplayCrc32", peer.emu.valid() ? stateCrc32(peer.emu.saveStateToMemory()) : 0u},
             {"inputBufferSize", inputBufferSize},
             {"maxObservedInputBufferSize", peer.maxObservedInputBufferSize},
             {"expectedPlaybackFrame", expectedPlaybackFrame},
@@ -1516,10 +1521,10 @@ private:
             {"assignmentSwapVerified", assignmentSwapVerified},
             {"assignmentPatternVerified", assignmentPatternVerified},
             {"finalCrcMatch", hostPeer.emu.valid() && clientPeer.emu.valid()
-                ? (hostPeer.emu.canonicalStateCrc32() == clientPeer.emu.canonicalStateCrc32())
+                ? (stateCrc32(hostPeer.emu.saveStateToMemory()) == stateCrc32(clientPeer.emu.saveStateToMemory()))
                 : false},
             {"finalNetplayCrcMatch", hostPeer.emu.valid() && clientPeer.emu.valid()
-                ? (hostPeer.emu.canonicalNetplayStateCrc32() == clientPeer.emu.canonicalNetplayStateCrc32())
+                ? (stateCrc32(hostPeer.emu.saveStateToMemory()) == stateCrc32(clientPeer.emu.saveStateToMemory()))
                 : false},
             {"finalFrameReadyFrameAligned", hostReadyFrame == clientReadyFrame},
             {"finalCommonFrameReadyFrame", commonReadyFrame},
@@ -3355,7 +3360,7 @@ private:
         const bool loadedExpectedFrame =
             loaded &&
             (pending->targetFrame == 0u || loadedFrame == pending->targetFrame);
-        const uint32_t loadedCrc32 = loadedExpectedFrame ? peer.emu.canonicalNetplayStateCrc32() : 0u;
+        const uint32_t loadedCrc32 = loadedExpectedFrame ? stateCrc32(peer.emu.saveStateToMemory()) : 0u;
         if(loadedExpectedFrame) {
             peer.coordinator.setLocalSimulationFrame(pending->targetFrame);
             peer.emu.seedNetplaySnapshot(pending->targetFrame, pending->payload, loadedCrc32);
@@ -3402,7 +3407,7 @@ private:
         const uint32_t stateCrc32 =
             (!initialSessionSync && confirmedSnapshot.has_value())
                 ? peer.emu.netplaySnapshotCrc32ForFrame(authoritativeFrame).value_or(0u)
-                : peer.emu.canonicalNetplayStateCrc32();
+                : stateCrc32(peer.emu.saveStateToMemory());
         if(peer.coordinator.beginResync(
                authoritativeFrame,
                statePayload,
@@ -3535,7 +3540,7 @@ private:
 
         const uint32_t payloadCrc32 =
             Crc32::calc(reinterpret_cast<const char*>(statePayload.data()), statePayload.size());
-        const uint32_t stateCrc32 = peer.emu.canonicalNetplayStateCrc32();
+        const uint32_t stateCrc32 = NetplayTest::stateCrc32(statePayload);
         const bool started = peer.coordinator.beginResync(authoritativeFrame, statePayload, payloadCrc32, stateCrc32);
         if(started) {
             peer.emu.setAuthoritativeFrameReadyState(authoritativeFrame, stateCrc32);
@@ -4044,7 +4049,7 @@ private:
 
         const std::vector<uint8_t> hostInitialState = hostPeer.emu.saveStateToMemory();
         const std::vector<uint8_t> clientInitialState = clientPeer.emu.saveStateToMemory();
-        if(hostPeer.emu.canonicalStateCrc32() != clientPeer.emu.canonicalStateCrc32()) {
+        if(stateCrc32(hostPeer.emu.saveStateToMemory()) != stateCrc32(clientPeer.emu.saveStateToMemory())) {
             size_t firstDiff = std::min(hostInitialState.size(), clientInitialState.size());
             for(size_t i = 0; i < std::min(hostInitialState.size(), clientInitialState.size()); ++i) {
                 if(hostInitialState[i] != clientInitialState[i]) {
@@ -4109,7 +4114,7 @@ private:
             if(hostPeer.emu.frameCount() == clientPeer.emu.frameCount() &&
                hostPeer.emu.frameCount() > lastCheckedFrame) {
                 lastCheckedFrame = hostPeer.emu.frameCount();
-                if(hostPeer.emu.canonicalStateCrc32() != clientPeer.emu.canonicalStateCrc32()) {
+                if(stateCrc32(hostPeer.emu.saveStateToMemory()) != stateCrc32(clientPeer.emu.saveStateToMemory())) {
                     failureReason = "Canonical CRC mismatch at frame " + std::to_string(lastCheckedFrame) + ".";
                     result.report = buildReport(options, hostPeer, clientPeer, "failed", failureReason, lastCheckedFrame);
                     result.exitCode = RESULT_FAILED;

@@ -71,6 +71,11 @@ std::string sanitizeCpuSymbolName(std::string name)
     return name;
 }
 
+uint32_t stateCrc32(const std::vector<uint8_t>& data)
+{
+    return data.empty() ? 0u : Crc32::calc(reinterpret_cast<const char*>(data.data()), data.size());
+}
+
 #ifndef __EMSCRIPTEN__
 constexpr mz_ulong kPngCrc32Init = 0;
 constexpr int kPngBestCompression = 9;
@@ -1158,7 +1163,7 @@ void GeraNESApp::stopReplayPlayback(bool pauseEmulation)
         m_emu.togglePaused();
     }
     if(m_replayManager.isPlayback() && m_emu.valid()) {
-        m_replayManager.setCursorState(m_emu.frameCount(), m_emu.canonicalStateCrc32());
+        m_replayManager.setCursorState(m_emu.frameCount(), stateCrc32(m_emu.saveStateToMemory()));
     }
 }
 
@@ -1597,7 +1602,7 @@ bool GeraNESApp::seekReplayToFrame(uint32_t frame)
         }
 
         m_emu.discardQueuedAudio();
-        m_replayManager.setCursorState(restoredFrame, m_emu.canonicalStateCrc32());
+        m_replayManager.setCursorState(restoredFrame, stateCrc32(m_emu.saveStateToMemory()));
         m_replaySliderValue = static_cast<int>(restoredFrame);
         if(!m_replayAutoPlayAfterSeek && m_emu.valid() && !m_emu.paused()) {
             m_emu.togglePaused();
@@ -1648,7 +1653,7 @@ bool GeraNESApp::seekReplayToFrame(uint32_t frame)
     m_emu.discardQueuedAudio();
     const uint32_t settledFrame = m_emu.frameCount();
     m_emu.discardQueuedInputFramesAfter(settledFrame);
-    m_replayManager.setCursorState(settledFrame, m_emu.canonicalStateCrc32());
+    m_replayManager.setCursorState(settledFrame, stateCrc32(m_emu.saveStateToMemory()));
     m_replaySliderValue = static_cast<int>(settledFrame);
     if(!m_replayAutoPlayAfterSeek && m_emu.valid() && !m_emu.paused()) {
         m_emu.togglePaused();
@@ -1711,7 +1716,7 @@ void GeraNESApp::finishReplaySeekTask()
     m_emu.discardQueuedAudio();
     const uint32_t settledFrame = m_emu.frameCount();
     m_emu.discardQueuedInputFramesAfter(settledFrame);
-    m_replayManager.setCursorState(settledFrame, m_emu.canonicalStateCrc32());
+    m_replayManager.setCursorState(settledFrame, stateCrc32(m_emu.saveStateToMemory()));
     m_replaySliderValue = static_cast<int>(settledFrame);
     if(!m_replayAutoPlayAfterSeek && m_emu.valid() && !m_emu.paused()) {
         m_emu.togglePaused();
@@ -1742,7 +1747,7 @@ void GeraNESApp::startReplayPlayback()
 
     if(m_emu.valid()) {
         const uint32_t currentFrame = m_emu.frameCount();
-        m_replayManager.setCursorState(currentFrame, m_emu.canonicalStateCrc32());
+        m_replayManager.setCursorState(currentFrame, stateCrc32(m_emu.saveStateToMemory()));
         primeReplayInputAtFrame(currentFrame);
     }
     m_replayManager.beginPlayback();

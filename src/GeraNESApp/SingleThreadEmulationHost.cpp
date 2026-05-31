@@ -25,7 +25,9 @@ SaveStateWithCrc32 captureSaveStateWithCrc32(GeraNESEmu& emu)
 {
     SaveStateWithCrc32 snapshot;
     snapshot.data = emu.saveStateToMemory();
-    snapshot.crc32 = emu.canonicalNetplayStateCrc32();
+    snapshot.crc32 = snapshot.data.empty()
+        ? 0u
+        : Crc32::calc(reinterpret_cast<const char*>(snapshot.data.data()), snapshot.data.size());
     return snapshot;
 }
 }
@@ -60,9 +62,6 @@ void SingleThreadEmulationHost::discardNetplaySnapshotsAfter(uint32_t frame)
             --m_netplaySnapshotNextPosition;
         }
     }
-    if(m_hasCachedNetplayCrc && m_cachedNetplayCrcFrame > frame) {
-        m_hasCachedNetplayCrc = false;
-    }
     m_netplayDiagnostics.storedSnapshots = m_netplaySnapshots.size();
     m_netplayDiagnostics.currentFrame = frame;
 }
@@ -86,10 +85,6 @@ void SingleThreadEmulationHost::recordFrameReadyNetplayState(GeraNESEmu& emu)
     const uint32_t crc32 = snapshot.crc32;
     m_lastFrameReadyFrameValue = frame;
     m_lastFrameReadyNetplayCrc32Value = crc32;
-    m_hasCachedNetplayCrc = true;
-    m_cachedNetplayCrcFrame = frame;
-    m_cachedNetplayCrcValue = crc32;
-
     if(m_netplaySnapshotCapacity == 0) {
         m_netplayDiagnostics.netplayStateSaveTiming.record(snapshotSaveElapsedUs);
         m_netplayDiagnostics.netplayStateSerializedBytes.record(snapshot.data.size());
@@ -468,7 +463,6 @@ void SingleThreadEmulationHost::postCommand(std::function<void(GeraNESEmu&)> com
 bool SingleThreadEmulationHost::open(const std::string& path, bool autoConfigureInputTopologyOnRomLoad)
 {
     resetFreeRunningPacing();
-    m_hasCachedNetplayCrc = false;
     const bool opened = m_emu.openRom(path, autoConfigureInputTopologyOnRomLoad);
     refreshPresentedFramebuffer();
     return opened;
@@ -629,7 +623,6 @@ bool SingleThreadEmulationHost::loadStateFromMemoryOnCleanBoot(const std::vector
     const bool loaded = m_emu.loadStateFromMemoryOnCleanBoot(data);
     if(loaded) {
         resetFreeRunningPacing();
-        m_hasCachedNetplayCrc = false;
         refreshPresentedFramebuffer();
     }
     return loaded;
@@ -642,31 +635,10 @@ bool SingleThreadEmulationHost::loadStateFromMemoryAsManualStateChange(const std
     const bool loaded = m_emu.loadStateFromMemoryOnCleanBoot(data);
     if(loaded) {
         resetFreeRunningPacing();
-        m_hasCachedNetplayCrc = false;
         onLoadExecutedLocked(m_emu.frameCount());
         refreshPresentedFramebuffer();
     }
     return loaded;
-}
-
-uint32_t SingleThreadEmulationHost::canonicalStateCrc32()
-{
-    return m_emu.canonicalStateCrc32();
-}
-
-uint32_t SingleThreadEmulationHost::canonicalNetplayStateCrc32()
-{
-    const uint32_t frame = m_emu.frameCount();
-    if(m_hasCachedNetplayCrc && m_cachedNetplayCrcFrame == frame) {
-        return m_cachedNetplayCrcValue;
-    }
-    const auto crcStart = HostTimingClock::now();
-    const uint32_t crc = m_emu.canonicalNetplayStateCrc32();
-    m_netplayDiagnostics.netplayCrcTiming.record(elapsedMicrosSince(crcStart));
-    m_hasCachedNetplayCrc = true;
-    m_cachedNetplayCrcFrame = frame;
-    m_cachedNetplayCrcValue = crc;
-    return crc;
 }
 
 uint32_t SingleThreadEmulationHost::lastFrameReadyFrame() const

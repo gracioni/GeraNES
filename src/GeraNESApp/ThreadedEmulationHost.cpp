@@ -25,7 +25,9 @@ SaveStateWithCrc32 captureSaveStateWithCrc32(GeraNESEmu& emu)
 {
     SaveStateWithCrc32 snapshot;
     snapshot.data = emu.saveStateToMemory();
-    snapshot.crc32 = emu.canonicalNetplayStateCrc32();
+    snapshot.crc32 = snapshot.data.empty()
+        ? 0u
+        : Crc32::calc(reinterpret_cast<const char*>(snapshot.data.data()), snapshot.data.size());
     return snapshot;
 }
 }
@@ -63,9 +65,6 @@ void ThreadedEmulationHost::discardNetplaySnapshotsAfter(uint32_t frame)
             --m_netplaySnapshotNextPosition;
         }
     }
-    if(m_hasCachedNetplayCrc && m_cachedNetplayCrcFrame > frame) {
-        m_hasCachedNetplayCrc = false;
-    }
     m_netplayDiagnostics.storedSnapshots = m_netplaySnapshots.size();
     m_netplayDiagnostics.currentFrame = frame;
 }
@@ -91,10 +90,6 @@ void ThreadedEmulationHost::recordFrameReadyNetplayState(GeraNESEmu& emu)
     const uint32_t crc32 = snapshot.crc32;
     m_lastFrameReadyFrameValue = frame;
     m_lastFrameReadyNetplayCrc32Value = crc32;
-    m_hasCachedNetplayCrc = true;
-    m_cachedNetplayCrcFrame = frame;
-    m_cachedNetplayCrcValue = crc32;
-
     size_t snapshotCapacity = 0;
     {
         std::scoped_lock netplayLock(m_netplaySnapshotMutex);
@@ -863,7 +858,6 @@ bool ThreadedEmulationHost::loadStateFromMemoryOnCleanBoot(const std::vector<uin
         if(!m_emu.loadStateFromMemoryOnCleanBoot(data)) {
             return false;
         }
-        m_hasCachedNetplayCrc = false;
         refreshSnapshotLocked();
         return true;
     }
@@ -873,7 +867,6 @@ bool ThreadedEmulationHost::loadStateFromMemoryOnCleanBoot(const std::vector<uin
     if(!m_emu.loadStateFromMemoryOnCleanBoot(data)) {
         return false;
     }
-    m_hasCachedNetplayCrc = false;
     refreshSnapshotLocked();
     return true;
 }
@@ -886,60 +879,9 @@ bool ThreadedEmulationHost::loadStateFromMemoryAsManualStateChange(const std::ve
     if(!m_emu.loadStateFromMemoryOnCleanBoot(data)) {
         return false;
     }
-    m_hasCachedNetplayCrc = false;
     refreshSnapshotLocked();
     onLoadExecutedLocked(m_emu.frameCount());
     return true;
-}
-
-uint32_t ThreadedEmulationHost::canonicalStateCrc32()
-{
-    std::scoped_lock emuLock(m_emuMutex);
-    return m_emu.canonicalStateCrc32();
-}
-
-uint32_t ThreadedEmulationHost::canonicalNetplayStateCrc32()
-{
-    if(hasDirectEmuAccess()) {
-        const uint32_t frame = m_emu.frameCount();
-        if(m_hasCachedNetplayCrc && m_cachedNetplayCrcFrame == frame) {
-            return m_cachedNetplayCrcValue;
-        }
-        const auto crcStart = HostTimingClock::now();
-        const uint32_t crc = m_emu.canonicalNetplayStateCrc32();
-        const uint64_t elapsedUs = elapsedMicrosSince(crcStart);
-        m_hasCachedNetplayCrc = true;
-        m_cachedNetplayCrcFrame = frame;
-        m_cachedNetplayCrcValue = crc;
-        {
-            std::scoped_lock netplayLock(m_netplaySnapshotMutex);
-            m_netplayDiagnostics.netplayCrcTiming.record(elapsedUs);
-        }
-        return crc;
-    }
-
-    uint32_t crc = 0;
-    uint64_t elapsedUs = 0;
-    bool generatedCrc = false;
-    {
-        std::scoped_lock emuLock(m_emuMutex);
-        const uint32_t frame = m_emu.frameCount();
-        if(m_hasCachedNetplayCrc && m_cachedNetplayCrcFrame == frame) {
-            return m_cachedNetplayCrcValue;
-        }
-        const auto crcStart = HostTimingClock::now();
-        crc = m_emu.canonicalNetplayStateCrc32();
-        elapsedUs = elapsedMicrosSince(crcStart);
-        generatedCrc = true;
-        m_hasCachedNetplayCrc = true;
-        m_cachedNetplayCrcFrame = frame;
-        m_cachedNetplayCrcValue = crc;
-    }
-    if(generatedCrc) {
-        std::scoped_lock netplayLock(m_netplaySnapshotMutex);
-        m_netplayDiagnostics.netplayCrcTiming.record(elapsedUs);
-    }
-    return crc;
 }
 
 uint32_t ThreadedEmulationHost::lastFrameReadyFrame() const

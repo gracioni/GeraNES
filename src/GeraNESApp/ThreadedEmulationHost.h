@@ -155,9 +155,6 @@ private:
     uint64_t m_netplaySnapshotNextPosition = 0;
     size_t m_netplaySnapshotCapacity = 0;
     mutable NetplayDiagnosticsSnapshot m_netplayDiagnostics;
-    bool m_hasCachedNetplayCrc = false;
-    uint32_t m_cachedNetplayCrcFrame = 0;
-    uint32_t m_cachedNetplayCrcValue = 0;
     uint32_t m_lastFrameReadyFrameValue = 0;
     uint32_t m_lastFrameReadyNetplayCrc32Value = 0;
     mutable std::mutex m_manualStateChangeMutex;
@@ -365,7 +362,6 @@ public:
     bool open(const std::string& path, bool autoConfigureInputTopologyOnRomLoad = true) override
     {
         std::scoped_lock emuLock(m_emuMutex);
-        m_hasCachedNetplayCrc = false;
         const bool opened = m_emu.openRom(path, autoConfigureInputTopologyOnRomLoad);
         refreshSnapshotLocked();
         return opened;
@@ -591,7 +587,6 @@ public:
     {
         m_holdPresentedFramebufferUntilFrameReady.store(false, std::memory_order_release);
         postCommand([this](GeraNESEmu& emu) {
-            m_hasCachedNetplayCrc = false;
             emu.closeRom();
             {
                 std::scoped_lock framebufferLock(m_framebufferMutex);
@@ -791,8 +786,15 @@ public:
                                   const std::vector<uint32_t>& snapshotFramesToCapture = {},
                                   ReplaySnapshotObserver snapshotObserver = {}) override
     {
-        if(expectedCurrentStateCrc32.has_value() && canonicalStateCrc32() != *expectedCurrentStateCrc32) {
-            return false;
+        if(expectedCurrentStateCrc32.has_value()) {
+            const std::vector<uint8_t> currentState = m_emu.saveStateToMemory();
+            const uint32_t currentStateCrc32 =
+                currentState.empty()
+                    ? 0u
+                    : Crc32::calc(reinterpret_cast<const char*>(currentState.data()), currentState.size());
+            if(currentStateCrc32 != *expectedCurrentStateCrc32) {
+                return false;
+            }
         }
         FrameInputResolver previousResolver;
         {
@@ -905,8 +907,6 @@ public:
         return true;
     }
 
-    uint32_t canonicalStateCrc32() override;
-    uint32_t canonicalNetplayStateCrc32() override;
     uint32_t lastFrameReadyFrame() const override;
     uint32_t lastFrameReadyNetplayCrc32() const override;
     void setAuthoritativeFrameReadyState(uint32_t frame, uint32_t canonicalCrc32) override;

@@ -47,6 +47,11 @@ const char* runtimeResyncReasonLabel(ResyncReason reason)
     }
 }
 
+uint32_t runtimeStateCrc32(const std::vector<uint8_t>& payload)
+{
+    return payload.empty() ? 0u : crc32(payload.data(), payload.size());
+}
+
 } // namespace
 
 SelfStallDetector::Snapshot runtimeBuildSelfStallSnapshot(const NetplayCoordinator& coordinator,
@@ -262,7 +267,7 @@ uint32_t runtimeComputeAuthoritativeStateCrc32(INetplayStateBridge& emu,
     if(!preferConfirmedSnapshot &&
        emu.valid() &&
        emu.frameCount() == authoritativeFrame) {
-        return emu.canonicalNetplayStateCrc32();
+        return runtimeStateCrc32(emu.saveStateToMemory());
     }
 
     return 0;
@@ -282,7 +287,7 @@ RuntimeAuthoritativeStateResult runtimeApplyAuthoritativeStateLocally(
     runtimeHost.beginPresentationHoldUntilNextFrameReady();
     if(!emu.loadStateFromMemoryOnCleanBoot(payload)) return result;
 
-    const uint32_t loadedCrc32 = emu.canonicalNetplayStateCrc32();
+    const uint32_t loadedCrc32 = runtimeStateCrc32(emu.saveStateToMemory());
     emu.discardQueuedInputFramesAfter(targetFrame);
     runtimeSyncEmulatorInputTimelineEpoch(coordinator, emu);
     coordinator.setLocalSimulationFrame(targetFrame);
@@ -437,7 +442,7 @@ RuntimePeriodicCrcResult runtimeSubmitPeriodicLocalCrcIfNeeded(
     const char* submittedSource = nullptr;
     CrcSubmissionSource submittedSourceKind = CrcSubmissionSource::Unknown;
     if(emu.frameCount() == crcCheckpointFrame) {
-        crc32 = emu.canonicalNetplayStateCrc32();
+        crc32 = runtimeStateCrc32(emu.saveStateToMemory());
         submittedSource = "local CRC submission (live-canonical)";
         submittedSourceKind = CrcSubmissionSource::LiveCanonical;
     }
@@ -809,7 +814,7 @@ RuntimePendingResyncApplyResult runtimeProcessPendingResyncApplyIfNeeded(
     const bool loadedExpectedFrame =
         loaded &&
         (pending->targetFrame == 0u || loadedFrame == pending->targetFrame);
-    const uint32_t loadedCrc32 = loadedExpectedFrame ? emu.canonicalNetplayStateCrc32() : 0u;
+    const uint32_t loadedCrc32 = loadedExpectedFrame ? runtimeStateCrc32(emu.saveStateToMemory()) : 0u;
 
     result.loadedExpectedFrame = loadedExpectedFrame;
     result.loadedFrame = loadedFrame;

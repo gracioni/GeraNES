@@ -52,11 +52,6 @@ uint32_t GeraNESNetplayConsole::regionFps() const
     return m_emu.getRegionFPS();
 }
 
-uint32_t GeraNESNetplayConsole::canonicalNetplayStateCrc32()
-{
-    return m_emu.canonicalNetplayStateCrc32();
-}
-
 std::optional<NetplayRomSelection> GeraNESNetplayConsole::currentRomSelection() const
 {
     return captureRomSelection(m_emu);

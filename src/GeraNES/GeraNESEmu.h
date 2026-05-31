@@ -2160,20 +2160,6 @@ public:
         return data;
     }
 
-    uint32_t canonicalStateCrc32() const
-    {
-        const std::vector<uint8_t> data = const_cast<GeraNESEmu*>(this)->saveStateToMemory();
-        if(data.empty()) return 0;
-        return Crc32::calc(reinterpret_cast<const char*>(data.data()), data.size());
-    }
-
-    uint32_t canonicalNetplayStateCrc32() const
-    {
-        const std::vector<uint8_t> data = const_cast<GeraNESEmu*>(this)->saveStateToMemory();
-        if(data.empty()) return 0;
-        return Crc32::calc(reinterpret_cast<const char*>(data.data()), data.size());
-    }
-
     /*
     void calculateSerializationSize()
     {

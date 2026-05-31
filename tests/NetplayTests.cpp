@@ -72,6 +72,11 @@ uint16_t reserveLoopbackPort()
     return port;
 }
 
+uint32_t stateCrc32(const std::vector<uint8_t>& data)
+{
+    return data.empty() ? 0u : Crc32::calc(reinterpret_cast<const char*>(data.data()), data.size());
+}
+
 std::vector<uint8_t> currentRomBytes(GeraNESEmu& emu)
 {
     Cartridge& cart = emu.getConsole().cartridge();
@@ -432,7 +437,6 @@ public:
     bool validValue = true;
     ConsoleNetplay::FrameNumber frameValue = 0;
     uint32_t inputTimelineEpochValue = 0;
-    uint32_t canonicalCrc32Value = 0;
     std::vector<uint8_t> savedStateData = {0xAAu};
     ConsoleNetplay::FrameNumber lastDiscardedAfterFrame = 0;
     uint32_t loadStateCallCount = 0;
@@ -451,7 +455,6 @@ public:
         ++loadStateCallCount;
         return savedStateData;
     }
-    uint32_t canonicalNetplayStateCrc32() override { return canonicalCrc32Value; }
 };
 
 class FakeNetplayStateHostBridge final : public ConsoleNetplay::INetplayStateHostBridge
@@ -497,7 +500,6 @@ public:
     bool validValue = true;
     uint32_t frameValue = 0;
     uint32_t regionFpsValue = 60;
-    uint32_t canonicalCrc32Value = 0;
     std::optional<ConsoleNetplay::NetplayRomSelection> currentRomValue =
         ConsoleNetplay::NetplayRomSelection{true, "Test ROM", {}};
     uint32_t applyRemoteInputTopologyCallCount = 0;
@@ -507,7 +509,6 @@ public:
     bool valid() const override { return validValue; }
     uint32_t frameCount() const override { return frameValue; }
     uint32_t regionFps() const override { return regionFpsValue; }
-    uint32_t canonicalNetplayStateCrc32() override { return canonicalCrc32Value; }
     std::optional<ConsoleNetplay::NetplayRomSelection> currentRomSelection() const override
     {
         return currentRomValue;
@@ -628,7 +629,6 @@ TEST_CASE("Periodic netplay CRC skips historical snapshot checkpoints behind liv
 
     FakeNetplayStateBridge emu;
     emu.frameValue = 60u;
-    emu.canonicalCrc32Value = 0xAABBCCDDu;
 
     FakeNetplayStateHostBridge runtimeHost;
     runtimeHost.lastFrameReadyFrameValue = 60u;
@@ -679,7 +679,6 @@ TEST_CASE("Periodic netplay CRC waits for live canonical frame before submitting
 
     FakeNetplayStateBridge emu;
     emu.frameValue = 60u;
-    emu.canonicalCrc32Value = 0xAABBCCDDu;
 
     FakeNetplayStateHostBridge runtimeHost;
     runtimeHost.lastFrameReadyFrameValue = 30u;
@@ -730,7 +729,6 @@ TEST_CASE("Periodic netplay CRC waits for frame-ready frontier to catch confirme
 
     FakeNetplayStateBridge emu;
     emu.frameValue = 30u;
-    emu.canonicalCrc32Value = 0xAABBCCDDu;
 
     FakeNetplayStateHostBridge runtimeHost;
     runtimeHost.lastFrameReadyFrameValue = 30u;
@@ -770,11 +768,9 @@ TEST_CASE("Queued topology mutations stay deferred while assignment recovery is 
 
     FakeNetplayConsole console;
     console.frameValue = 100u;
-    console.canonicalCrc32Value = 0x12345678u;
 
     FakeNetplayStateBridge stateBridge;
     stateBridge.frameValue = 100u;
-    stateBridge.canonicalCrc32Value = 0x12345678u;
     stateBridge.savedStateData = {0x10u, 0x20u, 0x30u};
 
     FakeNetplayStateHostBridge hostBridge;
@@ -4501,13 +4497,13 @@ TEST_CASE("Netplay ENet host observer with three clients survives repeated host 
 
         const uint32_t payloadCrc32 =
             Crc32::calc(reinterpret_cast<const char*>(statePayload.data()), statePayload.size());
-        const uint32_t stateCrc32 = hostEmu.canonicalNetplayStateCrc32();
+        const uint32_t canonicalStateCrc32 = stateCrc32(statePayload);
 
         REQUIRE(host.beginResync(
             authoritativeFrame,
             statePayload,
             payloadCrc32,
-            stateCrc32,
+            canonicalStateCrc32,
             ConsoleNetplay::ResyncReason::HostLoadedState
         ));
 
@@ -4522,11 +4518,11 @@ TEST_CASE("Netplay ENet host observer with three clients survives repeated host 
 
                 const bool loaded = emu.loadStateFromMemoryOnCleanBoot(pending->payload);
                 const uint32_t loadedFrame = emu.frameCount();
-                const uint32_t loadedCrc32 = loaded ? emu.canonicalNetplayStateCrc32() : 0u;
+                const uint32_t loadedCrc32 = loaded ? stateCrc32(emu.saveStateToMemory()) : 0u;
                 const bool accepted =
                     loaded &&
                     loadedFrame == pending->targetFrame &&
-                    loadedCrc32 == stateCrc32;
+                    loadedCrc32 == canonicalStateCrc32;
                 REQUIRE(coordinator.acknowledgeResync(
                     pending->resyncId,
                     pending->targetFrame,
@@ -4555,9 +4551,9 @@ TEST_CASE("Netplay ENet host observer with three clients survives repeated host 
         REQUIRE(inputClientEmu.frameCount() == authoritativeFrame);
         REQUIRE(observerAEmu.frameCount() == authoritativeFrame);
         REQUIRE(observerBEmu.frameCount() == authoritativeFrame);
-        REQUIRE(inputClientEmu.canonicalNetplayStateCrc32() == stateCrc32);
-        REQUIRE(observerAEmu.canonicalNetplayStateCrc32() == stateCrc32);
-        REQUIRE(observerBEmu.canonicalNetplayStateCrc32() == stateCrc32);
+        REQUIRE(stateCrc32(inputClientEmu.saveStateToMemory()) == canonicalStateCrc32);
+        REQUIRE(stateCrc32(observerAEmu.saveStateToMemory()) == canonicalStateCrc32);
+        REQUIRE(stateCrc32(observerBEmu.saveStateToMemory()) == canonicalStateCrc32);
 
         INFO("Host lastError: " << host.lastError());
         INFO("InputClient lastError: " << inputClient.lastError());
@@ -4651,7 +4647,7 @@ TEST_CASE("Netplay observer ignores stale pending resync apply when newer host l
     REQUIRE_FALSE(firstPayload.empty());
     const uint32_t firstPayloadCrc32 =
         Crc32::calc(reinterpret_cast<const char*>(firstPayload.data()), firstPayload.size());
-    const uint32_t firstStateCrc32 = hostEmu.canonicalNetplayStateCrc32();
+    const uint32_t firstStateCrc32 = stateCrc32(firstPayload);
 
     for(uint32_t frame = firstFrame; frame < firstFrame + 9u; ++frame) {
         queueFrameAndAdvance(hostEmu, frame);
@@ -4661,7 +4657,7 @@ TEST_CASE("Netplay observer ignores stale pending resync apply when newer host l
     REQUIRE_FALSE(secondPayload.empty());
     const uint32_t secondPayloadCrc32 =
         Crc32::calc(reinterpret_cast<const char*>(secondPayload.data()), secondPayload.size());
-    const uint32_t secondStateCrc32 = hostEmu.canonicalNetplayStateCrc32();
+    const uint32_t secondStateCrc32 = stateCrc32(secondPayload);
 
     REQUIRE(host.beginResync(
         firstFrame,
@@ -4691,7 +4687,7 @@ TEST_CASE("Netplay observer ignores stale pending resync apply when newer host l
 
     const bool loaded = observerEmu.loadStateFromMemoryOnCleanBoot(pending->payload);
     const uint32_t loadedFrame = observerEmu.frameCount();
-    const uint32_t loadedCrc32 = loaded ? observerEmu.canonicalNetplayStateCrc32() : 0u;
+    const uint32_t loadedCrc32 = loaded ? stateCrc32(observerEmu.saveStateToMemory()) : 0u;
     const bool accepted =
         loaded &&
         loadedFrame == secondFrame &&
@@ -7726,7 +7722,7 @@ TEST_CASE("Netplay audio state-load policy does not change canonical netplay CRC
     REQUIRE(preservedAudio.valid());
 
     REQUIRE(resetAudio.frameCount() == preservedAudio.frameCount());
-    REQUIRE(resetAudio.canonicalNetplayStateCrc32() == preservedAudio.canonicalNetplayStateCrc32());
+    REQUIRE(stateCrc32(resetAudio.saveStateToMemory()) == stateCrc32(preservedAudio.saveStateToMemory()));
 }
 
 TEST_CASE("Netplay host loaded state canonicalizes local future inputs before resync", "[netplay][load-state][resync]")
@@ -7778,7 +7774,7 @@ TEST_CASE("Netplay host loaded state canonicalizes local future inputs before re
     }
 
     REQUIRE(hostCanonicalized.frameCount() == clientAfterResync.frameCount());
-    REQUIRE(hostCanonicalized.canonicalNetplayStateCrc32() == clientAfterResync.canonicalNetplayStateCrc32());
+    REQUIRE(stateCrc32(hostCanonicalized.saveStateToMemory()) == stateCrc32(clientAfterResync.saveStateToMemory()));
 }
 
 TEST_CASE("Netplay runtime stays deterministic after repeated host load states during active resync", "[netplay][runtime][load-state][resync]")
@@ -8034,7 +8030,7 @@ TEST_CASE("Netplay state restore branch converges to baseline canonical CRC at l
     for(uint32_t frame = firstFrame; frame <= targetFrame; ++frame) {
         applyActualInput(baselineEmu, frame);
         queueFrameAndAdvance(baselineEmu, frame);
-        baselineFrameCrc[frame] = baselineEmu.canonicalNetplayStateCrc32();
+        baselineFrameCrc[frame] = stateCrc32(baselineEmu.saveStateToMemory());
         if(frame == restoreFrame) {
             restoreSnapshot = baselineEmu.saveStateToMemory();
         }
@@ -8063,7 +8059,7 @@ TEST_CASE("Netplay state restore branch converges to baseline canonical CRC at l
     REQUIRE(restoreEmu.frameCount() == restoreFrame + 1u);
     
     INFO("State restored to frame " << restoreEmu.frameCount());
-    INFO("Restored CRC=" << restoreEmu.canonicalNetplayStateCrc32());
+    INFO("Restored CRC=" << stateCrc32(restoreEmu.saveStateToMemory()));
     INFO("Expected CRC=" << baselineFrameCrc[restoreFrame]);
 
     for(uint32_t frame = restoreFrame + 1u; frame <= targetFrame; ++frame) {
@@ -8073,7 +8069,7 @@ TEST_CASE("Netplay state restore branch converges to baseline canonical CRC at l
 
     REQUIRE(restoreEmu.frameCount() == targetFrame + 1u);
     
-    const uint32_t restoreTargetCrc = restoreEmu.canonicalNetplayStateCrc32();
+    const uint32_t restoreTargetCrc = stateCrc32(restoreEmu.saveStateToMemory());
     INFO("Final baseline CRC=" << baselineTargetCrc);
     INFO("Final restore CRC=" << restoreTargetCrc);
     
@@ -8320,7 +8316,7 @@ TEST_CASE("Netplay clean-boot load and dirty-instance replay produce identical f
     }
 
     REQUIRE(cleanBoot.frameCount() == dirtyReplay.frameCount());
-    REQUIRE(cleanBoot.canonicalNetplayStateCrc32() == dirtyReplay.canonicalNetplayStateCrc32());
+    REQUIRE(stateCrc32(cleanBoot.saveStateToMemory()) == stateCrc32(dirtyReplay.saveStateToMemory()));
 }
 
 TEST_CASE("Netplay runtime confirmed divergence requires hard resync", "[netplay][runtime][desync][hard-resync]")

@@ -34,6 +34,11 @@ public:
     };
 
 private:
+    static uint32_t stateCrc32(const std::vector<uint8_t>& data)
+    {
+        return data.empty() ? 0u : Crc32::calc(reinterpret_cast<const char*>(data.data()), data.size());
+    }
+
     struct Buttons
     {
         bool a = false;
@@ -202,8 +207,8 @@ private:
 
         FrameRecord initial;
         initial.frame = 0;
-        initial.crc32 = emu.canonicalStateCrc32();
         initial.snapshot = emu.saveStateToMemory();
+        initial.crc32 = stateCrc32(initial.snapshot);
         records.push_back(std::move(initial));
 
         for(uint32_t currentFrame = 0; currentFrame < frames; ++currentFrame) {
@@ -221,8 +226,8 @@ private:
 
             FrameRecord record;
             record.frame = emu.frameCount();
-            record.crc32 = emu.canonicalStateCrc32();
             record.snapshot = emu.saveStateToMemory();
+            record.crc32 = stateCrc32(record.snapshot);
             records.push_back(std::move(record));
         }
 
@@ -249,7 +254,7 @@ private:
             return ReplayMismatch{fromFrame, fromFrame, baseline[fromFrame].crc32, 0, "Failed to load snapshot."};
         }
 
-        const uint32_t loadedCrc32 = emu.canonicalStateCrc32();
+        const uint32_t loadedCrc32 = stateCrc32(emu.saveStateToMemory());
         if(loadedCrc32 != baseline[fromFrame].crc32) {
             return ReplayMismatch{
                 fromFrame,
@@ -277,7 +282,7 @@ private:
             }
         }
 
-        const uint32_t actualCrc32 = emu.canonicalStateCrc32();
+        const uint32_t actualCrc32 = stateCrc32(emu.saveStateToMemory());
         if(actualCrc32 == baseline[targetFrame].crc32) {
             return std::nullopt;
         }

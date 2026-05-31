@@ -21,7 +21,6 @@ public:
     bool valid() const override;
     uint32_t frameCount() const override;
     uint32_t regionFps() const override;
-    uint32_t canonicalNetplayStateCrc32() override;
     std::optional<ConsoleNetplay::NetplayRomSelection> currentRomSelection() const override;
     bool updateUntilFrame(uint32_t frameDtMs, bool resimulating) override;
 

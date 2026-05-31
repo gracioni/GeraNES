@@ -164,9 +164,6 @@ private:
     uint64_t m_netplaySnapshotNextPosition = 0;
     size_t m_netplaySnapshotCapacity = 0;
     mutable NetplayDiagnosticsSnapshot m_netplayDiagnostics;
-    bool m_hasCachedNetplayCrc = false;
-    uint32_t m_cachedNetplayCrcFrame = 0;
-    uint32_t m_cachedNetplayCrcValue = 0;
     uint32_t m_lastFrameReadyFrameValue = 0;
     uint32_t m_lastFrameReadyNetplayCrc32Value = 0;
     std::deque<ManualStateChangeRecord> m_manualStateChanges;
@@ -458,7 +455,6 @@ public:
     void closeRom() override
     {
         resetFreeRunningPacing();
-        m_hasCachedNetplayCrc = false;
         m_emu.closeRom();
         refreshPresentedFramebuffer();
     }
@@ -615,8 +611,15 @@ public:
                                   const std::vector<uint32_t>& snapshotFramesToCapture = {},
                                   ReplaySnapshotObserver snapshotObserver = {}) override
     {
-        if(expectedCurrentStateCrc32.has_value() && canonicalStateCrc32() != *expectedCurrentStateCrc32) {
-            return false;
+        if(expectedCurrentStateCrc32.has_value()) {
+            const std::vector<uint8_t> currentState = m_emu.saveStateToMemory();
+            const uint32_t currentStateCrc32 =
+                currentState.empty()
+                    ? 0u
+                    : Crc32::calc(reinterpret_cast<const char*>(currentState.data()), currentState.size());
+            if(currentStateCrc32 != *expectedCurrentStateCrc32) {
+                return false;
+            }
         }
         const FrameInputResolver previousResolver = m_frameInputResolver;
         m_frameInputResolver = [&replayFrames](uint32_t nextFrame, ReplayFrameInput& input) {
@@ -700,8 +703,6 @@ public:
         return true;
     }
 
-    uint32_t canonicalStateCrc32() override;
-    uint32_t canonicalNetplayStateCrc32() override;
     uint32_t lastFrameReadyFrame() const override;
     uint32_t lastFrameReadyNetplayCrc32() const override;
     void setAuthoritativeFrameReadyState(uint32_t frame, uint32_t canonicalCrc32) override;
