@@ -423,7 +423,7 @@ public:
             containsPathComponent(romPath, "dmc_tests");
 
         while(true) {
-            if(!emu.setPlaybackInputFrame(emu.createInputFrame(emu.executionPoint().frame))) {
+            if(!emu.setPlaybackInputFrame(emu.createInputFrame(emu.frameCount()))) {
                 return false;
             }
             (void)emu.updateUntilFrame(STEP_MS, false);

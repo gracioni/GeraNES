@@ -66,12 +66,16 @@ inline void GeraNESApp::drawCpuDebuggerWindow()
     };
 
     CPU2A03::DebugState cpuState;
-    GeraNESEmu::ExecutionPoint execPoint;
+    uint32_t currentFrame = 0;
+    uint32_t pendingCpuCycles = 0;
+    uint64_t emulationTickCount = 0;
     GeraNESEmu::DebugBreakpointHit breakpointHit;
     std::array<uint8_t, 0x10000> cpuMemorySnapshot = {};
     m_emu.withExclusiveAccess([&](auto& emu) {
         cpuState = emu.getConsole().cpu().debugState();
-        execPoint = emu.executionPoint();
+        currentFrame = emu.frameCount();
+        pendingCpuCycles = emu.pendingCpuCycles();
+        emulationTickCount = emu.emulationTickCount();
         breakpointHit = emu.debugBreakpointHit();
         for(size_t i = 0; i < cpuMemorySnapshot.size(); ++i) {
             cpuMemorySnapshot[i] = emu.debugPeekCpuMemory(static_cast<uint16_t>(i));
@@ -368,12 +372,12 @@ inline void GeraNESApp::drawCpuDebuggerWindow()
         ImGui::TableNextColumn(); ImGui::Text("SP  %02X", cpuState.sp);
         ImGui::TableNextColumn(); ImGui::Text("P   %02X", cpuState.status);
         ImGui::TableNextColumn(); ImGui::Text("Flags  %s", CPU2A03Debug::formatStatus(cpuState.status).c_str());
-        ImGui::TableNextColumn(); ImGui::Text("Frame  %u", execPoint.frame);
+        ImGui::TableNextColumn(); ImGui::Text("Frame  %u", currentFrame);
 
         ImGui::TableNextRow();
         ImGui::TableNextColumn(); ImGui::Text("CPU Cycles  %u", cpuState.cycleCounter);
-        ImGui::TableNextColumn(); ImGui::Text("Tick  %llu", static_cast<unsigned long long>(execPoint.emulationTick));
-        ImGui::TableNextColumn(); ImGui::Text("Pending Cycles  %u", execPoint.cpuCyclesRemaining);
+        ImGui::TableNextColumn(); ImGui::Text("Tick  %llu", static_cast<unsigned long long>(emulationTickCount));
+        ImGui::TableNextColumn(); ImGui::Text("Pending Cycles  %u", pendingCpuCycles);
         ImGui::TableNextColumn(); ImGui::Text("Last Opcode  %02X", cpuState.opcode);
         ImGui::EndTable();
     }

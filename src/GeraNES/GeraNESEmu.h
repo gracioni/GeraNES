@@ -54,14 +54,6 @@ enum class AccessType
 class GeraNESEmu : public Ibus, public SigSlot::SigSlotBase, public IRewindable
 {
 public:
-    struct ExecutionPoint
-    {
-        uint32_t frame = 0;
-        uint32_t cpuCycle = 0;
-        uint32_t cpuCyclesRemaining = 0;
-        uint64_t emulationTick = 0;
-    };
-
     struct DebugBreakpointConfig
     {
         bool enabled = false;
@@ -2010,14 +2002,14 @@ public:
         return advancedAny && steppedInstruction;
     }
 
-    ExecutionPoint executionPoint() const
+    uint32_t pendingCpuCycles() const
     {
-        return ExecutionPoint{
-            m_frameCounter,
-            static_cast<uint32_t>(m_cpu.cycleCounter()),
-            static_cast<uint32_t>(std::max(m_cpuCyclesAcc, 0)),
-            m_emulationTickCounter
-        };
+        return static_cast<uint32_t>(std::max(m_cpuCyclesAcc, 0));
+    }
+
+    uint64_t emulationTickCount() const
+    {
+        return m_emulationTickCounter;
     }
 
     GERANES_INLINE const uint32_t* getFramebuffer() const
