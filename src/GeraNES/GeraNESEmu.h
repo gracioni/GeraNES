@@ -126,12 +126,6 @@ public:
         std::array<uint8_t, 0x20> paletteData = {};
     };
 
-    enum class StateLoadAudioPolicy
-    {
-        ResetOutput,
-        PreserveContinuousOutput
-    };
-
 private:
     const uint32_t MAX_4011_WRITES_TO_DISABLE_OVERCLOCK = 2;
 
@@ -1142,24 +1136,19 @@ private:
         m_cpu.scheduleImplicitDmcSingleCycleAbort();
     }
 
-    void resyncAudioAfterStateLoad(StateLoadAudioPolicy audioPolicy = StateLoadAudioPolicy::ResetOutput)
+    void resyncAudioAfterStateLoad()
     {
         // Audio output internals (wave generators/FIFOs) are not part of save states.
-        // Hard resync/manual load resets the live output, but ordinary recovery
-        // must preserve the active device/queue so transient jitter does not
-        // create long audible dropouts.
-        if(audioPolicy == StateLoadAudioPolicy::ResetOutput) {
-            m_audioOutput.discardQueuedAudio();
-            m_audioOutput.clearAudioBuffers();
-            m_lastAudioRenderedMs = 0;
-            m_vsyncAudioCompMsAcc = 0.0;
-            m_vsyncAudioSkipMsDebt = 0;
-            if(m_frameCounter == 0) {
-                m_lastAudiblyRenderedPlaybackFrame.reset();
-            }
-            else {
-                m_lastAudiblyRenderedPlaybackFrame = m_frameCounter - 1u;
-            }
+        m_audioOutput.discardQueuedAudio();
+        m_audioOutput.clearAudioBuffers();
+        m_lastAudioRenderedMs = 0;
+        m_vsyncAudioCompMsAcc = 0.0;
+        m_vsyncAudioSkipMsDebt = 0;
+        if(m_frameCounter == 0) {
+            m_lastAudiblyRenderedPlaybackFrame.reset();
+        }
+        else {
+            m_lastAudiblyRenderedPlaybackFrame = m_frameCounter - 1u;
         }
         m_audioOutputRewinding = m_rewind.isRewinding();
         m_audioOutput.setRewinding(m_audioOutputRewinding);
@@ -2078,37 +2067,16 @@ public:
         }
     }    
 
-    void loadStateFromMemoryWithAudioPolicy(
-        const std::vector<uint8_t>& data,
-        StateLoadAudioPolicy audioPolicy)
+    void loadStateFromMemory(const std::vector<uint8_t>& data) override
     {
         Deserialize d;
         d.setData(data);
         serialization(d);
-        resyncAudioAfterStateLoad(audioPolicy);
+        resyncAudioAfterStateLoad();
         resetVolatileStateAfterStateLoad();
     }
 
-    void loadStateFromMemory(const std::vector<uint8_t>& data) override
-    {
-        loadStateFromMemoryWithAudioPolicy(data, StateLoadAudioPolicy::ResetOutput);
-    }
-
-    void loadStateFromMemoryWithAudioPolicy(
-        const uint8_t* data,
-        size_t size,
-        StateLoadAudioPolicy audioPolicy)
-    {
-        Deserialize d;
-        d.setData(data, size);
-        serialization(d);
-        resyncAudioAfterStateLoad(audioPolicy);
-        resetVolatileStateAfterStateLoad();
-    }
-
-    bool loadStateFromMemoryOnCleanBoot(
-        const std::vector<uint8_t>& data,
-        StateLoadAudioPolicy audioPolicy = StateLoadAudioPolicy::ResetOutput)
+    bool loadStateFromMemoryOnCleanBoot(const std::vector<uint8_t>& data)
     {
         if(data.empty() || !m_cartridge.isValid()) return false;
 
@@ -2116,7 +2084,7 @@ public:
         if(romPath.empty()) return false;
         if(!openRom(romPath) || !valid()) return false;
 
-        loadStateFromMemoryWithAudioPolicy(data, audioPolicy);
+        loadStateFromMemory(data);
         return valid();
     }
 

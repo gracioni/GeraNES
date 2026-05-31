@@ -7423,32 +7423,6 @@ TEST_CASE("Netplay state load flushes previously queued audio", "[netplay][audio
     REQUIRE(audio.clearAudioBuffersCalls > 0);
 }
 
-TEST_CASE("Netplay state restore preserves live audio output", "[netplay][audio][state-restore]")
-{
-    GeraNESTestSupport::requireRomFixture();
-
-    RecordingAudioOutput audio;
-    GeraNESEmu emu(audio);
-    REQUIRE(emu.openRom(GeraNESTestSupport::romPath().string()));
-    REQUIRE(emu.valid());
-
-    queueFrameAndAdvance(emu, 0u);
-    queueFrameAndAdvance(emu, 1u);
-    queueFrameAndAdvance(emu, 2u);
-    const std::vector<uint8_t> state = emu.saveStateToMemory();
-    REQUIRE_FALSE(state.empty());
-
-    queueFrameAndAdvance(emu, 3u);
-
-    audio.discardQueuedAudioCalls = 0;
-    audio.clearAudioBuffersCalls = 0;
-    emu.loadStateFromMemoryWithAudioPolicy(
-        state,
-        GeraNESEmu::StateLoadAudioPolicy::PreserveContinuousOutput);
-    REQUIRE(audio.discardQueuedAudioCalls == 0);
-    REQUIRE(audio.clearAudioBuffersCalls == 0);
-}
-
 TEST_CASE("Netplay clean-boot state load reopens IPS patch source", "[netplay][state][patch]")
 {
     GeraNESTestSupport::requireRomFixture();
@@ -7515,39 +7489,6 @@ TEST_CASE("Netplay hitch recovery flushes audio backlog", "[netplay][audio][hitc
     REQUIRE(audio.clearAudioBuffersCalls > 0);
 }
 
-TEST_CASE("Netplay state restore does not replay audio for frames that were already emitted", "[netplay][audio][state-restore][dedupe]")
-{
-    GeraNESTestSupport::requireRomFixture();
-
-    RecordingAudioOutput audio;
-    GeraNESEmu emu(audio);
-    REQUIRE(emu.openRom(GeraNESTestSupport::romPath().string()));
-    REQUIRE(emu.valid());
-
-    const uint32_t frameDt = std::max<uint32_t>(1u, 1000u / std::max<uint32_t>(1u, emu.getRegionFPS()));
-
-    InputFrame frame0 = emu.createInputFrame(0u);
-    applyInputFrameAndAdvance(emu, frame0, frameDt);
-
-    const std::vector<uint8_t> restoreState = emu.saveStateToMemory();
-    REQUIRE_FALSE(restoreState.empty());
-
-    InputFrame frame1 = emu.createInputFrame(1u);
-    applyInputFrameAndAdvance(emu, frame1, frameDt);
-
-    const uint32_t audibleAfterOriginalFrame1 = audio.audibleRenderCalls;
-    REQUIRE(audibleAfterOriginalFrame1 > 0u);
-
-    emu.loadStateFromMemoryWithAudioPolicy(
-        restoreState,
-        GeraNESEmu::StateLoadAudioPolicy::PreserveContinuousOutput);
-    REQUIRE(emu.valid());
-
-    InputFrame replayFrame1 = emu.createInputFrame(1u);
-    applyInputFrameAndAdvance(emu, replayFrame1, frameDt);
-    REQUIRE(audio.audibleRenderCalls == audibleAfterOriginalFrame1);
-}
-
 TEST_CASE("Netplay resync resets audio frame tracking for future playback", "[netplay][audio][resync]")
 {
     GeraNESTestSupport::requireRomFixture();
@@ -7581,54 +7522,6 @@ TEST_CASE("Netplay resync resets audio frame tracking for future playback", "[ne
     REQUIRE(audio.audibleRenderCalls > audibleAfterResyncLoad);
 }
 
-TEST_CASE("Netplay state restore preserves the same final audio stream as offline playback", "[netplay][audio][continuity][state-restore]")
-{
-    GeraNESTestSupport::requireRomFixture();
-
-    const uint32_t frameDt = 1000u / std::max<uint32_t>(1u, 60u);
-
-    BufferedRecordingAudioOutput offlineAudio;
-    GeraNESEmu offlineEmu(offlineAudio);
-    REQUIRE(offlineEmu.openRom(GeraNESTestSupport::romPath().string()));
-    REQUIRE(offlineEmu.valid());
-
-    for(uint32_t frame = 0u; frame <= 3u; ++frame) {
-        InputFrame input = offlineEmu.createInputFrame(frame);
-        applyInputFrameAndAdvance(offlineEmu, input, frameDt);
-    }
-    REQUIRE(offlineEmu.frameCount() == 4u);
-    REQUIRE_FALSE(offlineAudio.committedSamples().empty());
-
-    BufferedRecordingAudioOutput netplayAudio;
-    GeraNESEmu netplayEmu(netplayAudio);
-    REQUIRE(netplayEmu.openRom(GeraNESTestSupport::romPath().string()));
-    REQUIRE(netplayEmu.valid());
-
-    InputFrame confirmedFrame0 = netplayEmu.createInputFrame(0u);
-    applyInputFrameAndAdvance(netplayEmu, confirmedFrame0, frameDt);
-
-    const std::vector<uint8_t> restoreState = netplayEmu.saveStateToMemory();
-    REQUIRE_FALSE(restoreState.empty());
-
-    for(uint32_t frame = 1u; frame <= 3u; ++frame) {
-        InputFrame replayed = netplayEmu.createInputFrame(frame);
-        applyInputFrameAndAdvance(netplayEmu, replayed, frameDt);
-    }
-    REQUIRE(netplayEmu.frameCount() == 4u);
-
-    netplayEmu.loadStateFromMemoryWithAudioPolicy(
-        restoreState,
-        GeraNESEmu::StateLoadAudioPolicy::PreserveContinuousOutput);
-    REQUIRE(netplayEmu.valid());
-
-    for(uint32_t frame = 1u; frame <= 3u; ++frame) {
-        InputFrame corrected = netplayEmu.createInputFrame(frame);
-        applyInputFrameAndAdvance(netplayEmu, corrected, frameDt);
-    }
-    REQUIRE(netplayEmu.frameCount() == 4u);
-
-    requireSampleStreamsEqual(netplayAudio.committedSamples(), offlineAudio.committedSamples());
-}
 TEST_CASE("Netplay presentation hold keeps last frame visible across authoritative state load", "[netplay][presentation][resync]")
 {
     GeraNESTestSupport::requireRomFixture();
@@ -7689,40 +7582,6 @@ TEST_CASE("Netplay presentation hold keeps last frame visible across authoritati
     }
 
     REQUIRE((sawFramebufferSwapAfterResume || sawFrameProgressAfterResume));
-}
-
-TEST_CASE("Netplay audio state-load policy does not change canonical netplay CRC", "[netplay][audio][crc][load-policy]")
-{
-    GeraNESTestSupport::requireRomFixture();
-
-    GeraNESEmu source(DummyAudioOutput::instance());
-    REQUIRE(source.openRom(GeraNESTestSupport::romPath().string()));
-    REQUIRE(source.valid());
-
-    const uint32_t frameDt = std::max<uint32_t>(1u, 1000u / std::max<uint32_t>(1u, source.getRegionFPS()));
-    for(uint32_t frame = 0u; frame < 4u; ++frame) {
-        InputFrame input = source.createInputFrame(frame);
-        setFramePortButtons(input, 1, (frame % 2u) == 0u);
-        applyInputFrameAndAdvance(source, input, frameDt);
-    }
-
-    const std::vector<uint8_t> state = source.saveStateToMemory();
-    REQUIRE_FALSE(state.empty());
-
-    GeraNESEmu resetAudio(DummyAudioOutput::instance());
-    REQUIRE(resetAudio.openRom(GeraNESTestSupport::romPath().string()));
-    REQUIRE(resetAudio.valid());
-    resetAudio.loadStateFromMemoryWithAudioPolicy(state, GeraNESEmu::StateLoadAudioPolicy::ResetOutput);
-    REQUIRE(resetAudio.valid());
-
-    GeraNESEmu preservedAudio(DummyAudioOutput::instance());
-    REQUIRE(preservedAudio.openRom(GeraNESTestSupport::romPath().string()));
-    REQUIRE(preservedAudio.valid());
-    preservedAudio.loadStateFromMemoryWithAudioPolicy(state, GeraNESEmu::StateLoadAudioPolicy::PreserveContinuousOutput);
-    REQUIRE(preservedAudio.valid());
-
-    REQUIRE(resetAudio.frameCount() == preservedAudio.frameCount());
-    REQUIRE(stateCrc32(resetAudio.saveStateToMemory()) == stateCrc32(preservedAudio.saveStateToMemory()));
 }
 
 TEST_CASE("Netplay host loaded state canonicalizes local future inputs before resync", "[netplay][load-state][resync]")
