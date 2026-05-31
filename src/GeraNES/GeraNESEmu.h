@@ -2305,30 +2305,7 @@ public:
         return result;
     }
 
-    std::vector<uint8_t> saveStateToMemory()
-    {
-        static thread_local size_t reserveHint = 0;
-        Serialize s;
-        if(reserveHint > 0) {
-            s.reserve(reserveHint);
-        }
-        serialization(s);
-        std::vector<uint8_t> data = s.takeData();
-        reserveHint = data.size();
-        return data;
-    }
-
-    std::vector<uint8_t> saveCanonicalNetplayStateToMemory()
-    {
-        return saveCanonicalNetplayStateToMemory(true);
-    }
-
-    std::vector<uint8_t> saveCanonicalNetplayCrcStateToMemory()
-    {
-        return saveCanonicalNetplayStateToMemory(false);
-    }
-
-    std::vector<uint8_t> saveCanonicalNetplayStateToMemory(bool includePlaybackInput)
+    std::vector<uint8_t> saveCanonicalStateToMemory()
     {
         const InputFrame savedLastAppliedInputFrame = m_lastAppliedInputFrame;
         const InputFrame savedLockedPlaybackInputFrame = m_lockedPlaybackInputFrame;
@@ -2344,9 +2321,6 @@ public:
             serializedPlaybackInput = m_lockedPlaybackInputFrame;
         } else if(serializedPlaybackInput.frame != m_frameCounter) {
             serializedPlaybackInput = InputFrame::repeatedFrom(serializedPlaybackInput, m_frameCounter);
-        }
-        if(!includePlaybackInput) {
-            serializedPlaybackInput = makeDefaultInputFrame(m_frameCounter);
         }
         m_lastAppliedInputFrame = serializedPlaybackInput;
         m_lockedPlaybackInputFrame = serializedPlaybackInput;
@@ -2379,14 +2353,24 @@ public:
         return data;
     }
 
+    std::vector<uint8_t> saveStateToMemory()
+    {
+        return saveCanonicalStateToMemory();
+    }
+
+    std::vector<uint8_t> saveCanonicalNetplayStateToMemory()
+    {
+        return saveCanonicalStateToMemory();
+    }
+
     std::vector<uint8_t> saveNetplayStateToMemory()
     {
-        return saveCanonicalNetplayStateToMemory();
+        return saveCanonicalStateToMemory();
     }
 
     std::vector<uint8_t> saveNetplaySnapshotStateToMemory()
     {
-        return saveCanonicalNetplayStateToMemory();
+        return saveCanonicalStateToMemory();
     }
 
     NetplaySnapshotWithCrc32 saveNetplaySnapshotWithCrc32()
@@ -2406,7 +2390,7 @@ public:
 
     uint32_t canonicalNetplayStateCrc32() const
     {
-        const std::vector<uint8_t> data = const_cast<GeraNESEmu*>(this)->saveCanonicalNetplayCrcStateToMemory();
+        const std::vector<uint8_t> data = const_cast<GeraNESEmu*>(this)->saveCanonicalStateToMemory();
         if(data.empty()) return 0;
         return Crc32::calc(reinterpret_cast<const char*>(data.data()), data.size());
     }
