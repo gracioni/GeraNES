@@ -1,6 +1,7 @@
 #include "GeraNESApp/GeraNESApp.h"
 #include "GeraNESApp/FontAwesomeIcons.h"
 
+#include "ConsoleNetplay/NetplayLog.h"
 #include "GeraNESNetplay/NetplayWindowUI.h"
 
 #include <algorithm>
@@ -3022,6 +3023,7 @@ GeraNESApp::GeraNESApp()
             latestInputState = m_netplayLatestInputState;
         }
         auto& cfg = AppSettings::instance().data.netplay;
+        ConsoleNetplay::setNetplayDebugLogEnabled(cfg.showNetplayDebugLog);
         const ConsoleNetplay::RuntimeExecutionSettings runtimeSettings =
             GeraNESNetplay::buildGeraNESRuntimeExecutionSettings(
                 m_emu,

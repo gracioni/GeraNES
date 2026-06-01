@@ -16,6 +16,7 @@
 #include "GeraNESNetplay/GeraNESNetplayAdapters.h"
 #include "GeraNESNetplay/GeraNESNetplayAssignmentHelpers.h"
 #include "ConsoleNetplay/NetplayInputAssignment.h"
+#include "ConsoleNetplay/NetplayLog.h"
 #include "ConsoleNetplay/WebRtcSignaling.h"
 #include "ConsoleNetplay/WebRtcSignalingClient.h"
 #include "GeraNESApp/imgui_util.h"
@@ -149,6 +150,7 @@ void drawNetplayWindow(bool& showWindow,
     }
 
     auto& cfg = AppSettings::instance().data.netplay;
+    setNetplayDebugLogEnabled(cfg.showNetplayDebugLog);
     const ImGuiViewport* viewport = ImGui::GetMainViewport();
     const ImVec2 workSize = viewport != nullptr ? viewport->WorkSize : ImGui::GetIO().DisplaySize;
     const float maxInitialHeight = std::max(80.0f, workSize.y - 16.0f);

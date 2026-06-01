@@ -4,6 +4,7 @@
 #include <utility>
 
 #include "ConsoleNetplay/NetplayInputAssignment.h"
+#include "ConsoleNetplay/NetplayLog.h"
 
 namespace ConsoleNetplay {
 
@@ -406,6 +407,7 @@ void NetplayAppRuntime::clearNetplayLog()
 {
     enqueueRuntimeCommand([](NetplayAppRuntime& self) {
         self.m_coordinator.clearEventLog();
+        clearNetplayDebugLogMessages();
     });
 }
 
@@ -1101,7 +1103,8 @@ void NetplayAppRuntime::updateUiSnapshot(const std::optional<RomSelection>& loca
         m_autoSettings.snapshot(),
         m_framePacingDiagnostics,
         runtimeDiagnostics,
-        computeSessionBlockedReason(localRom)
+        computeSessionBlockedReason(localRom),
+        netplayDebugLogEnabled()
     );
 
     std::scoped_lock stateLock(m_stateMutex);
@@ -1149,7 +1152,8 @@ NetplayAppRuntime::UiSnapshot buildNetplayUiSnapshot(
     const NetplayAutoTune::Snapshot& autoSettings,
     const NetplayAppRuntime::FramePacingDiagnostics& framePacingDiagnostics,
     const NetplayRuntimeDiagnostics& runtimeDiagnostics,
-    const std::string& sessionBlockedReason)
+    const std::string& sessionBlockedReason,
+    bool includeDebugLog)
 {
     NetplayAppRuntime::UiSnapshot snapshot;
     snapshot.valid = true;
@@ -1188,6 +1192,10 @@ NetplayAppRuntime::UiSnapshot buildNetplayUiSnapshot(
     snapshot.runtimeDiagnostics = runtimeDiagnostics;
     snapshot.sessionBlockedReason = sessionBlockedReason;
     snapshot.eventLog = coordinator.eventLog();
+    if(includeDebugLog) {
+        std::vector<std::string> debugMessages = netplayDebugLogMessages();
+        snapshot.eventLog.insert(snapshot.eventLog.end(), debugMessages.begin(), debugMessages.end());
+    }
     return snapshot;
 }
 

@@ -5,7 +5,6 @@
 #include "ConsoleNetplay/NetplayLog.h"
 #include "ConsoleNetplay/NetplayRuntimeHostApply.h"
 #include "GeraNESNetplay/GeraNESNetplayConsole.h"
-#include "logger/logger.h"
 
 namespace GeraNESNetplay {
 
@@ -27,18 +26,7 @@ void attachRuntimeWakeToHost(NetplayAppRuntime& runtime, IEmulationHost& host)
 void installProcessGlobalFrontendNetplayLogCallbackOnce()
 {
     std::call_once(g_netplayLogInstallOnce, []() {
-        setNetplayLogCallback([](const std::string& message, NetplayLogLevel level) {
-            Logger::Type type = Logger::Type::INFO;
-            switch(level) {
-                case NetplayLogLevel::Debug: type = Logger::Type::DEBUG; break;
-                case NetplayLogLevel::Warning: type = Logger::Type::WARNING; break;
-                case NetplayLogLevel::Error: type = Logger::Type::ERROR; break;
-                case NetplayLogLevel::User: type = Logger::Type::USER; break;
-                case NetplayLogLevel::Info:
-                default: type = Logger::Type::INFO; break;
-            }
-            Logger::instance().log(message, type);
-        });
+        setNetplayLogCallback([](const std::string&, NetplayLogLevel) {});
     });
 }
 
