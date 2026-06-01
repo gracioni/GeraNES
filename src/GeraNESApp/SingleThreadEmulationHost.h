@@ -456,7 +456,6 @@ public:
             if(!emu.valid()) return;
             resetFreeRunningPacing();
             emu.reset();
-            prepareCurrentFrameInput();
         });
     }
 
@@ -478,10 +477,9 @@ public:
     void loadState(uint8_t slot = 0)
      override{
         m_holdPresentedFramebufferUntilFrameReady = true;
-        postCommand([this, slot](GeraNESEmu& emu) {
+        postCommand([slot](GeraNESEmu& emu) {
             if(!emu.valid()) return;
             emu.loadState(slot);
-            prepareCurrentFrameInput();
         });
     }
 

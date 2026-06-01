@@ -870,7 +870,6 @@ bool ThreadedEmulationHost::loadStateFromMemoryOnCleanBoot(const std::vector<uin
         if(!m_emu.loadStateFromMemoryOnCleanBoot(data)) {
             return false;
         }
-        prepareCurrentFrameInputLocked();
         refreshSnapshotLocked();
         return true;
     }
@@ -880,7 +879,6 @@ bool ThreadedEmulationHost::loadStateFromMemoryOnCleanBoot(const std::vector<uin
     if(!m_emu.loadStateFromMemoryOnCleanBoot(data)) {
         return false;
     }
-    prepareCurrentFrameInputLocked();
     refreshSnapshotLocked();
     return true;
 }
@@ -893,7 +891,6 @@ bool ThreadedEmulationHost::loadStateFromMemoryAsManualStateChange(const std::ve
     if(!m_emu.loadStateFromMemoryOnCleanBoot(data)) {
         return false;
     }
-    prepareCurrentFrameInputLocked();
     refreshSnapshotLocked();
     onLoadExecutedLocked(m_emu.frameCount());
     return true;

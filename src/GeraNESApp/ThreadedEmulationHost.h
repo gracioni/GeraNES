@@ -372,9 +372,6 @@ public:
     {
         std::scoped_lock emuLock(m_emuMutex);
         const bool opened = m_emu.openRom(path, autoConfigureInputTopologyOnRomLoad);
-        if(opened) {
-            prepareCurrentFrameInputLocked();
-        }
         refreshSnapshotLocked();
         return opened;
     }
@@ -589,10 +586,9 @@ public:
     void reset() override
     {
         m_holdPresentedFramebufferUntilFrameReady.store(true, std::memory_order_release);
-        postCommand([this](GeraNESEmu& emu) {
+        postCommand([](GeraNESEmu& emu) {
             if(!emu.valid()) return;
             emu.reset();
-            prepareCurrentFrameInputLocked();
         });
     }
 
@@ -622,10 +618,9 @@ public:
     void loadState(uint8_t slot = 0) override
     {
         m_holdPresentedFramebufferUntilFrameReady.store(true, std::memory_order_release);
-        postCommand([this, slot](GeraNESEmu& emu) {
+        postCommand([slot](GeraNESEmu& emu) {
             if(!emu.valid()) return;
             emu.loadState(slot);
-            prepareCurrentFrameInputLocked();
         });
     }
 
