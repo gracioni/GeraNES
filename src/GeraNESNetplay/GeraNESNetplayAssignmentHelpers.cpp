@@ -22,8 +22,8 @@ void configureInputAssignments(NetplayAppRuntime& runtime,
             std::optional<ParticipantId> preservedParticipantId,
             PlayerSlot preservedSlot) {
             InputTopology inputTopology;
-            inputTopology.port1Device = port1Device;
-            inputTopology.port2Device = port2Device;
+            inputTopology.port1Device = port1Device.value_or(Settings::Device::NONE);
+            inputTopology.port2Device = port2Device.value_or(Settings::Device::NONE);
             inputTopology.expansionDevice = expansionDevice;
             inputTopology.nesMultitapDevice = nesMultitapDevice;
             inputTopology.famicomMultitapDevice = famicomMultitapDevice;

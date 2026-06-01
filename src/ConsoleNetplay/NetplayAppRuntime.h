@@ -316,6 +316,7 @@ NetplayAppRuntime::UiSnapshot buildNetplayUiSnapshot(
     const NetplayAutoTune::Snapshot& autoSettings,
     const NetplayAppRuntime::FramePacingDiagnostics& framePacingDiagnostics,
     const NetplayRuntimeDiagnostics& runtimeDiagnostics,
-    const std::string& sessionBlockedReason);
+    const std::string& sessionBlockedReason,
+    bool includeDebugLog);
 
 } // namespace ConsoleNetplay

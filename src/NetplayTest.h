@@ -326,8 +326,8 @@ private:
 
         return {
             {"frame", frame.frame},
-            {"port1Device", static_cast<int>(frame.state.topology.port1Device.value_or(Settings::Device::NONE))},
-            {"port2Device", static_cast<int>(frame.state.topology.port2Device.value_or(Settings::Device::NONE))},
+            {"port1Device", static_cast<int>(frame.state.topology.port1Device)},
+            {"port2Device", static_cast<int>(frame.state.topology.port2Device)},
             {"expansionDevice", static_cast<int>(frame.state.topology.expansionDevice)},
             {"nesMultitapDevice", static_cast<int>(frame.state.topology.nesMultitapDevice)},
             {"famicomMultitapDevice", static_cast<int>(frame.state.topology.famicomMultitapDevice)},

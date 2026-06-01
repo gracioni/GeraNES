@@ -2,13 +2,9 @@
 
 namespace
 {
-const char* replayPortDeviceLabel(const std::optional<Settings::Device>& device)
+const char* replayPortDeviceLabel(Settings::Device device)
 {
-    if(!device.has_value()) {
-        return "Unassigned";
-    }
-
-    switch(*device) {
+    switch(device) {
         case Settings::Device::CONTROLLER: return "Controller";
         case Settings::Device::ZAPPER: return "Zapper";
         case Settings::Device::ARKANOID_CONTROLLER: return "Arkanoid Controller";

@@ -422,15 +422,15 @@ inline void GeraNESApp::menuBar() {
             const bool netplayInputManaged = netplaySnapshot.inputManaged;
             const auto& localNetplayAssignments = netplaySnapshot.localAssignments;
             const bool canChangeNetplayManagedInput = !netplayInputManaged;
-            const auto effectivePort1Device = replayInputLocked
+            const Settings::Device effectivePort1Device = replayInputLocked
                 ? replayTopology.port1Device
                 : netplayInputManaged
-                ? netplaySnapshot.port1Device
+                ? netplaySnapshot.port1Device.value_or(Settings::Device::NONE)
                 : localInputTopology.port1Device;
-            const auto effectivePort2Device = replayInputLocked
+            const Settings::Device effectivePort2Device = replayInputLocked
                 ? replayTopology.port2Device
                 : netplayInputManaged
-                ? netplaySnapshot.port2Device
+                ? netplaySnapshot.port2Device.value_or(Settings::Device::NONE)
                 : localInputTopology.port2Device;
             const auto effectiveExpansionDevice = replayInputLocked
                 ? replayTopology.expansionDevice
@@ -482,13 +482,13 @@ inline void GeraNESApp::menuBar() {
                  applyMenuTopology,
                  topologyEditingEnabled](const char* label, Settings::Port port, Settings::Device device)
             {
-                const bool selected = effectivePortDeviceFor(port) == std::optional<Settings::Device>(device);
+                const bool selected = effectivePortDeviceFor(port) == device;
                 if(ImGui::MenuItem(label, nullptr, selected, topologyEditingEnabled)) {
                     InputTopology topology;
                     topology.port1Device =
-                        port == Settings::Port::P_1 ? std::optional<Settings::Device>(device) : effectivePortDeviceFor(Settings::Port::P_1);
+                        port == Settings::Port::P_1 ? device : effectivePortDeviceFor(Settings::Port::P_1);
                     topology.port2Device =
-                        port == Settings::Port::P_2 ? std::optional<Settings::Device>(device) : effectivePortDeviceFor(Settings::Port::P_2);
+                        port == Settings::Port::P_2 ? device : effectivePortDeviceFor(Settings::Port::P_2);
                     topology.expansionDevice = effectiveExpansionDevice;
                     topology.nesMultitapDevice = effectiveNesMultitapDevice;
                     topology.famicomMultitapDevice = effectiveFamicomMultitapDevice;
@@ -499,14 +499,14 @@ inline void GeraNESApp::menuBar() {
             auto drawControllerPortConfigItem = [this, &effectivePortDeviceFor](Settings::Port port, bool enabled)
             {
                 const auto device = effectivePortDeviceFor(port);
-                if(device != std::optional<Settings::Device>(Settings::Device::CONTROLLER) &&
-                   device != std::optional<Settings::Device>(Settings::Device::FAMICOM_CONTROLLER)) {
+                if(device != Settings::Device::CONTROLLER &&
+                   device != Settings::Device::FAMICOM_CONTROLLER) {
                     return;
                 }
 
                 ImGui::Separator();
                 if(ImGui::MenuItem("Config...", nullptr, false, enabled)) {
-                    const bool famicomController = device == std::optional<Settings::Device>(Settings::Device::FAMICOM_CONTROLLER);
+                    const bool famicomController = device == Settings::Device::FAMICOM_CONTROLLER;
                     if(port == Settings::Port::P_1) m_inputBindingConfigWindow.show(famicomController ? "Famicom Controller 1" : "Standard Controller 1", m_controller1);
                     else m_inputBindingConfigWindow.show(famicomController ? "Famicom Controller 2" : "Standard Controller 2", m_controller2);
                 }
@@ -514,7 +514,7 @@ inline void GeraNESApp::menuBar() {
 
             auto drawArkanoidPortConfigItem = [this, &effectivePortDeviceFor](Settings::Port port, bool enabled)
             {
-                if(effectivePortDeviceFor(port) != std::optional<Settings::Device>(Settings::Device::ARKANOID_CONTROLLER)) {
+                if(effectivePortDeviceFor(port) != Settings::Device::ARKANOID_CONTROLLER) {
                     return;
                 }
 
@@ -527,8 +527,8 @@ inline void GeraNESApp::menuBar() {
             auto drawSnesMousePortConfigItem = [this, &effectivePortDeviceFor](Settings::Port port, bool enabled)
             {
                 const auto device = effectivePortDeviceFor(port);
-                if(device != std::optional<Settings::Device>(Settings::Device::SNES_MOUSE) &&
-                   device != std::optional<Settings::Device>(Settings::Device::SUBOR_MOUSE)) {
+                if(device != Settings::Device::SNES_MOUSE &&
+                   device != Settings::Device::SUBOR_MOUSE) {
                     return;
                 }
 
@@ -541,8 +541,8 @@ inline void GeraNESApp::menuBar() {
             auto drawPowerPadPortConfigItem = [this, &effectivePortDeviceFor](Settings::Port port, bool enabled)
             {
                 const auto device = effectivePortDeviceFor(port);
-                if(device != std::optional<Settings::Device>(Settings::Device::POWER_PAD_SIDE_A) &&
-                   device != std::optional<Settings::Device>(Settings::Device::POWER_PAD_SIDE_B)) {
+                if(device != Settings::Device::POWER_PAD_SIDE_A &&
+                   device != Settings::Device::POWER_PAD_SIDE_B) {
                     return;
                 }
 
@@ -554,7 +554,7 @@ inline void GeraNESApp::menuBar() {
 
             auto drawSnesControllerPortConfigItem = [this, &effectivePortDeviceFor](Settings::Port port, bool enabled)
             {
-                if(effectivePortDeviceFor(port) != std::optional<Settings::Device>(Settings::Device::SNES_CONTROLLER)) {
+                if(effectivePortDeviceFor(port) != Settings::Device::SNES_CONTROLLER) {
                     return;
                 }
 
@@ -567,7 +567,7 @@ inline void GeraNESApp::menuBar() {
 
             auto drawVirtualBoyControllerPortConfigItem = [this, &effectivePortDeviceFor](Settings::Port port, bool enabled)
             {
-                if(effectivePortDeviceFor(port) != std::optional<Settings::Device>(Settings::Device::VIRTUAL_BOY_CONTROLLER)) {
+                if(effectivePortDeviceFor(port) != Settings::Device::VIRTUAL_BOY_CONTROLLER) {
                     return;
                 }
 

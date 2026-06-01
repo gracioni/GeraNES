@@ -1798,11 +1798,11 @@ void GeraNESApp::applyEffectiveRewindSettings()
     m_emu.setupRewindSystem(effectiveMaxRewindTime > 0, effectiveMaxRewindTime);
 }
 
-bool GeraNESApp::isTouchCompatibleControllerDevice(const std::optional<Settings::Device>& device)
+bool GeraNESApp::isTouchCompatibleControllerDevice(Settings::Device device)
 {
-    return device == std::optional<Settings::Device>(Settings::Device::CONTROLLER) ||
-           device == std::optional<Settings::Device>(Settings::Device::FAMICOM_CONTROLLER) ||
-           device == std::optional<Settings::Device>(Settings::Device::SNES_CONTROLLER);
+    return device == Settings::Device::CONTROLLER ||
+           device == Settings::Device::FAMICOM_CONTROLLER ||
+           device == Settings::Device::SNES_CONTROLLER;
 }
 
 const char* GeraNESApp::touchDeviceLabel(Settings::Device device)
@@ -2107,14 +2107,14 @@ std::tuple<int, int> GeraNESApp::getClampedNesCursor(int screenX, int screenY)
 
 bool GeraNESApp::isSnesMouseActive() const
 {
-    return m_inputTopology.port1Device == std::optional<Settings::Device>(Settings::Device::SNES_MOUSE) ||
-           m_inputTopology.port2Device == std::optional<Settings::Device>(Settings::Device::SNES_MOUSE);
+    return m_inputTopology.port1Device == Settings::Device::SNES_MOUSE ||
+           m_inputTopology.port2Device == Settings::Device::SNES_MOUSE;
 }
 
 bool GeraNESApp::isSuborMouseActive() const
 {
-    return m_inputTopology.port1Device == std::optional<Settings::Device>(Settings::Device::SUBOR_MOUSE) ||
-           m_inputTopology.port2Device == std::optional<Settings::Device>(Settings::Device::SUBOR_MOUSE);
+    return m_inputTopology.port1Device == Settings::Device::SUBOR_MOUSE ||
+           m_inputTopology.port2Device == Settings::Device::SUBOR_MOUSE;
 }
 
 bool GeraNESApp::isSuborKeyboardActive() const
@@ -2331,8 +2331,8 @@ IExpansionDevice::FamilyBasicKeyboardKeys GeraNESApp::captureFamilyBasicKeyboard
 
 bool GeraNESApp::isArkanoidActive() const
 {
-    return m_inputTopology.port1Device == std::optional<Settings::Device>(Settings::Device::ARKANOID_CONTROLLER) ||
-           m_inputTopology.port2Device == std::optional<Settings::Device>(Settings::Device::ARKANOID_CONTROLLER) ||
+    return m_inputTopology.port1Device == Settings::Device::ARKANOID_CONTROLLER ||
+           m_inputTopology.port2Device == Settings::Device::ARKANOID_CONTROLLER ||
            m_inputTopology.expansionDevice == Settings::ExpansionDevice::ARKANOID_CONTROLLER;
 }
 
@@ -4027,8 +4027,8 @@ void GeraNESApp::pollAndPrepareInput()
         InputTopology inputTopology = m_inputTopology;
         const auto netplayMenu = GeraNESNetplay::menuSnapshot(m_netplayRuntime);
         if(netplayMenu.inputManaged) {
-            inputTopology.port1Device = netplayMenu.port1Device;
-            inputTopology.port2Device = netplayMenu.port2Device;
+            inputTopology.port1Device = netplayMenu.port1Device.value_or(Settings::Device::NONE);
+            inputTopology.port2Device = netplayMenu.port2Device.value_or(Settings::Device::NONE);
             inputTopology.expansionDevice = netplayMenu.expansionDevice;
             inputTopology.nesMultitapDevice = netplayMenu.nesMultitapDevice;
             inputTopology.famicomMultitapDevice = netplayMenu.famicomMultitapDevice;
@@ -4115,8 +4115,8 @@ void GeraNESApp::pollAndPrepareInput()
         const bool konamiP1Jump = im.isPressed(m_konamiHyperShot.p1Jump);
         const bool konamiP2Run = im.isPressed(m_konamiHyperShot.p2Run);
         const bool konamiP2Jump = im.isPressed(m_konamiHyperShot.p2Jump);
-        const bool p1UsesVirtualBoyController = inputTopology.port1Device == std::optional<Settings::Device>(Settings::Device::VIRTUAL_BOY_CONTROLLER);
-        const bool p2UsesVirtualBoyController = inputTopology.port2Device == std::optional<Settings::Device>(Settings::Device::VIRTUAL_BOY_CONTROLLER);
+        const bool p1UsesVirtualBoyController = inputTopology.port1Device == Settings::Device::VIRTUAL_BOY_CONTROLLER;
+        const bool p2UsesVirtualBoyController = inputTopology.port2Device == Settings::Device::VIRTUAL_BOY_CONTROLLER;
         const bool p1PrimaryA = p1UsesVirtualBoyController ? im.isPressed(m_virtualBoyController1.a) : p1A;
         const bool p1PrimaryB = p1UsesVirtualBoyController ? im.isPressed(m_virtualBoyController1.b) : p1B;
         const bool p1PrimarySelect = p1UsesVirtualBoyController ? im.isPressed(m_virtualBoyController1.select) : p1Select;

@@ -8,12 +8,48 @@
 class Settings {
 
 public:
-    enum class Region { PAL, NTSC, DENDY };
-    enum class Device { CONTROLLER, ZAPPER, ARKANOID_CONTROLLER, BANDAI_HYPERSHOT, SNES_MOUSE, SNES_CONTROLLER, POWER_PAD_SIDE_A, POWER_PAD_SIDE_B, FAMICOM_CONTROLLER, SUBOR_MOUSE, NONE, VIRTUAL_BOY_CONTROLLER };
-    enum class ExpansionDevice { NONE, STANDARD_CONTROLLER_FAMICOM, BANDAI_HYPERSHOT, KONAMI_HYPERSHOT, ARKANOID_CONTROLLER, FAMILY_TRAINER_SIDE_A, FAMILY_TRAINER_SIDE_B, SUBOR_KEYBOARD, FAMILY_BASIC_KEYBOARD };
-    enum class NesMultitapDevice { NONE, FOUR_SCORE };
-    enum class FamicomMultitapDevice { NONE, HORI_ADAPTER };
-    enum class Port { P_1, P_2 };
+    enum class Region {
+        PAL = 0,
+        NTSC = 1,
+        DENDY = 2
+    };
+    enum class Device {
+        NONE = 0,
+        CONTROLLER = 1,
+        ZAPPER = 2,
+        ARKANOID_CONTROLLER = 3,
+        BANDAI_HYPERSHOT = 4,
+        SNES_MOUSE = 5,
+        SNES_CONTROLLER = 6,
+        POWER_PAD_SIDE_A = 7,
+        POWER_PAD_SIDE_B = 8,
+        FAMICOM_CONTROLLER = 9,
+        SUBOR_MOUSE = 10,
+        VIRTUAL_BOY_CONTROLLER = 11
+    };
+    enum class ExpansionDevice {
+        NONE = 0,
+        STANDARD_CONTROLLER_FAMICOM = 1,
+        BANDAI_HYPERSHOT = 2,
+        KONAMI_HYPERSHOT = 3,
+        ARKANOID_CONTROLLER = 4,
+        FAMILY_TRAINER_SIDE_A = 5,
+        FAMILY_TRAINER_SIDE_B = 6,
+        SUBOR_KEYBOARD = 7,
+        FAMILY_BASIC_KEYBOARD = 8
+    };
+    enum class NesMultitapDevice {
+        NONE = 0,
+        FOUR_SCORE = 1
+    };
+    enum class FamicomMultitapDevice {
+        NONE = 0,
+        HORI_ADAPTER = 1
+    };
+    enum class Port {
+        P_1 = 0,
+        P_2 = 1
+    };
 
 private:
 

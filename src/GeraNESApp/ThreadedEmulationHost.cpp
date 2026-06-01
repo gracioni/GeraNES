@@ -305,8 +305,8 @@ void ThreadedEmulationHost::refreshSnapshotLocked()
             ? m_emu.getConsole().cartridge().system()
             : GameDatabase::System::Unknown;
     InputTopology inputTopology;
-    inputTopology.port1Device = m_emu.getPortDevice(Settings::Port::P_1);
-    inputTopology.port2Device = m_emu.getPortDevice(Settings::Port::P_2);
+    inputTopology.port1Device = m_emu.getPortDevice(Settings::Port::P_1).value_or(Settings::Device::NONE);
+    inputTopology.port2Device = m_emu.getPortDevice(Settings::Port::P_2).value_or(Settings::Device::NONE);
     inputTopology.expansionDevice = m_emu.getExpansionDevice();
     inputTopology.nesMultitapDevice = m_emu.getNesMultitapDevice();
     inputTopology.famicomMultitapDevice = m_emu.getFamicomMultitapDevice();

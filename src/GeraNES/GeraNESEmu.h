@@ -528,8 +528,8 @@ private:
     {
         InputFrame inputFrame;
         inputFrame.frame = frame;
-        inputFrame.state.topology.port1Device = m_settings.getPortDevice(Settings::Port::P_1);
-        inputFrame.state.topology.port2Device = m_settings.getPortDevice(Settings::Port::P_2);
+        inputFrame.state.topology.port1Device = m_settings.getPortDevice(Settings::Port::P_1).value_or(Settings::Device::NONE);
+        inputFrame.state.topology.port2Device = m_settings.getPortDevice(Settings::Port::P_2).value_or(Settings::Device::NONE);
         inputFrame.state.topology.expansionDevice = m_settings.getExpansionDevice();
         inputFrame.state.topology.nesMultitapDevice = m_settings.getNesMultitapDevice();
         inputFrame.state.topology.famicomMultitapDevice = m_settings.getFamicomMultitapDevice();
@@ -539,8 +539,8 @@ private:
     void applyInputFrame(const InputFrame& inputFrame)
     {
         const InputTopology& topology = inputFrame.state.topology;
-        const Settings::Device port1Device = topology.port1Device.value_or(Settings::Device::NONE);
-        const Settings::Device port2Device = topology.port2Device.value_or(Settings::Device::NONE);
+        const Settings::Device port1Device = topology.port1Device;
+        const Settings::Device port2Device = topology.port2Device;
         const Settings::ExpansionDevice expansionDevice = topology.expansionDevice;
         const Settings::NesMultitapDevice nesMultitapDevice = topology.nesMultitapDevice;
         const Settings::FamicomMultitapDevice famicomMultitapDevice = topology.famicomMultitapDevice;
@@ -663,8 +663,8 @@ private:
         const bool familyTrainer =
             m_settings.getExpansionDevice() == Settings::ExpansionDevice::FAMILY_TRAINER_SIDE_A ||
             m_settings.getExpansionDevice() == Settings::ExpansionDevice::FAMILY_TRAINER_SIDE_B;
-        if((p1Device == std::optional<Settings::Device>(Settings::Device::POWER_PAD_SIDE_A) || p1Device == std::optional<Settings::Device>(Settings::Device::POWER_PAD_SIDE_B)) && m_portDevice1) m_portDevice1->setPowerPadButtons(inputFrame.state.powerPadButtons(1));
-        if((p2Device == std::optional<Settings::Device>(Settings::Device::POWER_PAD_SIDE_A) || p2Device == std::optional<Settings::Device>(Settings::Device::POWER_PAD_SIDE_B)) && m_portDevice2) m_portDevice2->setPowerPadButtons(inputFrame.state.powerPadButtons(2));
+        if((p1Device == Settings::Device::POWER_PAD_SIDE_A || p1Device == Settings::Device::POWER_PAD_SIDE_B) && m_portDevice1) m_portDevice1->setPowerPadButtons(inputFrame.state.powerPadButtons(1));
+        if((p2Device == Settings::Device::POWER_PAD_SIDE_A || p2Device == Settings::Device::POWER_PAD_SIDE_B) && m_portDevice2) m_portDevice2->setPowerPadButtons(inputFrame.state.powerPadButtons(2));
         if(familyTrainer && m_expansionDevice) m_expansionDevice->setPowerPadButtons(inputFrame.state.powerPadButtons(1));
     }
 

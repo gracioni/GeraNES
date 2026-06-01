@@ -343,8 +343,8 @@ std::vector<uint8_t> makeAdapterFramePayload(const InputFrame& inputFrame)
     PacketWriter writer;
     writer.writePod(kAdapterFramePayloadVersion);
     const InputTopology inputTopology = frameInputTopology(inputFrame);
-    writer.writePod(static_cast<uint8_t>(inputTopology.port1Device.value_or(Settings::Device::NONE)));
-    writer.writePod(static_cast<uint8_t>(inputTopology.port2Device.value_or(Settings::Device::NONE)));
+    writer.writePod(static_cast<uint8_t>(inputTopology.port1Device));
+    writer.writePod(static_cast<uint8_t>(inputTopology.port2Device));
     writer.writePod(static_cast<uint8_t>(inputTopology.expansionDevice));
     writer.writePod(static_cast<uint8_t>(inputTopology.nesMultitapDevice));
     writer.writePod(static_cast<uint8_t>(inputTopology.famicomMultitapDevice));
@@ -522,8 +522,8 @@ std::vector<uint8_t> makeSlotPayload(const InputFrame& inputFrame, PlayerSlot sl
     };
 
     const InputTopology& topology = inputFrame.state.topology;
-    const Settings::Device port1Device = topology.port1Device.value_or(Settings::Device::NONE);
-    const Settings::Device port2Device = topology.port2Device.value_or(Settings::Device::NONE);
+    const Settings::Device port1Device = topology.port1Device;
+    const Settings::Device port2Device = topology.port2Device;
     const Settings::ExpansionDevice expansionDevice = topology.expansionDevice;
     switch(slot) {
         case kPort1PlayerSlot:
@@ -622,8 +622,8 @@ bool isControllerLike(Settings::Device device)
 bool slotNeedsAdapterPayload(const InputFrame& inputFrame, PlayerSlot slot)
 {
     const InputTopology& topology = inputFrame.state.topology;
-    const Settings::Device port1Device = topology.port1Device.value_or(Settings::Device::NONE);
-    const Settings::Device port2Device = topology.port2Device.value_or(Settings::Device::NONE);
+    const Settings::Device port1Device = topology.port1Device;
+    const Settings::Device port2Device = topology.port2Device;
     const Settings::ExpansionDevice expansionDevice = topology.expansionDevice;
     switch(slot) {
         case kPort1PlayerSlot:
@@ -689,12 +689,12 @@ bool applySlotPayload(InputFrame& frame,
         case AdapterSlotPayloadKind::Mouse:
             if(!reader.readPod(x) || !reader.readPod(y) || !reader.readPod(flags)) return false;
             if(slot == kPort1PlayerSlot &&
-               adapterPayload.inputTopology.port1Device == std::optional<Settings::Device>(Settings::Device::SUBOR_MOUSE)) {
+               adapterPayload.inputTopology.port1Device == Settings::Device::SUBOR_MOUSE) {
                 frame.state.setSuborMouse(1, {x, y, (flags & 1u) != 0, (flags & 2u) != 0});
             } else if(slot == kPort1PlayerSlot) {
                 frame.state.setSnesMouse(1, {x, y, (flags & 1u) != 0, (flags & 2u) != 0});
             } else if(slot == kPort2PlayerSlot &&
-                      adapterPayload.inputTopology.port2Device == std::optional<Settings::Device>(Settings::Device::SUBOR_MOUSE)) {
+                      adapterPayload.inputTopology.port2Device == Settings::Device::SUBOR_MOUSE) {
                 frame.state.setSuborMouse(2, {x, y, (flags & 1u) != 0, (flags & 2u) != 0});
             } else if(slot == kPort2PlayerSlot) {
                 frame.state.setSnesMouse(2, {x, y, (flags & 1u) != 0, (flags & 2u) != 0});
@@ -828,7 +828,7 @@ InputFrame toGeraNESInputFrame(const NetplayInputFrame& inputFrame)
         applyMask(frame, kPort2PlayerSlot, inputFrame.buttonMaskLo[kPort2PlayerSlot]);
         applyMask(frame, kExpansionPlayerSlot, inputFrame.buttonMaskLo[kExpansionPlayerSlot]);
     }
-    if(adapterPayload.inputTopology.port2Device == std::optional<Settings::Device>(Settings::Device::BANDAI_HYPERSHOT)) {
+    if(adapterPayload.inputTopology.port2Device == Settings::Device::BANDAI_HYPERSHOT) {
         applyBandaiPadMask(frame, inputFrame.buttonMaskLo[kPort2PlayerSlot]);
     }
     for(PlayerSlot slot : kAllGeraNESPlayerSlots) {
@@ -864,7 +864,7 @@ InputFrame buildAssignedContribution(PlayerSlot slot,
     InputFrame contribution = makeContributionBase(baseFrame);
     switch(slot) {
         case kPort1PlayerSlot: {
-            const Settings::Device device = baseFrame.state.topology.port1Device.value_or(Settings::Device::NONE);
+            const Settings::Device device = baseFrame.state.topology.port1Device;
             if(device == Settings::Device::CONTROLLER ||
                device == Settings::Device::FAMICOM_CONTROLLER ||
                device == Settings::Device::SNES_CONTROLLER ||
@@ -890,7 +890,7 @@ InputFrame buildAssignedContribution(PlayerSlot slot,
             break;
         }
         case kPort2PlayerSlot: {
-            const Settings::Device device = baseFrame.state.topology.port2Device.value_or(Settings::Device::NONE);
+            const Settings::Device device = baseFrame.state.topology.port2Device;
             if(device == Settings::Device::CONTROLLER ||
                device == Settings::Device::FAMICOM_CONTROLLER ||
                device == Settings::Device::SNES_CONTROLLER ||
@@ -966,7 +966,7 @@ void applyAssignedContribution(InputFrame& target, PlayerSlot slot, const InputF
 {
     switch(slot) {
         case kPort1PlayerSlot: {
-            const Settings::Device device = target.state.topology.port1Device.value_or(Settings::Device::NONE);
+            const Settings::Device device = target.state.topology.port1Device;
             if(device == Settings::Device::CONTROLLER ||
                device == Settings::Device::FAMICOM_CONTROLLER ||
                device == Settings::Device::SNES_CONTROLLER ||
@@ -987,7 +987,7 @@ void applyAssignedContribution(InputFrame& target, PlayerSlot slot, const InputF
             break;
         }
         case kPort2PlayerSlot: {
-            const Settings::Device device = target.state.topology.port2Device.value_or(Settings::Device::NONE);
+            const Settings::Device device = target.state.topology.port2Device;
             if(device == Settings::Device::CONTROLLER ||
                device == Settings::Device::FAMICOM_CONTROLLER ||
                device == Settings::Device::SNES_CONTROLLER ||

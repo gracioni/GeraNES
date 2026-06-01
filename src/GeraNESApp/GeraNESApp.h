@@ -502,7 +502,7 @@ private:
     void resetShowOriginalGraphicsInsteadOfModFramebuffer();
     bool shouldSuppressRewindForNetplay() const;
     void applyEffectiveRewindSettings();
-    static bool isTouchCompatibleControllerDevice(const std::optional<Settings::Device>& device);
+    static bool isTouchCompatibleControllerDevice(Settings::Device device);
     static const char* touchDeviceLabel(Settings::Device device);
     static bool isTouchCompatibleExpansionDevice(Settings::ExpansionDevice device);
     static std::string touchTargetMenuLabel(AppSettings::TouchControlsTarget target);

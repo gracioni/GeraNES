@@ -69,12 +69,12 @@ struct InputState
 
     Settings::Device portDevice(int port) const
     {
-        if(port == 1) return topology.port1Device.value_or(Settings::Device::NONE);
-        if(port == 2) return topology.port2Device.value_or(Settings::Device::NONE);
+        if(port == 1) return topology.port1Device;
+        if(port == 2) return topology.port2Device;
         return Settings::Device::NONE;
     }
 
-    void setPortDevice(int port, std::optional<Settings::Device> device)
+    void setPortDevice(int port, Settings::Device device)
     {
         if(port == 1) topology.port1Device = device;
         else if(port == 2) topology.port2Device = device;

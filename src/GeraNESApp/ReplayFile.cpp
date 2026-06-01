@@ -9,8 +9,6 @@ namespace
 constexpr char kReplayMagic[] = "GERANES REPLAY";
 constexpr uint32_t kReplayBinaryVersion = 2u;
 constexpr uint32_t kReplayBinaryVersionLegacyBootstrap = 1u;
-constexpr uint8_t kMissingPortDevice = 0xFFu;
-
 class ByteReader
 {
 private:
@@ -139,23 +137,10 @@ bool appendBytes(std::vector<uint8_t>& bytes, const std::vector<uint8_t>& payloa
     return true;
 }
 
-std::optional<Settings::Device> portDeviceFromByte(uint8_t value)
-{
-    if(value == kMissingPortDevice) {
-        return std::nullopt;
-    }
-    return static_cast<Settings::Device>(value);
-}
-
-uint8_t portDeviceToByte(const std::optional<Settings::Device>& value)
-{
-    return value.has_value() ? static_cast<uint8_t>(*value) : kMissingPortDevice;
-}
-
 void appendTopologyBytes(std::vector<uint8_t>& bytes, const InputTopology& topology)
 {
-    appendU8(bytes, portDeviceToByte(topology.port1Device));
-    appendU8(bytes, portDeviceToByte(topology.port2Device));
+    appendU8(bytes, static_cast<uint8_t>(topology.port1Device));
+    appendU8(bytes, static_cast<uint8_t>(topology.port2Device));
     appendU8(bytes, static_cast<uint8_t>(topology.expansionDevice));
     appendU8(bytes, static_cast<uint8_t>(topology.nesMultitapDevice));
     appendU8(bytes, static_cast<uint8_t>(topology.famicomMultitapDevice));
@@ -175,8 +160,8 @@ bool readTopologyBytes(ByteReader& reader, InputTopology& topology)
        !reader.readU8(famicomMultitapDevice)) {
         return false;
     }
-    topology.port1Device = portDeviceFromByte(port1Device);
-    topology.port2Device = portDeviceFromByte(port2Device);
+    topology.port1Device = static_cast<Settings::Device>(port1Device);
+    topology.port2Device = static_cast<Settings::Device>(port2Device);
     topology.expansionDevice = static_cast<Settings::ExpansionDevice>(expansionDevice);
     topology.nesMultitapDevice = static_cast<Settings::NesMultitapDevice>(nesMultitapDevice);
     topology.famicomMultitapDevice = static_cast<Settings::FamicomMultitapDevice>(famicomMultitapDevice);

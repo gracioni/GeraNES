@@ -138,8 +138,8 @@ private:
         uint32_t regionFps = 60;
         Settings::Region region = Settings::Region::NTSC;
         GameDatabase::System cartridgeSystem = GameDatabase::System::Unknown;
-        std::optional<Settings::Device> port1Device = Settings::Device::CONTROLLER;
-        std::optional<Settings::Device> port2Device = Settings::Device::CONTROLLER;
+        Settings::Device port1Device = Settings::Device::CONTROLLER;
+        Settings::Device port2Device = Settings::Device::CONTROLLER;
         Settings::ExpansionDevice expansionDevice = Settings::ExpansionDevice::NONE;
         Settings::NesMultitapDevice nesMultitapDevice = Settings::NesMultitapDevice::NONE;
         Settings::FamicomMultitapDevice famicomMultitapDevice = Settings::FamicomMultitapDevice::NONE;
@@ -499,8 +499,8 @@ public:
     InputTopologySnapshot getInputTopologySnapshot() const override
     {
         InputTopologySnapshot snapshot;
-        snapshot.port1Device = m_emu.getPortDevice(Settings::Port::P_1);
-        snapshot.port2Device = m_emu.getPortDevice(Settings::Port::P_2);
+        snapshot.port1Device = m_emu.getPortDevice(Settings::Port::P_1).value_or(Settings::Device::NONE);
+        snapshot.port2Device = m_emu.getPortDevice(Settings::Port::P_2).value_or(Settings::Device::NONE);
         snapshot.expansionDevice = m_emu.getExpansionDevice();
         snapshot.nesMultitapDevice = m_emu.getNesMultitapDevice();
         snapshot.famicomMultitapDevice = m_emu.getFamicomMultitapDevice();
