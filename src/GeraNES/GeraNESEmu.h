@@ -42,7 +42,6 @@
 #include <filesystem>
 #include <array>
 #include <memory>
-#include <optional>
 #include <string>
 #include <utility>
 
@@ -167,7 +166,6 @@ private:
     uint16_t m_prevControllerReadAddr;
 
     uint32_t m_frameCounter;
-    uint32_t m_nextFrameCounter;
     HardwareActions m_hardwareActions;
 
     bool m_runningLoop;
@@ -197,7 +195,7 @@ private:
     std::optional<uint32_t> m_lastAudiblyRenderedPlaybackFrame;
     bool m_currentPlaybackFrameRenderedAudibly = false;
 
-    std::optional<InputFrame> m_currentInputFrame;
+    InputFrame m_currentInputFrame;
 
     Rewind m_rewind;
     NsfPlayer m_nsfPlayer;
@@ -1009,9 +1007,6 @@ private:
     }    
 
     void onFrameStart() {
-
-        m_frameCounter = m_nextFrameCounter;
-
         m_4011WriteCounter = 0;
         m_ppuRegisterAccessEvents.clear();
         m_cartridge.applyExternalActions(
@@ -1023,25 +1018,16 @@ private:
         m_nsfPlayer.onFrameStart();
         updateCyclesPerSecond();        
         
-        if(m_currentInputFrame.has_value() && m_currentInputFrame->frame == m_frameCounter) {
-            applyInputFrame(*m_currentInputFrame);
-            signalInputFrameSelected(*m_currentInputFrame);
-        }
-        else {
-            const std::string currentInputFrameText =
-                m_currentInputFrame.has_value() ? std::to_string(m_currentInputFrame->frame) : "none";
-            onError(
-                "Current input frame does not match the frame counter at the start of the frame. "
-                "Current input frame: " + currentInputFrameText +
-                ", expected frame: " + std::to_string(m_frameCounter) + "."
-            );
+        if(m_currentInputFrame.frame == m_frameCounter) {
+            applyInputFrame(m_currentInputFrame);
+            signalInputFrameSelected(m_currentInputFrame);
         }
 
         
     }    
 
     void onFrameReady() {
-        ++m_nextFrameCounter;
+        ++m_frameCounter;
     }
 
     void onPPUScanlineStart()
@@ -1366,7 +1352,7 @@ private:
                                           bool renderAudio)
     {
         const uint32_t playbackFrame = m_frameCounter;
-        if(!m_currentInputFrame.has_value() || m_currentInputFrame->frame != playbackFrame) {
+        if(m_currentInputFrame.frame != playbackFrame) {
             return false;
         }
         const bool playbackFrameAlreadyRenderedAudibly =
@@ -1643,8 +1629,7 @@ public:
         m_currentPlaybackFrameRenderedAudibly = false;
 
         m_frameCounter = 0;
-        m_nextFrameCounter = 0;
-        m_currentInputFrame.reset();
+        m_currentInputFrame = makeDefaultInputFrame(0);
 
         m_saveStateFlag = false;
         m_loadStateFlag = false;
@@ -1867,7 +1852,7 @@ public:
 
             updateCyclesPerSecond();
 
-            m_currentInputFrame.reset();
+            m_currentInputFrame = makeDefaultInputFrame(0);
 
             m_ppu.setVsPpuModel(m_cartridge.vsPpuModel());
             m_cartridge.reset();
@@ -2110,13 +2095,18 @@ public:
 
     std::vector<uint8_t> saveStateToMemory()
     {
-        const std::optional<InputFrame> savedCurrentInputFrame = m_currentInputFrame;
+        const InputFrame savedCurrentInputFrame = m_currentInputFrame;
         const bool savedNewFrame = m_newFrame;
         const bool savedFrameStarted = m_frameStarted;
         const bool savedRunningLoop = m_runningLoop;
         const HardwareActions savedHardwareActions = m_hardwareActions;
         const uint32_t savedUpdateCyclesAcc = m_updateCyclesAcc;
         const uint32_t savedAudioRenderCyclesAcc = m_audioRenderCyclesAcc;
+        InputFrame serializedPlaybackInput = m_currentInputFrame;
+        if(serializedPlaybackInput.frame != m_frameCounter) {
+            serializedPlaybackInput = InputFrame::repeatedFrom(serializedPlaybackInput, m_frameCounter);
+        }
+        m_currentInputFrame = serializedPlaybackInput;
         m_newFrame = false;
         m_frameStarted = false;
         m_runningLoop = false;
@@ -2389,23 +2379,7 @@ public:
         SERIALIZEDATA(s, m_newFrame);
         SERIALIZEDATA(s, m_frameStarted);
         SERIALIZEDATA(s, m_frameCounter);
-        SERIALIZEDATA(s, m_nextFrameCounter);
-        bool hasCurrentInputFrame = m_currentInputFrame.has_value();
-        SERIALIZEDATA(s, hasCurrentInputFrame);
-        if(auto* deserialize = dynamic_cast<Deserialize*>(&s); deserialize != nullptr) {
-            if(hasCurrentInputFrame) {
-                if(!m_currentInputFrame.has_value()) {
-                    m_currentInputFrame.emplace();
-                }
-                m_currentInputFrame->serialization(s);
-            }
-            else {
-                m_currentInputFrame.reset();
-            }
-        }
-        else if(hasCurrentInputFrame) {
-            m_currentInputFrame->serialization(s);
-        }
+        m_currentInputFrame.serialization(s);
         m_hardwareActions.serialization(s);
 
         SERIALIZEDATA(s, m_runningLoop);
@@ -2422,13 +2396,13 @@ public:
             return false;
         }
         m_currentInputFrame = inputFrame;
-        m_currentInputFrame->frame = m_frameCounter;
+        m_currentInputFrame.frame = m_frameCounter;
         return true;
     }
 
     bool hasPlaybackInputFrame(uint32_t frame) const
     {
-        return m_currentInputFrame.has_value() && m_currentInputFrame->frame == frame;
+        return m_currentInputFrame.frame == frame;
     }
 
     void setForceSkipAudioRender(bool skip)
