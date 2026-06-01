@@ -1578,12 +1578,15 @@ bool GeraNESApp::seekReplayToFrame(uint32_t frame)
     stopReplayPlayback(false);
     const auto replayState = m_replayManager.snapshot();
     m_emu.setSimulationSuspended(true);
+    m_emu.withExclusiveAccess([](auto&) {});
     m_replaySeekInProgress = true;
     const uint32_t targetFrame = m_replayManager.clampedFrame(frame);
     const auto replayTopology = m_replayManager.inputTopology();
     applyReplayInputTopology(replayTopology);
 
-    const uint32_t currentFrame = m_emu.frameCount();
+    const uint32_t currentFrame = m_emu.withExclusiveAccess([](const auto& emu) {
+        return emu.frameCount();
+    });
     const auto snapshotBase = m_replayManager.runtimeSnapshotAtOrBefore(targetFrame);
     bool canResumeFromCurrentState =
         replayState.loadedReplayActive &&

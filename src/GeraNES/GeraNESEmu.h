@@ -2379,6 +2379,7 @@ public:
         SERIALIZEDATA(s, m_newFrame);
         SERIALIZEDATA(s, m_frameStarted);
         SERIALIZEDATA(s, m_frameCounter);
+        m_currentInputFrame.serialization(s);
         m_hardwareActions.serialization(s);
 
         SERIALIZEDATA(s, m_runningLoop);

@@ -788,7 +788,14 @@ public:
                                   ReplaySnapshotObserver snapshotObserver = {}) override
     {
         if(expectedCurrentStateCrc32.has_value()) {
-            const std::vector<uint8_t> currentState = m_emu.saveStateToMemory();
+            std::vector<uint8_t> currentState;
+            {
+                std::scoped_lock emuLock(m_emuMutex);
+                if(!m_emu.valid()) {
+                    return false;
+                }
+                currentState = m_emu.saveStateToMemory();
+            }
             const uint32_t currentStateCrc32 =
                 currentState.empty()
                     ? 0u
