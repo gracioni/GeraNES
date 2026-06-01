@@ -138,7 +138,7 @@ public:
     virtual float getAudioVolume() const = 0;
     virtual std::string getAudioChannelsJson() const = 0;
     virtual void setAudioPlaybackSpeed(double speed) = 0;
-    virtual void setForceSilentAudio(bool silent) = 0;
+    virtual void setForceSkipAudioRender(bool skip) = 0;
     virtual void configAudioDevice(const std::string& deviceName) = 0;
     virtual void configAudioDevice(const std::string& deviceName, int sampleRate, int sampleSize) = 0;
     virtual void restartAudio() = 0;

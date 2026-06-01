@@ -329,10 +329,10 @@ public:
         m_audioOutput.clearAudioBuffers();
     }
 
-    void setForceSilentAudio(bool silent) override
+    void setForceSkipAudioRender(bool skip) override
     {
-        m_emu.setForceSilentAudio(silent);
-        if(silent) {
+        m_emu.setForceSkipAudioRender(skip);
+        if(skip) {
             m_audioOutput.discardQueuedAudio();
             m_audioOutput.clearAudioBuffers();
         }

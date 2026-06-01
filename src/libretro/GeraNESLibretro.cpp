@@ -222,12 +222,12 @@ public:
         AudioOutputBase::clearBuffers();
     }
 
-    void render(uint32_t dt, bool silenceFlag) override
+    void render(uint32_t dt) override
     {
         m_sampleAccumulator += dt * kSampleRate;
 
         while(m_sampleAccumulator >= 1000) {
-            const float mixed = silenceFlag ? 0.0f : mixMono();
+            const float mixed = mixMono();
             const float scaled = mixed * 32767.0f;
             int sample = static_cast<int>(scaled);
 

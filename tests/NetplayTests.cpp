@@ -137,16 +137,14 @@ class RecordingAudioOutput : public IAudioOutput
 {
 public:
     uint32_t renderCalls = 0;
-    uint32_t silentRenderCalls = 0;
     uint32_t audibleRenderCalls = 0;
     uint32_t clearAudioBuffersCalls = 0;
     uint32_t discardQueuedAudioCalls = 0;
 
-    void render(uint32_t, bool silenceFlag) override
+    void render(uint32_t) override
     {
         ++renderCalls;
-        if(silenceFlag) ++silentRenderCalls;
-        else ++audibleRenderCalls;
+        ++audibleRenderCalls;
     }
 
     void clearAudioBuffers() override
@@ -175,11 +173,11 @@ public:
         return true;
     }
 
-    void render(uint32_t dt, bool silenceFlag) override
+    void render(uint32_t dt) override
     {
         m_sampleAcc += static_cast<uint64_t>(dt) * static_cast<uint64_t>(outputSampleRate());
         while(m_sampleAcc >= 1000u) {
-            const float sample = silenceFlag ? 0.0f : mixMono();
+            const float sample = mixMono();
             captureMixedSample(sample);
             m_committedSamples.push_back(sample);
             m_sampleAcc -= 1000u;

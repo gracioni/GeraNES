@@ -191,7 +191,7 @@ private:
     uint8_t m_pendingLoadStateSlot = 0;
     bool m_resetRequested;
 
-    bool m_forceSilentAudio = false;
+    bool m_forceSkipAudioRender = false;
     std::optional<uint32_t> m_lastAudiblyRenderedPlaybackFrame;
     bool m_currentPlaybackFrameRenderedAudibly = false;
 
@@ -407,16 +407,16 @@ private:
 
         
 
-        const bool silentAudio = m_forceSilentAudio || !renderAudio;
+        const bool skipAudioRender = m_forceSkipAudioRender || !renderAudio;
 
         while(loop)
         {
             bool advanced = false;
             if constexpr(waitForNewFrame) {
-                advanced = stepEmulationTick<false>(audioRenderCycles, renderedAudioMs, newFrame, silentAudio);
+                advanced = stepEmulationTick<false>(audioRenderCycles, renderedAudioMs, newFrame, skipAudioRender);
             }
             else {
-                advanced = stepEmulationTick<true>(audioRenderCycles, renderedAudioMs, newFrame, silentAudio);
+                advanced = stepEmulationTick<true>(audioRenderCycles, renderedAudioMs, newFrame, skipAudioRender);
             }
             if(!advanced) break;
 
@@ -1176,7 +1176,7 @@ private:
         m_pendingNsfNextSong = false;
         m_pendingNsfPrevSong = false;
         m_applyingPendingNsfActions = false;
-        m_forceSilentAudio = false;
+        m_forceSkipAudioRender = false;
         m_audioOutputRewinding = m_rewind.isRewinding();
         m_currentPlaybackFrameRenderedAudibly = false;
         ++m_ppuViewerMapperWriteGeneration;
@@ -1328,32 +1328,28 @@ private:
         }
     }
 
-    GERANES_INLINE bool renderAudioMs(uint32_t ms, bool skipRender = false, bool forceSilence = false)
+    GERANES_INLINE bool renderAudioMs(uint32_t ms, bool skipRender = false)
     {
         if(ms == 0) return false;
-        if(skipRender) {
-            // Silent catch-up/resimulation must not touch the live output device.
-            // Drop only the transient generated sample buffers.
-            m_audioOutput.clearAudioBuffers();
+        const bool rewinding = m_rewind.isRewinding();
+        const bool enableAudio = m_rewind.rewindLimit();
+        if(skipRender || !enableAudio || m_nsfPlayer.forceMute()) {
             return false;
         }
 
-        const bool rewinding = m_rewind.isRewinding();
         if(m_audioOutputRewinding != rewinding) {
             m_audioOutput.setRewinding(rewinding);
             m_audioOutputRewinding = rewinding;
         }
-        bool enableAudio = m_rewind.rewindLimit();
-        const bool silentRender = forceSilence || !enableAudio || m_nsfPlayer.forceMute();
-        m_audioOutput.render(ms, silentRender);
-        return !silentRender;
+        m_audioOutput.render(ms);
+        return true;
     }
 
     template<bool consumeUpdateBudget>
     GERANES_INLINE bool stepEmulationTick(uint32_t audioRenderCycles,
                                           uint32_t& renderedAudioMs,
                                           bool& frameReady,
-                                          bool silentAudio)
+                                          bool renderAudio)
     {
         const uint32_t playbackFrame = m_frameCounter;
         if(m_currentInputFrame.frame != playbackFrame) {
@@ -1363,7 +1359,7 @@ private:
             m_lastAudiblyRenderedPlaybackFrame.has_value() &&
             playbackFrame <= *m_lastAudiblyRenderedPlaybackFrame;
         const bool tickSkipAudioRender =
-            silentAudio || playbackFrameAlreadyRenderedAudibly;
+            renderAudio || playbackFrameAlreadyRenderedAudibly;
         const bool nmiBefore = m_ppu.nmiLineActive();
         const bool irqBefore = m_apu.getInterruptFlag() || m_cartridge.getInterruptFlag();
         const bool sprite0Before = m_ppu.sprite0Hit();
@@ -2399,14 +2395,9 @@ public:
         return m_currentInputFrame.frame == frame;
     }
 
-    void setForceSilentAudio(bool silent)
+    void setForceSkipAudioRender(bool skip)
     {
-        m_forceSilentAudio = silent;
-    }
-
-    bool forceSilentAudio() const
-    {
-        return m_forceSilentAudio;
+        m_forceSkipAudioRender = skip;
     }
 
     void fdsSwitchDiskSide()

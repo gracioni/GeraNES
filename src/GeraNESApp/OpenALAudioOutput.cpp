@@ -176,7 +176,7 @@ bool OpenALAudioOutput::init()
     return true;
 }
 
-void OpenALAudioOutput::render(uint32_t dt, bool silenceFlag)
+void OpenALAudioOutput::render(uint32_t dt)
 {
     if(!m_device)
     {
@@ -190,11 +190,11 @@ void OpenALAudioOutput::render(uint32_t dt, bool silenceFlag)
     while(sampleAcc >= 1000.0)
     {
         if(m_outputChannels <= 1) {
-            const float mono = (silenceFlag ? 0.0f : mixMono()) * vol;
+            const float mono = mixMono() * vol;
             captureMixedSample(mono);
             m_bufferData.push_back(static_cast<ALshort>(mono * 32767.0f));
         } else {
-            const StereoSample mixedFrame = silenceFlag ? StereoSample{} : mixFrame();
+            const StereoSample mixedFrame = mixFrame();
             const float left = mixedFrame.left * vol;
             const float right = mixedFrame.right * vol;
             captureMixedSample((left + right) * 0.5f);

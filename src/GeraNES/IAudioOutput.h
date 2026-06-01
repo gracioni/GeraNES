@@ -39,7 +39,7 @@ class IAudioOutput
     };
 
     virtual bool init(){return true;}
-    virtual void render(uint32_t /*dt*/, bool /*silenceFlag*/){}
+    virtual void render(uint32_t /*dt*/){}
 
     virtual void setChannelVolume(Channel, float) {}
     virtual void setChannelFrequency(Channel, float) {}

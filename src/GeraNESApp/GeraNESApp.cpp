@@ -4957,7 +4957,7 @@ void GeraNESApp::mainLoop()
                 ? 1.0
                 : emulationSpeedMultiplier(effectiveSpeed));
         updateRuntimeVSyncSuppression(effectiveSpeed);
-        m_emu.setForceSilentAudio(emulationSpeedIsMax(effectiveSpeed));
+        m_emu.setForceSkipAudioRender(emulationSpeedIsMax(effectiveSpeed));
         m_lastEffectiveEmulationSpeed = effectiveSpeed;
     }
     const bool maxSpeedActive = emulationSpeedIsMax(effectiveSpeed);

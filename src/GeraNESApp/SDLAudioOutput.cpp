@@ -237,7 +237,7 @@ bool SDLAudioOutput::init()
     return true;
 }
 
-void SDLAudioOutput::render(uint32_t dt, bool silenceFlag)
+void SDLAudioOutput::render(uint32_t dt)
 {
     if(m_device == 0){
         turnOff();
@@ -269,11 +269,11 @@ void SDLAudioOutput::render(uint32_t dt, bool silenceFlag)
         };
 
         if(outputChannels <= 1) {
-            const float mono = (silenceFlag ? 0.0f : mixMono()) * vol;
+            const float mono = mixMono() * vol;
             captureMixedSample(mono);
             appendSample(mono);
         } else {
-            const StereoSample mixedFrame = silenceFlag ? StereoSample{} : mixFrame();
+            const StereoSample mixedFrame = mixFrame();
             const float left = mixedFrame.left * vol;
             const float right = mixedFrame.right * vol;
             captureMixedSample((left + right) * 0.5f);

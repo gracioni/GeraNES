@@ -419,11 +419,11 @@ public:
         });
     }
 
-    void setForceSilentAudio(bool silent) override
+    void setForceSkipAudioRender(bool skip) override
     {
-        postCommand([silent, this](GeraNESEmu& emu) {
-            emu.setForceSilentAudio(silent);
-            if(silent) {
+        postCommand([skip, this](GeraNESEmu& emu) {
+            emu.setForceSkipAudioRender(skip);
+            if(skip) {
                 m_audioOutput.discardQueuedAudio();
                 m_audioOutput.clearAudioBuffers();
             }

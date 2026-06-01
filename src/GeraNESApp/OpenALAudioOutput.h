@@ -57,7 +57,7 @@ public:
     int currentSampleRate() const override;
     int currentSampleSize() const override;
     bool init() override;
-    void render(uint32_t dt, bool silenceFlag) override;
+    void render(uint32_t dt) override;
     void discardQueuedAudio() override;
     void setVolume(float volume) override;
     float getVolume() const override;
