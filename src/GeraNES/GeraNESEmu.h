@@ -1328,7 +1328,7 @@ private:
         }
     }
 
-    GERANES_INLINE bool renderAudioMs(uint32_t ms, bool skipRender = false)
+    GERANES_INLINE bool renderAudioMs(uint32_t ms, bool skipRender)
     {
         if(ms == 0) return false;
         const bool rewinding = m_rewind.isRewinding();
@@ -1462,8 +1462,17 @@ private:
         if(m_vsyncAudioCompMsAcc < -10.0) m_vsyncAudioCompMsAcc = -10.0;
         if(m_vsyncAudioCompMsAcc > 10.0) m_vsyncAudioCompMsAcc = 10.0;
 
+        const uint32_t playbackFrame = m_frameCounter;
+        const bool playbackFrameAlreadyRenderedAudibly =
+            m_lastAudiblyRenderedPlaybackFrame.has_value() &&
+            playbackFrame <= *m_lastAudiblyRenderedPlaybackFrame;
+        const bool skipCompensationRender =
+            m_forceSkipAudioRender || playbackFrameAlreadyRenderedAudibly;
+
         while(m_vsyncAudioCompMsAcc >= 1.0) {
-            renderAudioMs(1);
+            if(renderAudioMs(1, skipCompensationRender)) {
+                m_currentPlaybackFrameRenderedAudibly = true;
+            }
             m_vsyncAudioCompMsAcc -= 1.0;
         }
 
