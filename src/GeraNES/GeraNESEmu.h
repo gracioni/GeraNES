@@ -1358,7 +1358,13 @@ private:
                                           bool renderAudio)
     {
         const uint32_t playbackFrame = m_frameCounter;
-        if(!m_currentInputFrame.has_value() || m_currentInputFrame->frame != playbackFrame) {
+        const bool hasCurrentPlaybackInput =
+            m_currentInputFrame.has_value() &&
+            m_currentInputFrame->frame == playbackFrame;
+        const bool hasQueuedPlaybackInput =
+            m_nextInputFrame.has_value() &&
+            m_nextInputFrame->frame == playbackFrame;
+        if(!hasCurrentPlaybackInput && !hasQueuedPlaybackInput) {
             return false;
         }
         const bool playbackFrameAlreadyRenderedAudibly =

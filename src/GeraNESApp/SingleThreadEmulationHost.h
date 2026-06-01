@@ -69,6 +69,10 @@ private:
 
     bool queueResolvedOrPendingInputForFrame(uint32_t targetFrame)
     {
+        if(m_emu.hasPlaybackInputFrame(targetFrame)) {
+            return true;
+        }
+
         ReplayFrameInput input;
         if(m_frameInputResolver) {
             if(!m_frameInputResolver(targetFrame, input)) {
@@ -94,6 +98,9 @@ private:
     bool prepareCurrentFrameInput()
     {
         const uint32_t targetFrame = m_emu.frameCount();
+        if(m_emu.hasPlaybackInputFrame(targetFrame)) {
+            return true;
+        }
         m_pendingInputFrames.eraseFramesBefore(targetFrame);
         ReplayFrameInput input;
         if(m_frameInputResolver) {
@@ -449,6 +456,7 @@ public:
             if(!emu.valid()) return;
             resetFreeRunningPacing();
             emu.reset();
+            prepareCurrentFrameInput();
         });
     }
 
@@ -470,9 +478,10 @@ public:
     void loadState(uint8_t slot = 0)
      override{
         m_holdPresentedFramebufferUntilFrameReady = true;
-        postCommand([slot](GeraNESEmu& emu) {
+        postCommand([this, slot](GeraNESEmu& emu) {
             if(!emu.valid()) return;
             emu.loadState(slot);
+            prepareCurrentFrameInput();
         });
     }
 

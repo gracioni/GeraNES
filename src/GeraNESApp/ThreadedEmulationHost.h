@@ -70,6 +70,10 @@ private:
 
     std::optional<InputFrame> queueResolvedOrPendingInputLocked(uint32_t targetFrame)
     {
+        if(m_emu.hasPlaybackInputFrame(targetFrame)) {
+            return std::nullopt;
+        }
+
         ReplayFrameInput input;
         bool hasResolvedInput = false;
         {
@@ -101,9 +105,13 @@ private:
 
     std::optional<InputFrame> prepareCurrentFrameInputLocked()
     {
-        m_pendingInputFrames.eraseFramesBefore(m_emu.frameCount());
+        const uint32_t targetFrame = m_emu.frameCount();
+        if(m_emu.hasPlaybackInputFrame(targetFrame)) {
+            return std::nullopt;
+        }
+        m_pendingInputFrames.eraseFramesBefore(targetFrame);
         const std::optional<InputFrame> queuedFrame =
-            queueResolvedOrPendingInputLocked(m_emu.frameCount());
+            queueResolvedOrPendingInputLocked(targetFrame);
         if(queuedFrame.has_value()) {
             notifyQueuedInputObserverLocked(*queuedFrame);
             notifySelectedInputObserverLocked(*queuedFrame);
@@ -364,6 +372,9 @@ public:
     {
         std::scoped_lock emuLock(m_emuMutex);
         const bool opened = m_emu.openRom(path, autoConfigureInputTopologyOnRomLoad);
+        if(opened) {
+            prepareCurrentFrameInputLocked();
+        }
         refreshSnapshotLocked();
         return opened;
     }
@@ -578,9 +589,10 @@ public:
     void reset() override
     {
         m_holdPresentedFramebufferUntilFrameReady.store(true, std::memory_order_release);
-        postCommand([](GeraNESEmu& emu) {
+        postCommand([this](GeraNESEmu& emu) {
             if(!emu.valid()) return;
             emu.reset();
+            prepareCurrentFrameInputLocked();
         });
     }
 
@@ -610,9 +622,10 @@ public:
     void loadState(uint8_t slot = 0) override
     {
         m_holdPresentedFramebufferUntilFrameReady.store(true, std::memory_order_release);
-        postCommand([slot](GeraNESEmu& emu) {
+        postCommand([this, slot](GeraNESEmu& emu) {
             if(!emu.valid()) return;
             emu.loadState(slot);
+            prepareCurrentFrameInputLocked();
         });
     }
 

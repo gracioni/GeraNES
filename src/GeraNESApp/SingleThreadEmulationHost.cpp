@@ -465,6 +465,9 @@ bool SingleThreadEmulationHost::open(const std::string& path, bool autoConfigure
 {
     resetFreeRunningPacing();
     const bool opened = m_emu.openRom(path, autoConfigureInputTopologyOnRomLoad);
+    if(opened) {
+        prepareCurrentFrameInput();
+    }
     refreshPresentedFramebuffer();
     return opened;
 }
@@ -626,6 +629,7 @@ bool SingleThreadEmulationHost::loadStateFromMemoryOnCleanBoot(const std::vector
     const bool loaded = m_emu.loadStateFromMemoryOnCleanBoot(data);
     if(loaded) {
         resetFreeRunningPacing();
+        prepareCurrentFrameInput();
         refreshPresentedFramebuffer();
     }
     return loaded;
@@ -639,6 +643,7 @@ bool SingleThreadEmulationHost::loadStateFromMemoryAsManualStateChange(const std
     if(loaded) {
         resetFreeRunningPacing();
         onLoadExecutedLocked(m_emu.frameCount());
+        prepareCurrentFrameInput();
         refreshPresentedFramebuffer();
     }
     return loaded;
