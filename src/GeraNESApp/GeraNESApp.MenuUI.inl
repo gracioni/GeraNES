@@ -191,7 +191,7 @@ inline void GeraNESApp::menuBar() {
 
             ImGui::Separator();
 
-            if(ImGui::MenuItem(withMenuIcon(FontAwesomeIcons::kRotateRight, "Reset").c_str(), nullptr, false, hasRomLoaded && !netplayClientRestricted && !replayRecordingActive)) {
+            if(ImGui::MenuItem(withMenuIcon(FontAwesomeIcons::kRotateRight, "Reset").c_str(), nullptr, false, hasRomLoaded && !netplayClientRestricted && !isReplayResetRestricted())) {
                 resetAction();
             }
 

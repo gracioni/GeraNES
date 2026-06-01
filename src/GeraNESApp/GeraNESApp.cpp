@@ -887,7 +887,7 @@ void GeraNESApp::togglePauseAction()
 void GeraNESApp::resetAction()
 {
     if(!m_emu.valid()) return;
-    if(isReplayRecordingActive()) {
+    if(isReplayResetRestricted()) {
         notifyReplaySessionInteractionLocked("Reset");
         return;
     }
@@ -1006,6 +1006,21 @@ bool GeraNESApp::isReplayRecordingActive() const
     return m_replayManager.snapshot().mode == ReplayManager::ReplayMode::Recording;
 }
 
+bool GeraNESApp::isReplayResetRestricted() const
+{
+    const auto replayState = m_replayManager.snapshot();
+    return replayState.mode == ReplayManager::ReplayMode::Recording ||
+           replayState.loadedReplayActive;
+}
+
+bool GeraNESApp::isReplayPlaybackActive() const
+{
+    const auto replayState = m_replayManager.snapshot();
+    return replayState.mode == ReplayManager::ReplayMode::Playback &&
+           replayState.loadedReplayActive &&
+           replayState.playing;
+}
+
 const std::array<GeraNESApp::EmulationSpeed, 6>& GeraNESApp::emulationSpeedValues()
 {
     static constexpr std::array<EmulationSpeed, 6> kSpeeds = {
@@ -1114,8 +1129,7 @@ void GeraNESApp::notifyReplaySessionInteractionLocked(const char* action)
         return;
     }
 
-    const std::string message =
-        std::string(action) + " is disabled while recording or replay playback is active";
+    const std::string message = std::string(action) + " is disabled while a replay session is active";
     m_userToast.show(message);
     Logger::instance().log(message, Logger::Type::USER);
 }
@@ -4276,7 +4290,7 @@ void GeraNESApp::pollAndPrepareInput()
         inputState.setSnesMouse(2, {mouseDeltaX, mouseDeltaY, mousePrimaryButton, mouseSecondaryButton});
         inputState.setSuborMouse(1, {mouseDeltaX, mouseDeltaY, mousePrimaryButton, mouseSecondaryButton});
         inputState.setSuborMouse(2, {mouseDeltaX, mouseDeltaY, mousePrimaryButton, mouseSecondaryButton});
-        const bool rewindActive = !keyboardExpansionActive && (
+        const bool rewindActive = !isReplayPlaybackActive() && !keyboardExpansionActive && (
             im.isPressed(m_systemInput.rewind) ||
             m_touch->buttons().rewind
         );

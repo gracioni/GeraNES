@@ -591,6 +591,8 @@ private:
     bool isReplayRestricted() const;
     bool isNetplaySpeedRestricted() const;
     bool isReplayRecordingActive() const;
+    bool isReplayResetRestricted() const;
+    bool isReplayPlaybackActive() const;
     bool isReplaySessionInteractionLocked() const;
     static const char* emulationSpeedLabel(EmulationSpeed speed);
     static const std::array<EmulationSpeed, 6>& emulationSpeedValues();

@@ -102,7 +102,7 @@ inline void GeraNESApp::drawCustomWindowChrome()
         const ImVec2 powerButtonMin(winPos.x + controlsLeft + ledSize + 14.0f, winPos.y + controlsTop);
         const ImVec2 resetButtonMin(powerButtonMin.x + controlButtonWidth + controlSpacing, powerButtonMin.y);
         const bool powerEnabled = true;
-        const bool resetEnabled = m_emu.valid() && !isNetplayClientRestricted();
+        const bool resetEnabled = m_emu.valid() && !isNetplayClientRestricted() && !isReplayResetRestricted();
 
         if(drawChromeControlButton(powerButtonMin, "##ChromePower", "POWER", powerEnabled)) {
             quit();

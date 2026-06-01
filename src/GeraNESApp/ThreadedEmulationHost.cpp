@@ -377,9 +377,11 @@ void ThreadedEmulationHost::refreshSnapshotLocked()
     }
 }
 
-void ThreadedEmulationHost::onFrameReadyLocked()
+void ThreadedEmulationHost::publishPresentedStateLocked(bool recordNetplayState)
 {
-    recordFrameReadyNetplayState(m_emu);
+    if(recordNetplayState) {
+        recordFrameReadyNetplayState(m_emu);
+    }
     m_holdPresentedFramebufferUntilFrameReady.store(false, std::memory_order_release);
     {
         std::scoped_lock framebufferLock(m_framebufferMutex);
@@ -403,9 +405,16 @@ void ThreadedEmulationHost::onFrameReadyLocked()
     refreshModRenderSnapshotLocked();
     {
         std::scoped_lock snapshotLock(m_snapshotMutex);
-        m_snapshot.lastFrameReadyFrame = m_lastFrameReadyFrameValue;
-        m_snapshot.lastFrameReadyNetplayCrc32 = m_lastFrameReadyNetplayCrc32Value;
+        if(recordNetplayState) {
+            m_snapshot.lastFrameReadyFrame = m_lastFrameReadyFrameValue;
+            m_snapshot.lastFrameReadyNetplayCrc32 = m_lastFrameReadyNetplayCrc32Value;
+        }
     }
+}
+
+void ThreadedEmulationHost::onFrameReadyLocked()
+{
+    publishPresentedStateLocked(true);
 }
 
 void ThreadedEmulationHost::workerLoop(std::stop_token stopToken)
@@ -474,8 +483,9 @@ void ThreadedEmulationHost::workerLoop(std::stop_token stopToken)
                     const uint32_t frameBefore = m_emu.frameCount();
                     prepareCurrentFrameInputLocked();
                     m_emu.updateUntilFrame(dtMs);
-                    if(m_emu.frameCount() > frameBefore) {
-                        onFrameReadyLocked();
+                    const uint32_t frameAfter = m_emu.frameCount();
+                    if(frameAfter != frameBefore) {
+                        publishPresentedStateLocked(frameAfter > frameBefore);
                     }
                 }
                 else if(m_emu.valid() &&
@@ -485,8 +495,9 @@ void ThreadedEmulationHost::workerLoop(std::stop_token stopToken)
                     const uint32_t frameBefore = m_emu.frameCount();
                     prepareCurrentFrameInputLocked();
                     m_emu.updateUntilFrame(dtMs);
-                    if(m_emu.frameCount() > frameBefore) {
-                        onFrameReadyLocked();
+                    const uint32_t frameAfter = m_emu.frameCount();
+                    if(frameAfter != frameBefore) {
+                        publishPresentedStateLocked(frameAfter > frameBefore);
                     }
                 }
 
@@ -520,8 +531,9 @@ void ThreadedEmulationHost::workerLoop(std::stop_token stopToken)
                     const uint32_t frameBefore = m_emu.frameCount();
                     prepareCurrentFrameInputLocked();
                     m_emu.updateUntilFrame(frameDtMs);
-                    if(m_emu.frameCount() > frameBefore) {
-                        onFrameReadyLocked();
+                    const uint32_t frameAfter = m_emu.frameCount();
+                    if(frameAfter != frameBefore) {
+                        publishPresentedStateLocked(frameAfter > frameBefore);
                     }
                     refreshSnapshotLocked();
                 } else {

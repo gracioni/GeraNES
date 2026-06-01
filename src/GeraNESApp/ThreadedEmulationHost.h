@@ -235,6 +235,7 @@ private:
     void refreshPpuViewerSnapshotLocked(uint32_t frameCount);
     void refreshPpuEventViewerSnapshotLocked(uint32_t frameCount);
     void refreshModRenderSnapshotLocked();
+    void publishPresentedStateLocked(bool recordNetplayState);
     void onFrameReadyLocked();
     void workerLoop(std::stop_token stopToken);
     static thread_local const ThreadedEmulationHost* t_directAccessHost;

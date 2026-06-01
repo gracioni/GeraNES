@@ -199,7 +199,8 @@ bool SingleThreadEmulationHost::pumpFreeRunningWorkerSteps()
                 const uint32_t stepFrameBefore = m_emu.frameCount();
                 prepareCurrentFrameInput();
                 m_emu.updateUntilFrame(frameDtMs);
-                if(m_emu.frameCount() > stepFrameBefore) {
+                const uint32_t stepFrameAfter = m_emu.frameCount();
+                if(stepFrameAfter != stepFrameBefore) {
                     onFrameReady();
                 }
             }
@@ -568,7 +569,8 @@ void SingleThreadEmulationHost::updateUntilFrame(uint32_t dt)
         const uint32_t frameBefore = m_emu.frameCount();
         prepareCurrentFrameInput();
         m_emu.updateUntilFrame(m_presenterTickDtMs);
-        if(m_emu.frameCount() > frameBefore) {
+        const uint32_t frameAfter = m_emu.frameCount();
+        if(frameAfter != frameBefore) {
             onFrameReady();
         }
         m_pendingPresenterTicks = 0u;
@@ -576,7 +578,8 @@ void SingleThreadEmulationHost::updateUntilFrame(uint32_t dt)
         const uint32_t frameBefore = m_emu.frameCount();
         prepareCurrentFrameInput();
         m_emu.updateUntilFrame(m_presenterTickDtMs);
-        if(m_emu.frameCount() > frameBefore) {
+        const uint32_t frameAfter = m_emu.frameCount();
+        if(frameAfter != frameBefore) {
             onFrameReady();
         }
     }
