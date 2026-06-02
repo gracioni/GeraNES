@@ -84,11 +84,11 @@ inline void GeraNESApp::drawInputMiniaturesOverlay(ImDrawList* drawList, const I
         drawPressedRect(ImVec2(topLeft.x + 18.0f, topLeft.y + 8.0f), ImVec2(topLeft.x + 34.0f, topLeft.y + 12.0f), buttons.l, 2.0f);
         drawPressedRect(ImVec2(topLeft.x + 84.0f, topLeft.y + 8.0f), ImVec2(topLeft.x + 100.0f, topLeft.y + 12.0f), buttons.r, 2.0f);
         drawDPad(ImVec2(topLeft.x + 8.0f, topLeft.y + 18.0f), 4.5f, buttons.up, buttons.down, buttons.left, buttons.right);
-        drawDPad(ImVec2(topLeft.x + 38.0f, topLeft.y + 18.0f), 4.5f, buttons.up2, buttons.down2, buttons.left2, buttons.right2);
-        drawPressedRect(ImVec2(topLeft.x + 68.0f, topLeft.y + 30.0f), ImVec2(topLeft.x + 76.0f, topLeft.y + 33.0f), buttons.select);
-        drawPressedRect(ImVec2(topLeft.x + 79.0f, topLeft.y + 30.0f), ImVec2(topLeft.x + 87.0f, topLeft.y + 33.0f), buttons.start);
-        drawPressedCircle(ImVec2(topLeft.x + 98.0f, topLeft.y + 24.0f), 4.0f, buttons.b);
-        drawPressedCircle(ImVec2(topLeft.x + 108.0f, topLeft.y + 24.0f), 4.0f, buttons.a);
+        drawPressedRect(ImVec2(topLeft.x + 39.0f, topLeft.y + 23.0f), ImVec2(topLeft.x + 47.0f, topLeft.y + 26.0f), buttons.select);
+        drawPressedRect(ImVec2(topLeft.x + 50.0f, topLeft.y + 23.0f), ImVec2(topLeft.x + 58.0f, topLeft.y + 26.0f), buttons.start);
+        drawPressedCircle(ImVec2(topLeft.x + 69.0f, topLeft.y + 24.5f), 4.0f, buttons.b);
+        drawPressedCircle(ImVec2(topLeft.x + 79.0f, topLeft.y + 24.5f), 4.0f, buttons.a);
+        drawDPad(ImVec2(topLeft.x + 96.5f, topLeft.y + 18.0f), 4.5f, buttons.up2, buttons.down2, buttons.left2, buttons.right2);
     };
 
     auto drawZapper = [&](const ImVec2& topLeft, const std::string& label, const InputState::PointerState& pointer) {
