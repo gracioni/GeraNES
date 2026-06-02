@@ -327,6 +327,8 @@ private:
     ModManager m_modManager;
     mutable std::mutex m_netplayInputStateMutex;
     IEmulationHost::InputState m_netplayLatestInputState = {};
+    mutable std::mutex m_selectedInputFrameMutex;
+    std::optional<InputFrame> m_latestSelectedInputFrame;
     ReplaySession m_replaySession;
     int m_replaySliderValue = 0;
     bool m_replaySliderDragging = false;
@@ -597,7 +599,9 @@ private:
     void updateRuntimeVSyncSuppression(EmulationSpeed effectiveSpeed);
     void cycleEmulationSpeedSelection(int direction);
     void notifyReplaySessionInteractionLocked(const char* action);
+    void installSelectedInputObserver();
     void configureReplaySessionMode(ReplaySession::ReplayMode mode);
+    void drawInputMiniaturesOverlay(ImDrawList* drawList, const ImVec2& overlayOrigin);
     void stopReplayPlayback(bool pauseEmulation);
     void clearReplaySession(bool keepWindowOpen = true);
     void applyReplayInputTopology(const InputTopology& topology);

@@ -1170,6 +1170,19 @@ void GeraNESApp::notifyReplaySessionInteractionLocked(const char* action)
     Logger::instance().log(message, Logger::Type::USER);
 }
 
+void GeraNESApp::installSelectedInputObserver()
+{
+    m_emu.setSelectedInputObserver([this](const InputFrame& frame) {
+        {
+            std::scoped_lock selectedFrameLock(m_selectedInputFrameMutex);
+            m_latestSelectedInputFrame = frame;
+        }
+        if(m_replaySessionMode.load(std::memory_order_acquire) == ReplaySession::ReplayMode::Recording) {
+            m_replaySession.appendRecordedFrame(frame);
+        }
+    });
+}
+
 void GeraNESApp::configureReplaySessionMode(ReplaySession::ReplayMode mode)
 {
     m_replaySessionMode.store(mode, std::memory_order_release);
@@ -1177,15 +1190,13 @@ void GeraNESApp::configureReplaySessionMode(ReplaySession::ReplayMode mode)
     if(mode == ReplaySession::ReplayMode::Recording) {
         m_emu.setFrameInputResolver({});
         m_emu.setQueuedInputObserver({});
-        m_emu.setSelectedInputObserver([this](const InputFrame& frame) {
-            m_replaySession.appendRecordedFrame(frame);
-        });
+        installSelectedInputObserver();
         return;
     }
 
     m_emu.setFrameInputResolver({});
     m_emu.setQueuedInputObserver({});
-    m_emu.setSelectedInputObserver({});
+    installSelectedInputObserver();
 }
 
 void GeraNESApp::stopReplayPlayback(bool pauseEmulation)
@@ -2957,6 +2968,7 @@ GeraNESApp::GeraNESApp()
 
     syncSettings();
     createShortcuts();
+    installSelectedInputObserver();
     loadShaderList();
     loadPaletteList();
     const std::string configuredPalette = AppSettings::instance().data.video.paletteName;

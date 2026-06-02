@@ -615,6 +615,11 @@ inline void GeraNESApp::menuBar() {
                 AppSettings::instance().data.input.automaticOnRomLoad = !automaticOnRomLoad;
             }
 
+            bool showMiniatures = AppSettings::instance().data.input.showMiniatures;
+            if(ImGui::MenuItem("Show miniatures", nullptr, showMiniatures)) {
+                AppSettings::instance().data.input.showMiniatures = !showMiniatures;
+            }
+
             ImGui::Separator();
 
             if (ImGui::BeginMenu("Port 1", !anyMultitapActive && (!netplayInputManaged || allowPort1Config))) {

@@ -203,6 +203,8 @@ inline void GeraNESApp::showOverlay()
         );
     }
 
+    drawInputMiniaturesOverlay(drawList, overlayOrigin);
+
     if(AppSettings::instance().data.debug.showFps) {
         const int fontSize = 24;
         ImFont* fpsFont = m_fontFps != nullptr ? m_fontFps : ImGui::GetFont();
@@ -233,6 +235,121 @@ inline void GeraNESApp::showOverlay()
     m_userToast.draw(drawList, overlayOrigin, static_cast<float>(width()), static_cast<float>(height()), m_fontToast);
 
     m_touch->draw(drawList, overlayOrigin);
+}
+
+inline void GeraNESApp::drawInputMiniaturesOverlay(ImDrawList* drawList, const ImVec2& overlayOrigin)
+{
+    if(drawList == nullptr || !AppSettings::instance().data.input.showMiniatures || !m_emu.valid()) {
+        return;
+    }
+
+    InputState state{};
+    {
+        std::scoped_lock selectedFrameLock(m_selectedInputFrameMutex);
+        if(m_latestSelectedInputFrame.has_value()) {
+            state = m_latestSelectedInputFrame->state;
+        } else {
+            state.topology = m_inputTopology;
+        }
+    }
+
+    auto isMiniaturePadDevice = [](Settings::Device device) {
+        switch(device) {
+            case Settings::Device::CONTROLLER:
+            case Settings::Device::FAMICOM_CONTROLLER:
+            case Settings::Device::SNES_CONTROLLER:
+            case Settings::Device::VIRTUAL_BOY_CONTROLLER:
+                return true;
+            default:
+                return false;
+        }
+    };
+
+    struct MiniaturePad {
+        const char* label = "";
+        InputState::PadButtons buttons = {};
+    };
+
+    std::vector<MiniaturePad> pads;
+    if(state.multitapActive()) {
+        pads.push_back({"P1", state.portButtons(1)});
+        pads.push_back({"P2", state.portButtons(2)});
+        pads.push_back({"P3", state.portButtons(3)});
+        pads.push_back({"P4", state.portButtons(4)});
+    } else {
+        if(isMiniaturePadDevice(state.topology.port1Device)) {
+            pads.push_back({"P1", state.portButtons(1)});
+        }
+        if(isMiniaturePadDevice(state.topology.port2Device)) {
+            pads.push_back({"P2", state.portButtons(2)});
+        }
+        if(state.topology.expansionDevice == Settings::ExpansionDevice::STANDARD_CONTROLLER_FAMICOM) {
+            pads.push_back({"EXP", state.portButtons(3)});
+        }
+    }
+
+    if(pads.empty()) {
+        return;
+    }
+
+    const SDL_Rect clientArea = emulatorClientArea();
+    const float cardWidth = 88.0f;
+    const float cardHeight = 42.0f;
+    const float outerPadding = 8.0f;
+    const float gap = 6.0f;
+    const float availableWidth = std::max(1.0f, static_cast<float>(clientArea.w) - outerPadding * 2.0f);
+    const int maxColumns = std::max(1, static_cast<int>((availableWidth + gap) / (cardWidth + gap)));
+    const int columns = std::max(1, std::min(static_cast<int>(pads.size()), maxColumns));
+    const int rows = static_cast<int>((pads.size() + static_cast<size_t>(columns) - 1u) / static_cast<size_t>(columns));
+    const float panelWidth = outerPadding * 2.0f + static_cast<float>(columns) * cardWidth + static_cast<float>(columns - 1) * gap;
+    const float panelHeight = outerPadding * 2.0f + static_cast<float>(rows) * cardHeight + static_cast<float>(rows - 1) * gap;
+    const ImVec2 panelMin(
+        overlayOrigin.x + static_cast<float>(clientArea.x + clientArea.w) - panelWidth - 16.0f,
+        overlayOrigin.y + static_cast<float>(clientArea.y + clientArea.h) - panelHeight - 16.0f
+    );
+    const ImVec2 panelMax(panelMin.x + panelWidth, panelMin.y + panelHeight);
+
+    drawList->AddRectFilled(panelMin, panelMax, IM_COL32(18, 15, 11, 176), 8.0f);
+    drawList->AddRect(panelMin, panelMax, IM_COL32(223, 209, 166, 92), 8.0f, 0, 1.0f);
+
+    auto drawPressedBlock = [drawList](const ImVec2& min, const ImVec2& max, bool pressed) {
+        drawList->AddRectFilled(min, max, pressed ? IM_COL32(196, 44, 36, 255) : IM_COL32(73, 67, 55, 255), 1.0f);
+    };
+
+    auto drawMiniPad = [&](const ImVec2& topLeft, const MiniaturePad& pad) {
+        const ImVec2 cardMax(topLeft.x + cardWidth, topLeft.y + cardHeight);
+        drawList->AddRectFilled(topLeft, cardMax, IM_COL32(173, 158, 122, 232), 4.0f);
+        drawList->AddRect(topLeft, cardMax, IM_COL32(60, 52, 40, 255), 4.0f, 0, 1.0f);
+
+        drawList->AddText(ImVec2(topLeft.x + 6.0f, topLeft.y + 3.0f), IM_COL32(34, 30, 24, 255), pad.label);
+
+        const float u = 4.0f;
+        const float dpadX = topLeft.x + 10.0f;
+        const float dpadY = topLeft.y + 16.0f;
+        drawPressedBlock(ImVec2(dpadX + u, dpadY), ImVec2(dpadX + u * 2.0f, dpadY + u), pad.buttons.up);
+        drawPressedBlock(ImVec2(dpadX + u, dpadY + u * 2.0f), ImVec2(dpadX + u * 2.0f, dpadY + u * 3.0f), pad.buttons.down);
+        drawPressedBlock(ImVec2(dpadX, dpadY + u), ImVec2(dpadX + u, dpadY + u * 2.0f), pad.buttons.left);
+        drawPressedBlock(ImVec2(dpadX + u * 2.0f, dpadY + u), ImVec2(dpadX + u * 3.0f, dpadY + u * 2.0f), pad.buttons.right);
+        drawPressedBlock(ImVec2(dpadX + u, dpadY + u), ImVec2(dpadX + u * 2.0f, dpadY + u * 2.0f), false);
+
+        const float centerY = topLeft.y + 24.0f;
+        drawPressedBlock(ImVec2(topLeft.x + 35.0f, centerY), ImVec2(topLeft.x + 42.0f, centerY + 3.0f), pad.buttons.select);
+        drawPressedBlock(ImVec2(topLeft.x + 45.0f, centerY), ImVec2(topLeft.x + 52.0f, centerY + 3.0f), pad.buttons.start);
+
+        const float buttonY = topLeft.y + 18.0f;
+        drawPressedBlock(ImVec2(topLeft.x + 63.0f, buttonY + 6.0f), ImVec2(topLeft.x + 70.0f, buttonY + 13.0f), pad.buttons.b);
+        drawPressedBlock(ImVec2(topLeft.x + 72.0f, buttonY), ImVec2(topLeft.x + 79.0f, buttonY + 7.0f), pad.buttons.a);
+    };
+
+    for(size_t index = 0; index < pads.size(); ++index) {
+        const int column = static_cast<int>(index % static_cast<size_t>(columns));
+        const int row = static_cast<int>(index / static_cast<size_t>(columns));
+        const ImVec2 cardMin(
+            panelMin.x + outerPadding + static_cast<float>(column) * (cardWidth + gap),
+            panelMin.y + outerPadding + static_cast<float>(row) * (cardHeight + gap)
+        );
+        drawMiniPad(cardMin, pads[index]);
+    }
 }
 
 inline void GeraNESApp::drawPendingRomLoadOverlay()
