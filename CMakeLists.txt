@@ -228,74 +228,6 @@ set(BUILD_SHARED_LIBS FALSE)
 FetchContent_MakeAvailable(json)
 
 FetchContent_Declare(
-        lua
-        GIT_REPOSITORY https://github.com/lua/lua.git
-        GIT_TAG v5.4.8
-        GIT_SHALLOW TRUE
-        GIT_PROGRESS TRUE
-)
-
-FetchContent_GetProperties(lua)
-if(NOT lua_POPULATED)
-    FetchContent_Populate(lua)
-endif()
-
-add_library(lua_static STATIC
-    ${lua_SOURCE_DIR}/lapi.c
-    ${lua_SOURCE_DIR}/lauxlib.c
-    ${lua_SOURCE_DIR}/lbaselib.c
-    ${lua_SOURCE_DIR}/lcode.c
-    ${lua_SOURCE_DIR}/lcorolib.c
-    ${lua_SOURCE_DIR}/lctype.c
-    ${lua_SOURCE_DIR}/ldblib.c
-    ${lua_SOURCE_DIR}/ldebug.c
-    ${lua_SOURCE_DIR}/ldo.c
-    ${lua_SOURCE_DIR}/ldump.c
-    ${lua_SOURCE_DIR}/lfunc.c
-    ${lua_SOURCE_DIR}/lgc.c
-    ${lua_SOURCE_DIR}/linit.c
-    ${lua_SOURCE_DIR}/liolib.c
-    ${lua_SOURCE_DIR}/llex.c
-    ${lua_SOURCE_DIR}/lmathlib.c
-    ${lua_SOURCE_DIR}/lmem.c
-    ${lua_SOURCE_DIR}/loadlib.c
-    ${lua_SOURCE_DIR}/lobject.c
-    ${lua_SOURCE_DIR}/lopcodes.c
-    ${lua_SOURCE_DIR}/loslib.c
-    ${lua_SOURCE_DIR}/lparser.c
-    ${lua_SOURCE_DIR}/lstate.c
-    ${lua_SOURCE_DIR}/lstring.c
-    ${lua_SOURCE_DIR}/lstrlib.c
-    ${lua_SOURCE_DIR}/ltable.c
-    ${lua_SOURCE_DIR}/ltablib.c
-    ${lua_SOURCE_DIR}/ltm.c
-    ${lua_SOURCE_DIR}/lundump.c
-    ${lua_SOURCE_DIR}/lutf8lib.c
-    ${lua_SOURCE_DIR}/lvm.c
-    ${lua_SOURCE_DIR}/lzio.c
-)
-target_include_directories(lua_static PUBLIC ${lua_SOURCE_DIR})
-set_target_properties(lua_static PROPERTIES POSITION_INDEPENDENT_CODE ON)
-if(UNIX AND NOT APPLE AND NOT EMSCRIPTEN)
-    target_link_libraries(lua_static PUBLIC dl m)
-elseif(NOT MSVC AND NOT EMSCRIPTEN)
-    target_link_libraries(lua_static PUBLIC m)
-endif()
-
-FetchContent_Declare(
-        sol2
-        GIT_REPOSITORY https://github.com/ThePhD/sol2.git
-        GIT_TAG v3.3.0
-        GIT_SHALLOW TRUE
-        GIT_PROGRESS TRUE
-)
-
-FetchContent_GetProperties(sol2)
-if(NOT sol2_POPULATED)
-    FetchContent_Populate(sol2)
-endif()
-
-FetchContent_Declare(
   yoga
   GIT_REPOSITORY https://github.com/facebook/yoga.git
   GIT_TAG v3.2.1
@@ -705,8 +637,7 @@ endif()
 
 add_library(GeraNESAppLib STATIC ${GERANES_APP_LIBRARY_SOURCES})
 target_compile_features(GeraNESAppLib PUBLIC cxx_std_20)
-target_compile_definitions(GeraNESAppLib PUBLIC ENABLE_NSF_PLAYER=1 SOL_USING_CXX_LUA=0)
-target_include_directories(GeraNESAppLib PUBLIC ${sol2_SOURCE_DIR}/include)
+target_compile_definitions(GeraNESAppLib PUBLIC ENABLE_NSF_PLAYER=1)
 if(NOT EMSCRIPTEN)
     target_compile_definitions(GeraNESAppLib PRIVATE ASIO_STANDALONE _WEBSOCKETPP_CPP11_STL_ _WEBSOCKETPP_CPP11_THREAD_ RTC_STATIC)
 endif()
@@ -716,7 +647,7 @@ endif()
 if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
     target_compile_options(GeraNESAppLib PRIVATE -Wno-template-body)
 endif()
-target_link_libraries(GeraNESAppLib PUBLIC ConsoleNetplay GeraNESLib lua_static)
+target_link_libraries(GeraNESAppLib PUBLIC ConsoleNetplay GeraNESLib)
 target_link_libraries(GeraNESAppLib PRIVATE geranes_warnings)
 if(NOT EMSCRIPTEN)
     target_link_libraries(GeraNESAppLib PRIVATE asio_headers)
