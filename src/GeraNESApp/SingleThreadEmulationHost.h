@@ -48,7 +48,7 @@ private:
                                             const InputState& input)
     {
         InputFrame frame = emu.createInputFrame(frameNumber);
-        frame.state.serializedInputData = input.serializedInputData;
+        frame.state = input;
         return frame;
     }
 
