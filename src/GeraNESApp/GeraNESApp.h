@@ -598,7 +598,7 @@ private:
     void updateRuntimeVSyncSuppression(EmulationSpeed effectiveSpeed);
     void cycleEmulationSpeedSelection(int direction);
     void notifyReplaySessionInteractionLocked(const char* action);
-    void refreshReplayFrameInputResolver();
+    void configureReplaySessionMode(ReplayManager::ReplayMode mode);
     void stopReplayPlayback(bool pauseEmulation);
     void clearReplaySession(bool keepWindowOpen = true);
     void applyReplayInputTopology(const InputTopology& topology);
@@ -617,6 +617,8 @@ private:
     void synchronizeReplayInputAtCurrentFrame();
     void startReplayPlayback();
     void syncReplayRuntimeState();
+
+    std::atomic<ReplayManager::ReplayMode> m_replaySessionMode{ReplayManager::ReplayMode::None};
 
 public:
 

@@ -1151,10 +1151,11 @@ void GeraNESApp::notifyReplaySessionInteractionLocked(const char* action)
     Logger::instance().log(message, Logger::Type::USER);
 }
 
-void GeraNESApp::refreshReplayFrameInputResolver()
+void GeraNESApp::configureReplaySessionMode(ReplayManager::ReplayMode mode)
 {
-    const auto replayState = m_replayManager.snapshot();
-    if(replayState.mode == ReplayManager::ReplayMode::Recording) {
+    m_replaySessionMode.store(mode, std::memory_order_release);
+
+    if(mode == ReplayManager::ReplayMode::Recording) {
         m_emu.setFrameInputResolver({});
         m_emu.setQueuedInputObserver({});
         m_emu.setSelectedInputObserver([this](const InputFrame& frame) {
@@ -1219,6 +1220,7 @@ void GeraNESApp::clearReplaySession(bool keepWindowOpen)
     stopReplayPlayback(false);
     m_emu.clearReplayPlayback();
     m_replayManager.clear();
+    configureReplaySessionMode(ReplayManager::ReplayMode::None);
     m_replaySliderValue = 0;
     m_replaySliderDragging = false;
     m_replaySeekInProgress = false;
@@ -1419,7 +1421,7 @@ bool GeraNESApp::startReplayRecording()
     m_replayManager.setCursorState(0u, std::nullopt);
     m_replaySliderValue = 0;
     m_replaySliderDragging = false;
-    refreshReplayFrameInputResolver();
+    configureReplaySessionMode(ReplayManager::ReplayMode::Recording);
     m_showReplayWindow = true;
 
     if(m_emu.paused()) {
@@ -1463,7 +1465,7 @@ bool GeraNESApp::continueReplayRecordingFromCurrentCursor()
     m_emu.clearReplayPlayback();
     m_emu.discardQueuedInputFramesAfter(continueFromFrame);
     m_emu.discardQueuedAudio();
-    refreshReplayFrameInputResolver();
+    configureReplaySessionMode(ReplayManager::ReplayMode::Recording);
     applyReplayInputTopology(inputTopology);
     if(continuingFromReplayEnd) {
         const IEmulationHost::InputState pendingInput = m_emu.pendingInputSnapshot();
@@ -1553,7 +1555,9 @@ bool GeraNESApp::openReplayFile(const fs::path& path)
     m_showReplayWindow = true;
     Logger::instance().log("Replay loaded: " + path.string(), Logger::Type::USER);
     m_emu.clearReplayPlayback();
+    configureReplaySessionMode(ReplayManager::ReplayMode::Playback);
     if(!openRomPath(m_loadedRomPath, false, false)) {
+        configureReplaySessionMode(ReplayManager::ReplayMode::None);
         return false;
     }
     applyReplayInputTopology(replayState.data.inputTopology);
@@ -2854,9 +2858,7 @@ GeraNESApp::GeraNESApp()
     GeraNESNetplay::attachRuntimeWakeToHost(m_netplayRuntime, m_emu);
     GeraNESNetplay::installProcessGlobalFrontendNetplayLogCallbackOnce();
     m_emu.setPreAdvanceHook([this](GeraNESEmu& emu) {
-        const auto replayState = m_replayManager.snapshot();
-        if(replayState.mode != ReplayManager::ReplayMode::None) {
-            refreshReplayFrameInputResolver();
+        if(m_replaySessionMode.load(std::memory_order_acquire) != ReplayManager::ReplayMode::None) {
 
             const uint32_t modObservedFrame = emu.frameCount();
             if(m_hasLastModObservedFrame && modObservedFrame < m_lastModObservedFrame) {
@@ -2893,7 +2895,6 @@ GeraNESApp::GeraNESApp()
             runtimeSettings
         );
         cfg.inputDelayFrames = static_cast<int>(updateResult.inputDelayFrames);
-        refreshReplayFrameInputResolver();
 
         const uint32_t modObservedFrame = emu.frameCount();
         if(m_hasLastModObservedFrame && modObservedFrame < m_lastModObservedFrame) {
