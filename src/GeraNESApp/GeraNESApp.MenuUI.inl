@@ -157,12 +157,6 @@ inline void GeraNESApp::menuBar() {
 
             ImGui::Separator();
 
-            if (ImGui::MenuItem(withMenuIcon(FontAwesomeIcons::kWandMagicSparkles, "Improvements").c_str())) {
-                m_showImprovementsWindow = true;
-            }
-
-            ImGui::Separator();
-
             if (ImGui::BeginMenu(withMenuIcon(FontAwesomeIcons::kGlobe, "Region").c_str(), hasRomLoaded)) {
 
                 if(ImGui::MenuItem("NTSC", nullptr, m_emu.region() == Settings::Region::NTSC)) {
@@ -189,10 +183,14 @@ inline void GeraNESApp::menuBar() {
                 togglePauseAction();
             }
 
-            ImGui::Separator();
-
             if(ImGui::MenuItem(withMenuIcon(FontAwesomeIcons::kRotateRight, "Reset").c_str(), nullptr, false, hasRomLoaded && !netplayClientRestricted && !isReplayResetRestricted())) {
                 resetAction();
+            }
+
+            ImGui::Separator();
+
+            if (ImGui::MenuItem(withMenuIcon(FontAwesomeIcons::kWandMagicSparkles, "Improvements").c_str())) {
+                m_showImprovementsWindow = true;
             }
 
             if(ImGui::BeginMenu(withMenuIcon(FontAwesomeIcons::kSliders, "Speed").c_str(), hasRomLoaded)) {
@@ -228,6 +226,8 @@ inline void GeraNESApp::menuBar() {
                     ImGui::EndMenu();
                 }
 
+                ImGui::Separator();
+
                 if (ImGui::BeginMenu("Filter")) {
 
                     for(int i = NEAREST; i <= BILINEAR ; i++) {
@@ -247,6 +247,8 @@ inline void GeraNESApp::menuBar() {
                 if (ImGui::MenuItem("Palette")) {
                     m_showPaletteWindow = true;
                 }
+
+                ImGui::Separator();
 
                 if(ImGui::MenuItem("Overscan")) {
                     m_showOverscanWindow = true;
@@ -296,6 +298,8 @@ inline void GeraNESApp::menuBar() {
                     }
                     ImGui::EndMenu();
                 }
+
+                ImGui::Separator();
 
                 auto sc = m_shortcuts.get("fullscreen");
                 if( sc != nullptr) {
@@ -983,13 +987,9 @@ inline void GeraNESApp::menuBar() {
                 m_showNetplayWindow = true;
             }
 
-            ImGui::Separator();
-
             if(ImGui::MenuItem(withMenuIcon(FontAwesomeIcons::kVideo, "Replay").c_str(), nullptr, false, !isReplayRestricted())) {
                 m_showReplayWindow = true;
             }
-
-            ImGui::Separator();
 
             if(ImGui::BeginMenu(withMenuIcon(FontAwesomeIcons::kPuzzlePiece, "Mod").c_str(), !replayInteractionLocked)) {
                 if(ImGui::BeginMenu(withMenuIcon(FontAwesomeIcons::kFolderOpen, "Load").c_str(), !netplayRomChangeRestricted && !replayInteractionLocked)) {
