@@ -1,4 +1,4 @@
-#include "GeraNESApp/ReplayManager.h"
+#include "GeraNESApp/ReplaySession.h"
 
 #include <algorithm>
 
@@ -15,26 +15,26 @@ uint32_t replayTimelineFrameCount(const std::vector<InputFrame>& frames)
 
 }
 
-ReplayManager::ReplayState ReplayManager::snapshot() const
+ReplaySession::ReplayState ReplaySession::snapshot() const
 {
     std::scoped_lock lock(m_mutex);
     return m_state;
 }
 
-void ReplayManager::clear()
+void ReplaySession::clear()
 {
     std::scoped_lock lock(m_mutex);
     m_state = {};
 }
 
-void ReplayManager::stopPlayback()
+void ReplaySession::stopPlayback()
 {
     std::scoped_lock lock(m_mutex);
     m_state.playing = false;
     m_state.pendingStopAtEnd = false;
 }
 
-void ReplayManager::beginRecording(std::string romName,
+void ReplaySession::beginRecording(std::string romName,
                                    std::string romCrc,
                                    const InputTopology& topology)
 {
@@ -47,7 +47,7 @@ void ReplayManager::beginRecording(std::string romName,
     m_state.playing = true;
 }
 
-void ReplayManager::beginRecordingFromLoadedReplay(uint32_t continueFromFrame)
+void ReplaySession::beginRecordingFromLoadedReplay(uint32_t continueFromFrame)
 {
     std::scoped_lock lock(m_mutex);
     const uint32_t preservedFrameCount = std::min(
@@ -63,7 +63,7 @@ void ReplayManager::beginRecordingFromLoadedReplay(uint32_t continueFromFrame)
     m_state.loadedReplayActive = false;
 }
 
-void ReplayManager::appendRecordedFrame(const InputFrame& frame)
+void ReplaySession::appendRecordedFrame(const InputFrame& frame)
 {
     std::scoped_lock lock(m_mutex);
     if(frame.frame < m_state.data.frames.size()) {
@@ -75,7 +75,7 @@ void ReplayManager::appendRecordedFrame(const InputFrame& frame)
     m_state.cursorFrame = m_state.loadedFrameCount;
 }
 
-void ReplayManager::finalizeRecordingAsPlayback(const fs::path& path)
+void ReplaySession::finalizeRecordingAsPlayback(const fs::path& path)
 {
     std::scoped_lock lock(m_mutex);
     m_state.filePath = path;
@@ -86,7 +86,7 @@ void ReplayManager::finalizeRecordingAsPlayback(const fs::path& path)
     m_state.pendingStopAtEnd = false;
 }
 
-void ReplayManager::setLoadedReplay(const fs::path& path, ReplayData data)
+void ReplaySession::setLoadedReplay(const fs::path& path, ReplayData data)
 {
     std::scoped_lock lock(m_mutex);
     m_state = {};
@@ -97,44 +97,44 @@ void ReplayManager::setLoadedReplay(const fs::path& path, ReplayData data)
     m_state.loadedFrameCount = replayTimelineFrameCount(m_state.data.frames);
 }
 
-uint32_t ReplayManager::inputCount() const
+uint32_t ReplaySession::inputCount() const
 {
     std::scoped_lock lock(m_mutex);
     return replayTimelineFrameCount(m_state.data.frames);
 }
 
-uint32_t ReplayManager::clampedFrame(uint32_t frame) const
+uint32_t ReplaySession::clampedFrame(uint32_t frame) const
 {
     std::scoped_lock lock(m_mutex);
     return std::min(frame, replayTimelineFrameCount(m_state.data.frames));
 }
 
-InputTopology ReplayManager::inputTopology() const
+InputTopology ReplaySession::inputTopology() const
 {
     std::scoped_lock lock(m_mutex);
     return m_state.data.inputTopology;
 }
 
-void ReplayManager::setCursorFrame(uint32_t frame)
+void ReplaySession::setCursorFrame(uint32_t frame)
 {
     std::scoped_lock lock(m_mutex);
     m_state.cursorFrame = frame;
 }
 
-void ReplayManager::setCursorState(uint32_t frame)
+void ReplaySession::setCursorState(uint32_t frame)
 {
     std::scoped_lock lock(m_mutex);
     m_state.cursorFrame = frame;
 }
 
-void ReplayManager::beginPlayback()
+void ReplaySession::beginPlayback()
 {
     std::scoped_lock lock(m_mutex);
     m_state.pendingStopAtEnd = false;
     m_state.playing = true;
 }
 
-bool ReplayManager::syncRuntimeFrame(uint32_t emuFrame)
+bool ReplaySession::syncRuntimeFrame(uint32_t emuFrame)
 {
     std::scoped_lock lock(m_mutex);
     if(m_state.mode == ReplayMode::None) {
@@ -158,7 +158,7 @@ bool ReplayManager::syncRuntimeFrame(uint32_t emuFrame)
     return m_state.pendingStopAtEnd || m_state.cursorFrame >= m_state.loadedFrameCount;
 }
 
-bool ReplayManager::saveToFile(const fs::path& path, std::string& error) const
+bool ReplaySession::saveToFile(const fs::path& path, std::string& error) const
 {
     ReplayState snapshotState;
     {
@@ -168,7 +168,7 @@ bool ReplayManager::saveToFile(const fs::path& path, std::string& error) const
     return ReplayFile::save(path, snapshotState.data, error);
 }
 
-bool ReplayManager::loadFromFile(const fs::path& path, std::string& error)
+bool ReplaySession::loadFromFile(const fs::path& path, std::string& error)
 {
     ReplayData data;
     if(!ReplayFile::load(path, data, error)) {
@@ -178,19 +178,19 @@ bool ReplayManager::loadFromFile(const fs::path& path, std::string& error)
     return true;
 }
 
-bool ReplayManager::isRecording() const
+bool ReplaySession::isRecording() const
 {
     std::scoped_lock lock(m_mutex);
     return m_state.mode == ReplayMode::Recording;
 }
 
-bool ReplayManager::isPlayback() const
+bool ReplaySession::isPlayback() const
 {
     std::scoped_lock lock(m_mutex);
     return m_state.mode == ReplayMode::Playback;
 }
 
-bool ReplayManager::hasLoadedReplay() const
+bool ReplaySession::hasLoadedReplay() const
 {
     std::scoped_lock lock(m_mutex);
     return m_state.loadedReplayActive;

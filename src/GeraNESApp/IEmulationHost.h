@@ -44,7 +44,6 @@ struct EmulationHostTypes
         bool playing = false;
         uint32_t cursorFrame = 0;
         uint32_t loadedFrameCount = 0;
-        std::optional<uint32_t> cursorCanonicalCrc32;
     };
     struct ModRenderSnapshot;
     using ModFrameCaptureHook = std::function<bool(GeraNESEmu&, ModRenderSnapshot&, std::vector<uint32_t>&)>;

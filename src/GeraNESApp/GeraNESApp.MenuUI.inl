@@ -411,9 +411,9 @@ inline void GeraNESApp::menuBar() {
 
             if (ImGui::BeginMenu(withMenuIcon(FontAwesomeIcons::kGamepad , "Input").c_str()))
             {
-            const auto replayState = m_replayManager.snapshot();
+            const auto replayState = m_replaySession.snapshot();
             const bool replayInputLocked =
-                replayState.mode == ReplayManager::ReplayMode::Recording ||
+                replayState.mode == ReplaySession::ReplayMode::Recording ||
                 replayState.loadedReplayActive;
             const auto replayTopology = replayState.data.inputTopology;
 #ifndef __EMSCRIPTEN__

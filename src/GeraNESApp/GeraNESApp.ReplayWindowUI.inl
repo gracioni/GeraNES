@@ -82,12 +82,12 @@ inline void GeraNESApp::drawReplayWindow()
     }
 
     if(ImGui::Begin("Replay", &m_showReplayWindow, ImGuiWindowFlags_MenuBar)) {
-        const auto replayState = m_replayManager.snapshot();
+        const auto replayState = m_replaySession.snapshot();
         const auto hostReplayStatus = m_emu.replayPlaybackStatus();
         const bool hasRomLoaded = m_emu.valid();
-        const bool recording = replayState.mode == ReplayManager::ReplayMode::Recording;
+        const bool recording = replayState.mode == ReplaySession::ReplayMode::Recording;
         const bool replayLoaded = replayState.loadedReplayActive;
-        const bool playbackReady = replayState.mode == ReplayManager::ReplayMode::Playback && replayLoaded;
+        const bool playbackReady = replayState.mode == ReplaySession::ReplayMode::Playback && replayLoaded;
         const bool replayPlaying = playbackReady ? hostReplayStatus.playing : replayState.playing;
         const bool netplayRestricted = isReplayRestricted();
         const bool canContinueRecordingFromReplay =
@@ -251,13 +251,13 @@ inline void GeraNESApp::drawReplayWindow()
     }
     ImGui::End();
 
-    const auto replayState = m_replayManager.snapshot();
-    if(!m_showReplayWindow && replayState.mode == ReplayManager::ReplayMode::Recording) {
+    const auto replayState = m_replaySession.snapshot();
+    if(!m_showReplayWindow && replayState.mode == ReplaySession::ReplayMode::Recording) {
         m_selectedEmulationSpeed = EmulationSpeed::Normal;
         m_maxSpeedRequested = false;
         resetEmulationSpeedPacing();
         stopReplayRecording();
-    } else if(!m_showReplayWindow && replayState.mode == ReplayManager::ReplayMode::Playback) {
+    } else if(!m_showReplayWindow && replayState.mode == ReplaySession::ReplayMode::Playback) {
         m_selectedEmulationSpeed = EmulationSpeed::Normal;
         m_maxSpeedRequested = false;
         resetEmulationSpeedPacing();

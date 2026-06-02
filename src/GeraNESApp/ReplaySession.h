@@ -10,7 +10,7 @@
 
 namespace fs = std::filesystem;
 
-class ReplayManager
+class ReplaySession
 {
 public:
     using ReplayData = ReplayFile::Data;

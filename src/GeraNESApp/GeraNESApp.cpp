@@ -1017,20 +1017,20 @@ bool GeraNESApp::isNetplaySpeedRestricted() const
 
 bool GeraNESApp::isReplayRecordingActive() const
 {
-    return m_replayManager.snapshot().mode == ReplayManager::ReplayMode::Recording;
+    return m_replaySession.snapshot().mode == ReplaySession::ReplayMode::Recording;
 }
 
 bool GeraNESApp::isReplayResetRestricted() const
 {
-    const auto replayState = m_replayManager.snapshot();
-    return replayState.mode == ReplayManager::ReplayMode::Recording ||
+    const auto replayState = m_replaySession.snapshot();
+    return replayState.mode == ReplaySession::ReplayMode::Recording ||
            replayState.loadedReplayActive;
 }
 
 bool GeraNESApp::isReplayPlaybackActive() const
 {
-    const auto replayState = m_replayManager.snapshot();
-    if(replayState.mode != ReplayManager::ReplayMode::Playback ||
+    const auto replayState = m_replaySession.snapshot();
+    if(replayState.mode != ReplaySession::ReplayMode::Playback ||
        !replayState.loadedReplayActive) {
         return false;
     }
@@ -1137,7 +1137,7 @@ void GeraNESApp::cycleEmulationSpeedSelection(int direction)
 
 bool GeraNESApp::isReplaySessionInteractionLocked() const
 {
-    return m_replayManager.snapshot().mode != ReplayManager::ReplayMode::None;
+    return m_replaySession.snapshot().mode != ReplaySession::ReplayMode::None;
 }
 
 void GeraNESApp::notifyReplaySessionInteractionLocked(const char* action)
@@ -1151,15 +1151,15 @@ void GeraNESApp::notifyReplaySessionInteractionLocked(const char* action)
     Logger::instance().log(message, Logger::Type::USER);
 }
 
-void GeraNESApp::configureReplaySessionMode(ReplayManager::ReplayMode mode)
+void GeraNESApp::configureReplaySessionMode(ReplaySession::ReplayMode mode)
 {
     m_replaySessionMode.store(mode, std::memory_order_release);
 
-    if(mode == ReplayManager::ReplayMode::Recording) {
+    if(mode == ReplaySession::ReplayMode::Recording) {
         m_emu.setFrameInputResolver({});
         m_emu.setQueuedInputObserver({});
         m_emu.setSelectedInputObserver([this](const InputFrame& frame) {
-            m_replayManager.appendRecordedFrame(frame);
+            m_replaySession.appendRecordedFrame(frame);
         });
         return;
     }
@@ -1174,13 +1174,13 @@ void GeraNESApp::stopReplayPlayback(bool pauseEmulation)
     m_emu.setSimulationSuspended(true);
     (void)m_emu.replayPause(pauseEmulation);
     const auto hostStatus = m_emu.replayPlaybackStatus();
-    m_replayManager.stopPlayback();
-    m_replayManager.setCursorState(hostStatus.cursorFrame);
+    m_replaySession.stopPlayback();
+    m_replaySession.setCursorState(hostStatus.cursorFrame);
 }
 
 bool GeraNESApp::stopReplayToStart()
 {
-    if(!m_replayManager.isPlayback() || !m_replayManager.hasLoadedReplay()) {
+    if(!m_replaySession.isPlayback() || !m_replaySession.hasLoadedReplay()) {
         return false;
     }
 
@@ -1190,8 +1190,8 @@ bool GeraNESApp::stopReplayToStart()
 
     m_emu.setSimulationSuspended(true);
     const auto hostStatus = m_emu.replayPlaybackStatus();
-    m_replayManager.stopPlayback();
-    m_replayManager.setCursorState(hostStatus.cursorFrame);
+    m_replaySession.stopPlayback();
+    m_replaySession.setCursorState(hostStatus.cursorFrame);
     m_replaySliderValue = static_cast<int>(hostStatus.cursorFrame);
     m_replaySliderDragging = false;
     return true;
@@ -1199,11 +1199,11 @@ bool GeraNESApp::stopReplayToStart()
 
 void GeraNESApp::clearReplaySession(bool keepWindowOpen)
 {
-    const bool hadLoadedReplay = m_replayManager.hasLoadedReplay();
+    const bool hadLoadedReplay = m_replaySession.hasLoadedReplay();
     stopReplayPlayback(false);
     m_emu.clearReplayPlayback();
-    m_replayManager.clear();
-    configureReplaySessionMode(ReplayManager::ReplayMode::None);
+    m_replaySession.clear();
+    configureReplaySessionMode(ReplaySession::ReplayMode::None);
     m_replaySliderValue = 0;
     m_replaySliderDragging = false;
     if(hadLoadedReplay && m_emu.valid() && m_emu.paused()) {
@@ -1283,7 +1283,7 @@ bool GeraNESApp::openReplayDialog()
     const nfdresult_t result = NFD_OpenDialogU8_With(&outPath, &args);
     if(result == NFD_OKAY) {
         opened = openReplayFile(fs::path(outPath));
-        replayOpened = opened && m_replayManager.hasLoadedReplay();
+        replayOpened = opened && m_replaySession.hasLoadedReplay();
         AppSettings::instance().data.setLastFolder(outPath);
         NFD_FreePathU8(outPath);
     } else if(result != NFD_CANCEL) {
@@ -1376,7 +1376,7 @@ bool GeraNESApp::startReplayRecording()
         m_userToast.show("Replay is unavailable while netplay is active");
         return false;
     }
-    if(m_replayManager.hasLoadedReplay()) {
+    if(m_replaySession.hasLoadedReplay()) {
         m_userToast.show("Close the loaded replay before recording");
         return false;
     }
@@ -1386,7 +1386,7 @@ bool GeraNESApp::startReplayRecording()
     const std::string romCrc = currentRomCrc32();
     const auto inputTopology = m_inputTopology;
 
-    m_replayManager.beginRecording(romName, romCrc, inputTopology);
+    m_replaySession.beginRecording(romName, romCrc, inputTopology);
     m_imGuiWindowFocusBlocksEmulator = false;
     if(ImGui::GetCurrentContext() != nullptr) {
         ImGui::SetWindowFocus(nullptr);
@@ -1399,10 +1399,10 @@ bool GeraNESApp::startReplayRecording()
     }
 
     applyReplayInputTopology(inputTopology);
-    m_replayManager.setCursorState(0u);
+    m_replaySession.setCursorState(0u);
     m_replaySliderValue = 0;
     m_replaySliderDragging = false;
-    configureReplaySessionMode(ReplayManager::ReplayMode::Recording);
+    configureReplaySessionMode(ReplaySession::ReplayMode::Recording);
     m_showReplayWindow = true;
 
     if(m_emu.paused()) {
@@ -1424,9 +1424,9 @@ bool GeraNESApp::continueReplayRecordingFromCurrentCursor()
         return false;
     }
 
-    const auto replayState = m_replayManager.snapshot();
+    const auto replayState = m_replaySession.snapshot();
     const auto hostReplayStatus = m_emu.replayPlaybackStatus();
-    if(replayState.mode != ReplayManager::ReplayMode::Playback ||
+    if(replayState.mode != ReplaySession::ReplayMode::Playback ||
        !replayState.loadedReplayActive ||
        hostReplayStatus.playing) {
         m_userToast.show("Pause the replay before continuing recording");
@@ -1441,15 +1441,15 @@ bool GeraNESApp::continueReplayRecordingFromCurrentCursor()
         !replayState.data.frames.empty() &&
         continueFromFrame >= static_cast<uint32_t>(replayState.data.frames.size()) &&
         currentFrame >= static_cast<uint32_t>(replayState.data.frames.size());
-    m_replayManager.beginRecordingFromLoadedReplay(continueFromFrame);
+    m_replaySession.beginRecordingFromLoadedReplay(continueFromFrame);
     m_emu.clearReplayPlayback();
     m_emu.discardQueuedInputFramesAfter(continueFromFrame);
     m_emu.discardQueuedAudio();
-    configureReplaySessionMode(ReplayManager::ReplayMode::Recording);
+    configureReplaySessionMode(ReplaySession::ReplayMode::Recording);
     applyReplayInputTopology(inputTopology);
     if(continuingFromReplayEnd) {
         const IEmulationHost::InputState pendingInput = m_emu.pendingInputSnapshot();
-        m_replayManager.appendRecordedFrame(
+        m_replaySession.appendRecordedFrame(
             buildReplayRecordedFrame(inputTopology, currentFrame, pendingInput));
         m_emu.queueInputForFrame(currentFrame, pendingInput);
     }
@@ -1474,13 +1474,13 @@ bool GeraNESApp::continueReplayRecordingFromCurrentCursor()
 
 void GeraNESApp::stopReplayRecording()
 {
-    if(!m_replayManager.isRecording()) {
+    if(!m_replaySession.isRecording()) {
         return;
     }
 
     stopReplayPlayback(true);
     Logger::instance().log(
-        "Stopping replay recording. Captured inputs: " + std::to_string(m_replayManager.inputCount()),
+        "Stopping replay recording. Captured inputs: " + std::to_string(m_replaySession.inputCount()),
         Logger::Type::INFO
     );
 
@@ -1492,7 +1492,7 @@ void GeraNESApp::stopReplayRecording()
     }
 
     std::string error;
-    if(!m_replayManager.saveToFile(savePath, error)) {
+    if(!m_replaySession.saveToFile(savePath, error)) {
         Logger::instance().log("Failed to save replay: " + error, Logger::Type::ERROR);
         m_userToast.show("Failed to save replay file");
         clearReplaySession(true);
@@ -1515,27 +1515,27 @@ bool GeraNESApp::openReplayFile(const fs::path& path)
     }
 
     std::string error;
-    if(!m_replayManager.loadFromFile(path, error)) {
+    if(!m_replaySession.loadFromFile(path, error)) {
         Logger::instance().log("Failed to load replay: " + error, Logger::Type::ERROR);
         m_userToast.show("Failed to load replay file");
         return false;
     }
 
-    const auto replayState = m_replayManager.snapshot();
+    const auto replayState = m_replaySession.snapshot();
     const std::string currentCrc = currentRomCrc32();
     if(currentCrc.empty() || (!replayState.data.romCrc.empty() && currentCrc != replayState.data.romCrc)) {
         m_userToast.show("Replay ROM does not match the loaded ROM");
         Logger::instance().log("Replay ROM does not match the loaded ROM", Logger::Type::ERROR);
-        m_replayManager.clear();
+        m_replaySession.clear();
         return false;
     }
 
     m_showReplayWindow = true;
     Logger::instance().log("Replay loaded: " + path.string(), Logger::Type::USER);
     m_emu.clearReplayPlayback();
-    configureReplaySessionMode(ReplayManager::ReplayMode::Playback);
+    configureReplaySessionMode(ReplaySession::ReplayMode::Playback);
     if(!openRomPath(m_loadedRomPath, false, false)) {
-        configureReplaySessionMode(ReplayManager::ReplayMode::None);
+        configureReplaySessionMode(ReplaySession::ReplayMode::None);
         return false;
     }
     applyReplayInputTopology(replayState.data.inputTopology);
@@ -1547,7 +1547,7 @@ bool GeraNESApp::openReplayFile(const fs::path& path)
         return false;
     }
     const auto hostStatus = m_emu.replayPlaybackStatus();
-    m_replayManager.setCursorState(hostStatus.cursorFrame);
+    m_replaySession.setCursorState(hostStatus.cursorFrame);
     m_replaySliderValue = 0;
     m_replaySliderDragging = false;
     startReplayPlayback();
@@ -1556,56 +1556,56 @@ bool GeraNESApp::openReplayFile(const fs::path& path)
 
 bool GeraNESApp::seekReplayToFrame(uint32_t frame)
 {
-    if(!m_replayManager.isPlayback() || m_loadedRomPath.empty()) {
+    if(!m_replaySession.isPlayback() || m_loadedRomPath.empty()) {
         return false;
     }
 
-    const uint32_t requestedFrame = m_replayManager.clampedFrame(frame);
+    const uint32_t requestedFrame = m_replaySession.clampedFrame(frame);
     m_emu.setSimulationSuspended(true);
     if(!m_emu.replaySeekToFrame(requestedFrame)) {
-        m_replayManager.stopPlayback();
+        m_replaySession.stopPlayback();
         m_userToast.show("Replay seek failed");
         return false;
     }
     const auto hostStatus = m_emu.replayPlaybackStatus();
-    m_replayManager.stopPlayback();
-    m_replayManager.setCursorState(hostStatus.cursorFrame);
+    m_replaySession.stopPlayback();
+    m_replaySession.setCursorState(hostStatus.cursorFrame);
     m_replaySliderValue = static_cast<int>(hostStatus.cursorFrame);
     return true;
 }
 
 void GeraNESApp::startReplayPlayback()
 {
-    if(!m_replayManager.isPlayback() || !m_replayManager.hasLoadedReplay()) {
+    if(!m_replaySession.isPlayback() || !m_replaySession.hasLoadedReplay()) {
         return;
     }
 
     const bool started = m_emu.replayPlay();
     if(started) {
-        m_replayManager.beginPlayback();
+        m_replaySession.beginPlayback();
         m_emu.setSimulationSuspended(false);
     } else {
-        m_replayManager.stopPlayback();
+        m_replaySession.stopPlayback();
     }
 }
 
 void GeraNESApp::syncReplayRuntimeState()
 {
-    const auto replayState = m_replayManager.snapshot();
-    if(replayState.mode == ReplayManager::ReplayMode::Playback && replayState.loadedReplayActive) {
+    const auto replayState = m_replaySession.snapshot();
+    if(replayState.mode == ReplaySession::ReplayMode::Playback && replayState.loadedReplayActive) {
         const auto hostStatus = m_emu.replayPlaybackStatus();
-        m_replayManager.setCursorState(hostStatus.cursorFrame);
+        m_replaySession.setCursorState(hostStatus.cursorFrame);
         if(hostStatus.playing) {
-            m_replayManager.beginPlayback();
+            m_replaySession.beginPlayback();
         } else {
-            m_replayManager.stopPlayback();
+            m_replaySession.stopPlayback();
             if(m_emu.valid() && !m_emu.paused()) {
                 m_emu.togglePaused();
             }
         }
-    } else if(replayState.mode == ReplayManager::ReplayMode::Recording) {
-        m_replayManager.setCursorFrame(
-            std::min(m_emu.lastFrameReadyFrame(), m_replayManager.inputCount()));
+    } else if(replayState.mode == ReplaySession::ReplayMode::Recording) {
+        m_replaySession.setCursorFrame(
+            std::min(m_emu.lastFrameReadyFrame(), m_replaySession.inputCount()));
     }
 }
 
@@ -2356,8 +2356,8 @@ bool GeraNESApp::finishOpenRomPath(const fs::path& requestedPath, const std::str
             !netplayMenu.hosting &&
             netplayMenu.localAssignments.empty();
         const bool keepSuspendedForReplayLoad =
-            m_replayManager.isPlayback() &&
-            m_replayManager.hasLoadedReplay();
+            m_replaySession.isPlayback() &&
+            m_replaySession.hasLoadedReplay();
         if(!m_webVisibilitySuspended && !deferObserverResume && !keepSuspendedForReplayLoad) {
             m_emu.setSimulationSuspended(false);
         }
@@ -2836,7 +2836,7 @@ GeraNESApp::GeraNESApp()
     GeraNESNetplay::attachRuntimeWakeToHost(m_netplayRuntime, m_emu);
     GeraNESNetplay::installProcessGlobalFrontendNetplayLogCallbackOnce();
     m_emu.setPreAdvanceHook([this](GeraNESEmu& emu) {
-        if(m_replaySessionMode.load(std::memory_order_acquire) != ReplayManager::ReplayMode::None) {
+        if(m_replaySessionMode.load(std::memory_order_acquire) != ReplaySession::ReplayMode::None) {
 
             const uint32_t modObservedFrame = emu.frameCount();
             if(m_hasLastModObservedFrame && modObservedFrame < m_lastModObservedFrame) {
@@ -4802,8 +4802,8 @@ void GeraNESApp::mainLoop()
         !isWindowsTitleBarInteractionActive();
     const auto hostReplayStatus = m_emu.replayPlaybackStatus();
     const bool keepReplaySuspended =
-        m_replayManager.isPlayback() &&
-        m_replayManager.hasLoadedReplay() &&
+        m_replaySession.isPlayback() &&
+        m_replaySession.hasLoadedReplay() &&
         !hostReplayStatus.playing;
     const auto advanceFrames = [this, maxSpeedActive, speedMultiplier, dt](uint32_t emuFps) {
         const int maxFramesToAdvance = maxSpeedActive ? 120 : 30;

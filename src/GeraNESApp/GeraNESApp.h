@@ -70,7 +70,7 @@ namespace fs = std::filesystem;
 #include "GeraNESApp/ControllerInfo.h"
 #include "GeraNESApp/AppSettings.h"
 #include "GeraNESApp/ModManager.h"
-#include "GeraNESApp/ReplayManager.h"
+#include "GeraNESApp/ReplaySession.h"
 
 #include "GeraNES/util/CircularBuffer.h"
 #include "GeraNES/util/Crc32.h"
@@ -327,7 +327,7 @@ private:
     ModManager m_modManager;
     mutable std::mutex m_netplayInputStateMutex;
     IEmulationHost::InputState m_netplayLatestInputState = {};
-    ReplayManager m_replayManager;
+    ReplaySession m_replaySession;
     int m_replaySliderValue = 0;
     bool m_replaySliderDragging = false;
     EmulationSpeed m_selectedEmulationSpeed = EmulationSpeed::Normal;
@@ -595,7 +595,7 @@ private:
     void updateRuntimeVSyncSuppression(EmulationSpeed effectiveSpeed);
     void cycleEmulationSpeedSelection(int direction);
     void notifyReplaySessionInteractionLocked(const char* action);
-    void configureReplaySessionMode(ReplayManager::ReplayMode mode);
+    void configureReplaySessionMode(ReplaySession::ReplayMode mode);
     void stopReplayPlayback(bool pauseEmulation);
     void clearReplaySession(bool keepWindowOpen = true);
     void applyReplayInputTopology(const InputTopology& topology);
@@ -614,7 +614,7 @@ private:
     void startReplayPlayback();
     void syncReplayRuntimeState();
 
-    std::atomic<ReplayManager::ReplayMode> m_replaySessionMode{ReplayManager::ReplayMode::None};
+    std::atomic<ReplaySession::ReplayMode> m_replaySessionMode{ReplaySession::ReplayMode::None};
 
 public:
 

@@ -20,6 +20,7 @@
 
 #include "GeraNESApp/IEmulationHost.h"
 #include "GeraNESApp/PendingInputFrames.h"
+#include "GeraNESApp/ReplayPlaybackController.h"
 #include "GeraNES/GeraNESEmu.h"
 #include "GeraNES/PPU.h"
 
@@ -50,37 +51,6 @@ private:
         InputFrame frame = emu.createInputFrame(frameNumber);
         frame.state.serializedInputData = input.serializedInputData;
         return frame;
-    }
-
-    static uint32_t replayFrameCountFromFrames(const std::vector<InputFrame>& frames)
-    {
-        uint32_t maxFramePlusOne = 0u;
-        for(const InputFrame& frame : frames) {
-            maxFramePlusOne = std::max(maxFramePlusOne, frame.frame + 1u);
-        }
-        return maxFramePlusOne;
-    }
-
-    static const InputFrame* findReplayFrameByNumber(const std::vector<InputFrame>& frames, uint32_t targetFrame)
-    {
-        if(targetFrame < frames.size()) {
-            const InputFrame& indexed = frames[static_cast<size_t>(targetFrame)];
-            if(indexed.frame == targetFrame) {
-                return &indexed;
-            }
-        }
-
-        const auto it = std::lower_bound(
-            frames.begin(),
-            frames.end(),
-            targetFrame,
-            [](const InputFrame& frame, uint32_t frameNumber) {
-                return frame.frame < frameNumber;
-            });
-        if(it == frames.end() || it->frame != targetFrame) {
-            return nullptr;
-        }
-        return &*it;
     }
 
     static std::optional<InputFrame> queueReplayFrameInputToEmu(GeraNESEmu& emu,
@@ -174,7 +144,6 @@ private:
         bool replayPlaying = false;
         uint32_t replayCursorFrame = 0;
         uint32_t replayLoadedFrameCount = 0;
-        std::optional<uint32_t> replayCursorCanonicalCrc32;
         Settings::Region region = Settings::Region::NTSC;
         GameDatabase::System cartridgeSystem = GameDatabase::System::Unknown;
         InputTopology inputTopology = {};
@@ -195,24 +164,6 @@ private:
         uint32_t crc32 = 0;
         std::shared_ptr<std::vector<uint8_t>> data;
     };
-    struct ReplayPlaybackState
-    {
-        bool loaded = false;
-        bool playing = false;
-        bool seeking = false;
-        uint32_t cursorFrame = 0;
-        std::optional<uint32_t> cursorCanonicalCrc32;
-        std::vector<InputFrame> frames;
-        struct StoredSnapshot
-        {
-            uint32_t frame = 0;
-            uint32_t crc32 = 0;
-            std::shared_ptr<std::vector<uint8_t>> data;
-        };
-        std::vector<uint32_t> scheduledSnapshotFrames;
-        std::deque<StoredSnapshot> snapshots;
-    };
-
     mutable std::mutex m_netplaySnapshotMutex;
     std::deque<NetplayStoredSnapshot> m_netplaySnapshots;
     std::unordered_map<uint32_t, uint64_t> m_netplaySnapshotIndexByFrame;
@@ -223,7 +174,7 @@ private:
     uint32_t m_lastFrameReadyFrameValue = 0;
     uint32_t m_lastFrameReadyNetplayCrc32Value = 0;
     std::shared_ptr<const std::vector<uint8_t>> m_lastFrameReadyStateSnapshot;
-    ReplayPlaybackState m_replayPlayback;
+    ReplayPlaybackController m_replayPlayback;
     mutable std::mutex m_manualStateChangeMutex;
     std::deque<ManualStateChangeRecord> m_manualStateChanges;
     void onResetExecutedLocked(uint32_t frame);
@@ -873,16 +824,7 @@ public:
     void loadReplayPlayback(const std::vector<InputFrame>& frames) override
     {
         std::scoped_lock emuLock(m_emuMutex);
-        m_replayPlayback.loaded = true;
-        m_replayPlayback.playing = false;
-        m_replayPlayback.seeking = false;
-        m_replayPlayback.frames = frames;
-        std::stable_sort(
-            m_replayPlayback.frames.begin(),
-            m_replayPlayback.frames.end(),
-            [](const InputFrame& lhs, const InputFrame& rhs) {
-                return lhs.frame < rhs.frame;
-            });
+        m_replayPlayback.loadFrames(frames, m_emu.frameCount());
         m_pendingInputFrames.clear();
         resetReplayPlaybackSnapshotsLocked();
         refreshSnapshotLocked();
@@ -890,7 +832,7 @@ public:
     void clearReplayPlayback() override
     {
         std::scoped_lock emuLock(m_emuMutex);
-        m_replayPlayback = {};
+        m_replayPlayback.clear();
         m_pendingInputFrames.clear();
         refreshSnapshotLocked();
     }
@@ -901,8 +843,7 @@ public:
             status.loaded = m_replayPlayback.loaded;
             status.playing = m_replayPlayback.playing;
             status.cursorFrame = m_replayPlayback.cursorFrame;
-            status.loadedFrameCount = replayFrameCountFromFrames(m_replayPlayback.frames);
-            status.cursorCanonicalCrc32 = m_replayPlayback.cursorCanonicalCrc32;
+            status.loadedFrameCount = m_replayPlayback.loadedFrameCount();
             return status;
         }
 
@@ -911,7 +852,6 @@ public:
         status.playing = m_snapshot.replayPlaying;
         status.cursorFrame = m_snapshot.replayCursorFrame;
         status.loadedFrameCount = m_snapshot.replayLoadedFrameCount;
-        status.cursorCanonicalCrc32 = m_snapshot.replayCursorCanonicalCrc32;
         return status;
     }
     bool replayPlay() override
@@ -936,7 +876,6 @@ public:
             m_emu.setPaused(true);
         }
         m_replayPlayback.cursorFrame = m_emu.frameCount();
-        m_replayPlayback.cursorCanonicalCrc32.reset();
         refreshSnapshotLocked();
         return true;
     }
