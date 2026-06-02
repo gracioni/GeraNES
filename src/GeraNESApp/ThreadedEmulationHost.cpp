@@ -283,7 +283,6 @@ void ThreadedEmulationHost::recordFrameReadyNetplayState(GeraNESEmu& emu)
         }
         m_lastFrameReadyFrameValue = frame;
         m_lastFrameReadyNetplayCrc32Value = 0;
-        m_lastFrameReadyReplayCrc32Value = 0;
         return;
     }
 
@@ -298,13 +297,6 @@ void ThreadedEmulationHost::recordFrameReadyNetplayState(GeraNESEmu& emu)
     }
     m_lastFrameReadyFrameValue = frame;
     m_lastFrameReadyNetplayCrc32Value = crc32;
-    m_lastFrameReadyReplayCrc32Value = 0;
-    if(m_replayPlayback.loaded) {
-        const std::vector<uint8_t> replayState = emu.saveStateToMemory();
-        m_lastFrameReadyReplayCrc32Value = replayState.empty()
-            ? 0u
-            : Crc32::calc(reinterpret_cast<const char*>(replayState.data()), replayState.size());
-    }
 
     if(snapshotCapacity == 0) {
         std::scoped_lock netplayLock(m_netplaySnapshotMutex);
@@ -527,7 +519,6 @@ void ThreadedEmulationHost::refreshSnapshotLocked()
     const int nsfCurrentSong = m_emu.nsfCurrentSong();
     const uint32_t lastFrameReadyFrame = m_lastFrameReadyFrameValue;
     const uint32_t lastFrameReadyNetplayCrc32 = m_lastFrameReadyNetplayCrc32Value;
-    const uint32_t lastFrameReadyReplayCrc32 = m_lastFrameReadyReplayCrc32Value;
 
     refreshPpuViewerSnapshotLocked(frameCount);
     refreshPpuEventViewerSnapshotLocked(frameCount);
@@ -584,7 +575,6 @@ void ThreadedEmulationHost::refreshSnapshotLocked()
         m_snapshot.nsfCurrentSong = nsfCurrentSong;
         m_snapshot.lastFrameReadyFrame = lastFrameReadyFrame;
         m_snapshot.lastFrameReadyNetplayCrc32 = lastFrameReadyNetplayCrc32;
-        m_snapshot.lastFrameReadyReplayCrc32 = lastFrameReadyReplayCrc32;
         if(refreshSlowFields) {
             m_snapshot.audioDeviceName = std::move(audioDeviceName);
             m_snapshot.audioDevices = std::move(audioDevices);
@@ -628,7 +618,6 @@ void ThreadedEmulationHost::publishPresentedStateLocked(bool recordNetplayState)
         if(recordNetplayState) {
             m_snapshot.lastFrameReadyFrame = m_lastFrameReadyFrameValue;
             m_snapshot.lastFrameReadyNetplayCrc32 = m_lastFrameReadyNetplayCrc32Value;
-            m_snapshot.lastFrameReadyReplayCrc32 = m_lastFrameReadyReplayCrc32Value;
         }
     }
 }
@@ -1129,12 +1118,6 @@ uint32_t ThreadedEmulationHost::lastFrameReadyNetplayCrc32() const
     return m_snapshot.lastFrameReadyNetplayCrc32;
 }
 
-uint32_t ThreadedEmulationHost::lastFrameReadyReplayCrc32() const
-{
-    std::scoped_lock snapshotLock(m_snapshotMutex);
-    return m_snapshot.lastFrameReadyReplayCrc32;
-}
-
 std::optional<std::shared_ptr<const std::vector<uint8_t>>> ThreadedEmulationHost::lastFrameReadyStateSnapshot() const
 {
     std::scoped_lock snapshotLock(m_snapshotMutex);
@@ -1148,11 +1131,9 @@ void ThreadedEmulationHost::setAuthoritativeFrameReadyState(uint32_t frame, uint
 {
     m_lastFrameReadyFrameValue = frame;
     m_lastFrameReadyNetplayCrc32Value = canonicalCrc32;
-    m_lastFrameReadyReplayCrc32Value = canonicalCrc32;
     std::scoped_lock snapshotLock(m_snapshotMutex);
     m_snapshot.lastFrameReadyFrame = frame;
     m_snapshot.lastFrameReadyNetplayCrc32 = canonicalCrc32;
-    m_snapshot.lastFrameReadyReplayCrc32 = canonicalCrc32;
 }
 
 std::optional<std::shared_ptr<const std::vector<uint8_t>>> ThreadedEmulationHost::netplaySnapshotForFrame(uint32_t frame) const

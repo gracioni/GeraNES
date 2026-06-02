@@ -510,7 +510,7 @@ TEST_CASE("Threaded replay seek and resume matches baseline replay CRCs", "[stat
         while(expectedFrame <= framesToTest) {
             host.updateUntilFrame(frameDtMs);
             REQUIRE(waitForHostFrame(host, expectedFrame, std::chrono::milliseconds(250)));
-            baselineFrameCrc32[expectedFrame] = host.lastFrameReadyReplayCrc32();
+            baselineFrameCrc32[expectedFrame] = host.lastFrameReadyNetplayCrc32();
             ++expectedFrame;
         }
 
@@ -552,9 +552,9 @@ TEST_CASE("Threaded replay seek and resume matches baseline replay CRCs", "[stat
             host.updateUntilFrame(frameDtMs);
             REQUIRE(waitForHostFrame(host, expectedFrame, std::chrono::milliseconds(250)));
             CAPTURE(expectedFrame);
-            CAPTURE(host.lastFrameReadyReplayCrc32());
+            CAPTURE(host.lastFrameReadyNetplayCrc32());
             CAPTURE(baselineFrameCrc32[expectedFrame]);
-            REQUIRE(host.lastFrameReadyReplayCrc32() == baselineFrameCrc32[expectedFrame]);
+            REQUIRE(host.lastFrameReadyNetplayCrc32() == baselineFrameCrc32[expectedFrame]);
         }
 
         host.shutdown();

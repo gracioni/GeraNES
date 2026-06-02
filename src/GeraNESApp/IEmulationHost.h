@@ -39,7 +39,6 @@ struct EmulationHostTypes
     using QueuedInputObserver = std::function<void(const InputFrame&)>;
     using SelectedInputObserver = std::function<void(const InputFrame&)>;
     using ReplaySnapshotObserver = std::function<void(uint32_t, std::vector<uint8_t>)>;
-    using ReplayFrameStateObserver = std::function<void(uint32_t, uint32_t)>;
     struct ReplayPlaybackStatus
     {
         bool loaded = false;
@@ -112,7 +111,6 @@ public:
     using QueuedInputObserver = EmulationHostTypes::QueuedInputObserver;
     using SelectedInputObserver = EmulationHostTypes::SelectedInputObserver;
     using ReplaySnapshotObserver = EmulationHostTypes::ReplaySnapshotObserver;
-    using ReplayFrameStateObserver = EmulationHostTypes::ReplayFrameStateObserver;
     using ReplayPlaybackStatus = EmulationHostTypes::ReplayPlaybackStatus;
     using ModFrameCaptureHook = EmulationHostTypes::ModFrameCaptureHook;
     using NetplayDiagnosticsSnapshot = ConsoleNetplay::NetplayRuntimeDiagnostics;
@@ -230,11 +228,9 @@ public:
                                           const std::vector<InputFrame>& replayFrames,
                                           std::optional<uint32_t> expectedCurrentStateCrc32,
                                           const std::vector<uint32_t>& snapshotFramesToCapture = {},
-                                          ReplaySnapshotObserver snapshotObserver = {},
-                                          ReplayFrameStateObserver frameStateObserver = {}) = 0;
+                                          ReplaySnapshotObserver snapshotObserver = {}) = 0;
     virtual uint32_t lastFrameReadyFrame() const = 0;
     virtual uint32_t lastFrameReadyNetplayCrc32() const = 0;
-    virtual uint32_t lastFrameReadyReplayCrc32() const = 0;
     virtual std::optional<std::shared_ptr<const std::vector<uint8_t>>> lastFrameReadyStateSnapshot() const = 0;
     virtual void setAuthoritativeFrameReadyState(uint32_t frame, uint32_t canonicalCrc32) = 0;
     virtual std::optional<std::shared_ptr<const std::vector<uint8_t>>> netplaySnapshotForFrame(uint32_t frame) const = 0;

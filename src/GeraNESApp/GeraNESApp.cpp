@@ -1170,15 +1170,11 @@ void GeraNESApp::refreshReplayFrameInputResolver()
 
 void GeraNESApp::stopReplayPlayback(bool pauseEmulation)
 {
-    logReplayTrace(
-        "pause replay requested pauseEmulation=" + std::to_string(pauseEmulation ? 1 : 0) +
-        " frame=" + std::to_string(m_emu.valid() ? m_emu.frameCount() : 0));
     m_emu.setSimulationSuspended(true);
     (void)m_emu.replayPause(pauseEmulation);
     const auto hostStatus = m_emu.replayPlaybackStatus();
     m_replayManager.stopPlayback();
     m_replayManager.setCursorState(hostStatus.cursorFrame, hostStatus.cursorCanonicalCrc32);
-    m_replayBaselineCaptureArmed = false;
 }
 
 bool GeraNESApp::stopReplayToStart()
@@ -1187,8 +1183,6 @@ bool GeraNESApp::stopReplayToStart()
         return false;
     }
 
-    logReplayTrace("stop replay to start requested");
-    beginReplayFrameCrcBaselineSession();
     if(!m_emu.replayStopToStart()) {
         return false;
     }
@@ -1213,145 +1207,14 @@ void GeraNESApp::synchronizeReplayInputAtCurrentFrame()
         m_emu.clearQueuedInputFrames();
 
         const uint32_t currentFrame = emu.frameCount();
-        logReplayTrace("sync input at frame=" + std::to_string(currentFrame) + " clearQueuedInputFrames");
         if(const auto replayFrame = m_replayManager.playbackFrameForFrame(currentFrame); replayFrame.has_value()) {
-            logReplayTrace("sync queue " + replayInputFrameSummary(*replayFrame));
             m_emu.queueReplayInputFrame(*replayFrame);
-        } else {
-            logReplayTrace("sync queue none for frame=" + std::to_string(currentFrame));
         }
     });
 }
 
-GeraNESApp::ReplayStateSample GeraNESApp::sampleReplayStateAtCurrentFrame()
-{
-    ReplayStateSample sample;
-    if(!m_emu.valid()) {
-        return sample;
-    }
-
-    m_emu.withExclusiveAccess([&](auto& emu) {
-        sample.frame = emu.frameCount();
-        const std::vector<uint8_t> state = emu.saveStateToMemory();
-        sample.crc32 = state.empty()
-            ? 0u
-            : Crc32::calc(reinterpret_cast<const char*>(state.data()), state.size());
-    });
-    return sample;
-}
-
-void GeraNESApp::resetReplayFrameCrcDiagnostics()
-{
-    m_replayBaselineFrameStateCrc32.clear();
-    m_replayFrameCrcDiagnosticsMode = ReplayFrameCrcDiagnosticsMode::Idle;
-    m_replayFrameCrcMismatchDetected = false;
-    m_replayBaselineCaptureArmed = false;
-    m_replayBaselineFrameStateCrcMaxFrame = 0;
-    m_lastReplayRuntimeSyncedFrame = UINT32_MAX;
-    m_replayTraceLog.clear();
-}
-
-void GeraNESApp::updateReplayFrameCrcDiagnostics(uint32_t frame, uint32_t crc32, const char* source)
-{
-    if(crc32 == 0u) {
-        return;
-    }
-
-    if(m_replayFrameCrcDiagnosticsMode == ReplayFrameCrcDiagnosticsMode::RecordingBaseline) {
-        m_replayBaselineFrameStateCrc32[frame] = crc32;
-        m_replayBaselineFrameStateCrcMaxFrame = std::max(m_replayBaselineFrameStateCrcMaxFrame, frame);
-        return;
-    }
-
-    if(m_replayFrameCrcDiagnosticsMode != ReplayFrameCrcDiagnosticsMode::Comparing) {
-        return;
-    }
-
-    const auto it = m_replayBaselineFrameStateCrc32.find(frame);
-    if(it == m_replayBaselineFrameStateCrc32.end()) {
-        return;
-    }
-
-    if(it->second == crc32) {
-        return;
-    }
-
-    if(!m_replayFrameCrcMismatchDetected) {
-        m_replayFrameCrcMismatchDetected = true;
-        std::ostringstream message;
-        message << "Replay CRC mismatch at frame " << frame
-                << " from " << source
-                << ": baseline=0x" << std::hex << std::uppercase << it->second
-                << " compare=0x" << crc32;
-        Logger::instance().log(message.str(), Logger::Type::WARNING);
-        dumpReplayTraceOnMismatch();
-        m_userToast.show("Replay CRC mismatch at frame " + std::to_string(frame));
-    }
-}
-
-void GeraNESApp::captureReplayFrameCrcAtCurrentFrame(const char* source)
-{
-    if(!m_emu.valid()) {
-        return;
-    }
-    if(m_replayFrameCrcDiagnosticsMode == ReplayFrameCrcDiagnosticsMode::Idle &&
-       m_replayBaselineFrameStateCrc32.empty()) {
-        return;
-    }
-
-    const ReplayStateSample sample = sampleReplayStateAtCurrentFrame();
-    const uint32_t currentFrame = sample.frame;
-    const uint32_t crc32 = sample.crc32;
-    logReplayTrace(
-        std::string("capture ") + source +
-        " frame=" + std::to_string(currentFrame) +
-        " stateCrc=0x" + [&]() {
-            std::ostringstream ss;
-            ss << std::hex << std::uppercase << crc32;
-            return ss.str();
-        }());
-    updateReplayFrameCrcDiagnostics(currentFrame, crc32, source);
-}
-
-void GeraNESApp::beginReplayFrameCrcBaselineSession()
-{
-    resetReplayFrameCrcDiagnostics();
-    m_replayBaselineCaptureArmed = true;
-    m_replayFrameCrcDiagnosticsMode = ReplayFrameCrcDiagnosticsMode::RecordingBaseline;
-    m_replayFrameCrcMismatchDetected = false;
-    logReplayTrace("replay CRC baseline session reset");
-}
-
-void GeraNESApp::logReplayTrace(const std::string& message, Logger::Type type)
-{
-    constexpr bool kReplayTraceEnabled = false;
-    if(!kReplayTraceEnabled) {
-        (void)message;
-        (void)type;
-        return;
-    }
-    if(m_replayTraceLog.size() >= 256) {
-        m_replayTraceLog.pop_front();
-    }
-    m_replayTraceLog.push_back(message);
-    Logger::instance().log("[ReplayTrace] " + message, type);
-}
-
-void GeraNESApp::dumpReplayTraceOnMismatch() const
-{
-    constexpr bool kReplayTraceEnabled = false;
-    if(!kReplayTraceEnabled) {
-        return;
-    }
-    Logger::instance().log("[ReplayTrace] Dumping recent replay trace", Logger::Type::WARNING);
-    for(const std::string& entry : m_replayTraceLog) {
-        Logger::instance().log("[ReplayTrace] " + entry, Logger::Type::WARNING);
-    }
-}
-
 void GeraNESApp::clearReplaySession(bool keepWindowOpen)
 {
-    waitForReplaySeekTask();
     const bool hadLoadedReplay = m_replayManager.hasLoadedReplay();
     stopReplayPlayback(false);
     m_emu.clearReplayPlayback();
@@ -1360,7 +1223,6 @@ void GeraNESApp::clearReplaySession(bool keepWindowOpen)
     m_replaySliderDragging = false;
     m_replaySeekInProgress = false;
     m_replayAutoPlayAfterSeek = false;
-    resetReplayFrameCrcDiagnostics();
     if(hadLoadedReplay && m_emu.valid() && m_emu.paused()) {
         m_emu.togglePaused();
     }
@@ -1689,7 +1551,6 @@ bool GeraNESApp::openReplayFile(const fs::path& path)
     }
 
     m_showReplayWindow = true;
-    beginReplayFrameCrcBaselineSession();
     Logger::instance().log("Replay loaded: " + path.string(), Logger::Type::USER);
     m_emu.clearReplayPlayback();
     if(!openRomPath(m_loadedRomPath, false, false)) {
@@ -1718,11 +1579,6 @@ bool GeraNESApp::seekReplayToFrame(uint32_t frame)
     }
 
     const uint32_t requestedFrame = m_replayManager.clampedFrame(frame);
-    m_replayBaselineCaptureArmed = false;
-    logReplayTrace(
-        "seek requested targetFrame=" + std::to_string(frame) +
-        " currentFrame=" + std::to_string(m_emu.valid() ? m_emu.frameCount() : 0) +
-        " emuPaused=" + std::to_string(m_emu.valid() && m_emu.paused() ? 1 : 0));
     m_emu.setSimulationSuspended(true);
     if(!m_emu.replaySeekToFrame(requestedFrame)) {
         m_replayManager.stopPlayback();
@@ -1733,103 +1589,7 @@ bool GeraNESApp::seekReplayToFrame(uint32_t frame)
     m_replayManager.stopPlayback();
     m_replayManager.setCursorState(hostStatus.cursorFrame, hostStatus.cursorCanonicalCrc32);
     m_replaySliderValue = static_cast<int>(hostStatus.cursorFrame);
-    captureReplayFrameCrcAtCurrentFrame("seek");
     return true;
-}
-
-bool GeraNESApp::beginReplaySeekCatchup(uint32_t targetFrame,
-                                        std::vector<InputFrame> replayFrames,
-                                        std::optional<uint32_t> expectedCurrentStateCrc32,
-                                        std::vector<uint32_t> snapshotFramesToCapture)
-{
-    logReplayTrace(
-        "begin seek catchup target=" + std::to_string(targetFrame) +
-        " current=" + std::to_string(m_emu.frameCount()) +
-        " replayFrames=" + std::to_string(replayFrames.size()));
-    waitForReplaySeekTask();
-    m_replaySeekTargetFrame = targetFrame;
-    m_replaySeekTaskSucceeded = false;
-    m_replaySeekTaskCompleted = false;
-    m_replaySeekTaskRunning = true;
-    m_replaySeekThread = std::thread(
-        [this,
-         targetFrame,
-         replayFrames = std::move(replayFrames),
-         expectedCurrentStateCrc32,
-         snapshotFramesToCapture = std::move(snapshotFramesToCapture)]() mutable {
-            const bool succeeded =
-                m_emu.fastForwardReplayToFrame(
-                    targetFrame,
-                    replayFrames,
-                    expectedCurrentStateCrc32,
-                    snapshotFramesToCapture,
-                    [this](uint32_t frame, std::vector<uint8_t> state) {
-                        m_replayManager.storeRuntimeSnapshot(frame, std::move(state));
-                    },
-                    [this](uint32_t frame, uint32_t crc32) {
-                        updateReplayFrameCrcDiagnostics(frame, crc32, "seek catchup frame");
-                    });
-            m_replaySeekTaskSucceeded = succeeded;
-            m_replaySeekTaskCompleted = true;
-            m_replaySeekTaskRunning = false;
-        }
-    );
-    return true;
-}
-
-void GeraNESApp::finishReplaySeekTask()
-{
-    if(!m_replaySeekTaskCompleted.load()) {
-        return;
-    }
-
-    waitForReplaySeekTask();
-    const bool succeeded = m_replaySeekTaskSucceeded.load();
-    logReplayTrace(
-        "finish seek task target=" + std::to_string(m_replaySeekTargetFrame) +
-        " success=" + std::to_string(succeeded ? 1 : 0) +
-        " current=" + std::to_string(m_emu.frameCount()));
-    if(!succeeded) {
-        m_replaySeekInProgress = false;
-        m_replayAutoPlayAfterSeek = false;
-        m_emu.setSimulationSuspended(false);
-        m_userToast.show("Replay seek failed");
-        return;
-    }
-
-    m_emu.discardQueuedAudio();
-    m_emu.setSimulationSuspended(true);
-    m_emu.withExclusiveAccess([](auto&) {});
-    const ReplayStateSample settledState = sampleReplayStateAtCurrentFrame();
-    const uint32_t settledFrame = settledState.frame;
-    m_emu.discardQueuedInputFramesAfter(settledFrame);
-    synchronizeReplayInputAtCurrentFrame();
-    const ReplayStateSample synchronizedState = sampleReplayStateAtCurrentFrame();
-    m_replayManager.setCursorState(synchronizedState.frame, synchronizedState.crc32);
-    captureReplayFrameCrcAtCurrentFrame("seek catchup");
-    m_replaySliderValue = static_cast<int>(synchronizedState.frame);
-    if(m_replayAutoPlayAfterSeek) {
-        m_replaySeekInProgress = false;
-        render();
-        m_replayAutoPlayAfterSeek = false;
-        startReplayPlayback();
-        return;
-    }
-    if(m_emu.valid() && !m_emu.paused()) {
-        m_emu.togglePaused();
-    }
-    m_replaySeekInProgress = false;
-    m_emu.setSimulationSuspended(false);
-    render();
-}
-
-void GeraNESApp::waitForReplaySeekTask()
-{
-    if(m_replaySeekThread.joinable()) {
-        m_replaySeekThread.join();
-    }
-    m_replaySeekTaskRunning = false;
-    m_replaySeekTaskCompleted = false;
 }
 
 void GeraNESApp::startReplayPlayback()
@@ -1838,42 +1598,6 @@ void GeraNESApp::startReplayPlayback()
         return;
     }
 
-    logReplayTrace(
-        "play replay requested frame=" + std::to_string(m_emu.valid() ? m_emu.frameCount() : 0) +
-        " emuPaused=" + std::to_string(m_emu.valid() && m_emu.paused() ? 1 : 0) +
-        " seekInProgress=" + std::to_string(m_replaySeekInProgress ? 1 : 0));
-    if(m_emu.valid()) {
-        const ReplayStateSample sample = sampleReplayStateAtCurrentFrame();
-        const uint32_t currentFrame = sample.frame;
-        const uint32_t currentStateCrc32 = sample.crc32;
-        logReplayTrace(
-            "playback start frame=" + std::to_string(currentFrame) +
-            " stateCrc=0x" + [&]() {
-                std::ostringstream ss;
-                ss << std::hex << std::uppercase << currentStateCrc32;
-                return ss.str();
-            }());
-        m_replayManager.setCursorState(currentFrame, currentStateCrc32);
-        if(m_replayBaselineCaptureArmed &&
-           currentFrame == 0 &&
-           m_replayBaselineFrameStateCrc32.empty()) {
-            m_replayFrameCrcDiagnosticsMode = ReplayFrameCrcDiagnosticsMode::RecordingBaseline;
-            m_replayFrameCrcMismatchDetected = false;
-            Logger::instance().log("Replay CRC baseline capture started at frame 0", Logger::Type::INFO);
-        } else if(!m_replayBaselineFrameStateCrc32.empty()) {
-            m_replayFrameCrcDiagnosticsMode = ReplayFrameCrcDiagnosticsMode::Comparing;
-            m_replayFrameCrcMismatchDetected = false;
-            Logger::instance().log(
-                "Replay CRC comparison started at frame " + std::to_string(currentFrame),
-                Logger::Type::INFO
-            );
-        } else {
-            m_replayFrameCrcDiagnosticsMode = ReplayFrameCrcDiagnosticsMode::Idle;
-            m_replayFrameCrcMismatchDetected = false;
-        }
-        updateReplayFrameCrcDiagnostics(currentFrame, currentStateCrc32, "playback start");
-        m_lastReplayRuntimeSyncedFrame = currentFrame;
-    }
     const bool started = m_emu.replayPlay();
     if(started) {
         m_replayManager.beginPlayback();
@@ -1881,7 +1605,6 @@ void GeraNESApp::startReplayPlayback()
     } else {
         m_replayManager.stopPlayback();
     }
-    logReplayTrace("play replay delegated to host at frame=" + std::to_string(m_emu.frameCount()));
 }
 
 void GeraNESApp::syncReplayRuntimeState()
@@ -1901,21 +1624,6 @@ void GeraNESApp::syncReplayRuntimeState()
     } else if(replayState.mode == ReplayManager::ReplayMode::Recording) {
         m_replayManager.setCursorFrame(
             std::min(m_emu.lastFrameReadyFrame(), m_replayManager.inputCount()));
-    }
-    const uint32_t frameReady = m_emu.lastFrameReadyFrame();
-    if(frameReady == m_lastReplayRuntimeSyncedFrame) {
-        return;
-    }
-
-    m_lastReplayRuntimeSyncedFrame = frameReady;
-    const uint32_t frameReadyCrc32 = m_emu.lastFrameReadyReplayCrc32();
-    if(frameReadyCrc32 == 0u) {
-        return;
-    }
-    const bool shouldCaptureDiagnostics =
-        m_replayFrameCrcDiagnosticsMode != ReplayFrameCrcDiagnosticsMode::Idle;
-    if(shouldCaptureDiagnostics) {
-        updateReplayFrameCrcDiagnostics(frameReady, frameReadyCrc32, "runtime");
     }
 }
 
@@ -3709,7 +3417,6 @@ void GeraNESApp::onQuitRequested()
 GeraNESApp::~GeraNESApp()
 {
     persistSettingsForShutdown();
-    waitForReplaySeekTask();
     m_emu.shutdown();
     m_netplayRuntime.shutdownForUnload();
     destroyPostProcessTargets();

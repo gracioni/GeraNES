@@ -33,7 +33,6 @@ public:
     using QueuedInputObserver = IEmulationHost::QueuedInputObserver;
     using SelectedInputObserver = IEmulationHost::SelectedInputObserver;
     using ReplaySnapshotObserver = IEmulationHost::ReplaySnapshotObserver;
-    using ReplayFrameStateObserver = IEmulationHost::ReplayFrameStateObserver;
     using NetplayDiagnosticsSnapshot = IEmulationHost::NetplayDiagnosticsSnapshot;
     using ManualStateChangeKind = IEmulationHost::ManualStateChangeKind;
     using ManualStateChangeRecord = IEmulationHost::ManualStateChangeRecord;
@@ -234,7 +233,6 @@ private:
     mutable NetplayDiagnosticsSnapshot m_netplayDiagnostics;
     uint32_t m_lastFrameReadyFrameValue = 0;
     uint32_t m_lastFrameReadyNetplayCrc32Value = 0;
-    uint32_t m_lastFrameReadyReplayCrc32Value = 0;
     std::shared_ptr<const std::vector<uint8_t>> m_lastFrameReadyStateSnapshot;
     ReplayPlaybackState m_replayPlayback;
     std::deque<ManualStateChangeRecord> m_manualStateChanges;
@@ -750,8 +748,7 @@ public:
                                   const std::vector<InputFrame>& replayFrames,
                                   std::optional<uint32_t> expectedCurrentStateCrc32,
                                   const std::vector<uint32_t>& snapshotFramesToCapture = {},
-                                  ReplaySnapshotObserver snapshotObserver = {},
-                                  ReplayFrameStateObserver frameStateObserver = {}) override
+                                  ReplaySnapshotObserver snapshotObserver = {}) override
     {
         if(expectedCurrentStateCrc32.has_value()) {
             const std::vector<uint8_t> currentState = m_emu.saveStateToMemory();
@@ -790,16 +787,9 @@ public:
                 return false;
             }
             onFrameReady();
-            if(frameStateObserver) {
-                const std::vector<uint8_t> frameState = m_emu.saveStateToMemory();
-                const uint32_t frameStateCrc32 =
-                    frameState.empty() ? 0u
-                                       : Crc32::calc(reinterpret_cast<const char*>(frameState.data()), frameState.size());
-                frameStateObserver(m_emu.frameCount(), frameStateCrc32);
-            }
-            while(nextSnapshotIndex < snapshotFramesToCapture.size() &&
-                  m_emu.frameCount() >= snapshotFramesToCapture[nextSnapshotIndex]) {
-                if(snapshotObserver) {
+                while(nextSnapshotIndex < snapshotFramesToCapture.size() &&
+                      m_emu.frameCount() >= snapshotFramesToCapture[nextSnapshotIndex]) {
+                    if(snapshotObserver) {
                     snapshotObserver(snapshotFramesToCapture[nextSnapshotIndex], m_emu.saveStateToMemory());
                 }
                 ++nextSnapshotIndex;
@@ -856,7 +846,6 @@ public:
 
     uint32_t lastFrameReadyFrame() const override;
     uint32_t lastFrameReadyNetplayCrc32() const override;
-    uint32_t lastFrameReadyReplayCrc32() const override;
     std::optional<std::shared_ptr<const std::vector<uint8_t>>> lastFrameReadyStateSnapshot() const override;
     void setAuthoritativeFrameReadyState(uint32_t frame, uint32_t canonicalCrc32) override;
     std::optional<std::shared_ptr<const std::vector<uint8_t>>> netplaySnapshotForFrame(uint32_t frame) const override;

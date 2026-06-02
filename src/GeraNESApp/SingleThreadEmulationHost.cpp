@@ -269,7 +269,6 @@ void SingleThreadEmulationHost::recordFrameReadyNetplayState(GeraNESEmu& emu)
         m_lastFrameReadyStateSnapshot.reset();
         m_lastFrameReadyFrameValue = frame;
         m_lastFrameReadyNetplayCrc32Value = 0;
-        m_lastFrameReadyReplayCrc32Value = 0;
         return;
     }
 
@@ -281,13 +280,6 @@ void SingleThreadEmulationHost::recordFrameReadyNetplayState(GeraNESEmu& emu)
     m_lastFrameReadyStateSnapshot = std::make_shared<std::vector<uint8_t>>(snapshot.data);
     m_lastFrameReadyFrameValue = frame;
     m_lastFrameReadyNetplayCrc32Value = crc32;
-    m_lastFrameReadyReplayCrc32Value = 0;
-    if(m_replayPlayback.loaded) {
-        const std::vector<uint8_t> replayState = emu.saveStateToMemory();
-        m_lastFrameReadyReplayCrc32Value = replayState.empty()
-            ? 0u
-            : Crc32::calc(reinterpret_cast<const char*>(replayState.data()), replayState.size());
-    }
     if(m_netplaySnapshotCapacity == 0) {
         m_netplayDiagnostics.netplayStateSaveTiming.record(snapshotSaveElapsedUs);
         m_netplayDiagnostics.netplayStateSerializedBytes.record(snapshotDataSize);
@@ -854,11 +846,6 @@ uint32_t SingleThreadEmulationHost::lastFrameReadyNetplayCrc32() const
     return m_lastFrameReadyNetplayCrc32Value;
 }
 
-uint32_t SingleThreadEmulationHost::lastFrameReadyReplayCrc32() const
-{
-    return m_lastFrameReadyReplayCrc32Value;
-}
-
 std::optional<std::shared_ptr<const std::vector<uint8_t>>> SingleThreadEmulationHost::lastFrameReadyStateSnapshot() const
 {
     if(!m_lastFrameReadyStateSnapshot) {
@@ -871,7 +858,6 @@ void SingleThreadEmulationHost::setAuthoritativeFrameReadyState(uint32_t frame, 
 {
     m_lastFrameReadyFrameValue = frame;
     m_lastFrameReadyNetplayCrc32Value = canonicalCrc32;
-    m_lastFrameReadyReplayCrc32Value = canonicalCrc32;
 }
 
 std::optional<std::shared_ptr<const std::vector<uint8_t>>> SingleThreadEmulationHost::netplaySnapshotForFrame(uint32_t frame) const
