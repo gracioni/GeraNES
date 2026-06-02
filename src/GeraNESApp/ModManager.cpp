@@ -3715,7 +3715,7 @@ std::optional<ModManager::DebugComposePixel> ModManager::debugComposePixel(const
         return stage;
     };
 
-    auto sampleOverrideStage = [&](uint32_t baseColor, uint32_t /*fallbackLayerColor*/, const PreparedOverride* prepared, int tileIndex, int offsetX, int offsetY, const std::array<uint8_t, 3>& palette, bool horizontalMirror, bool verticalMirror, bool preserveSourceAlpha, const char* stageName) -> std::pair<uint32_t, DebugComposeStage> {
+    auto sampleOverrideStage = [&](uint32_t baseColor, uint32_t /*fallbackLayerColor*/, const PreparedOverride* prepared, int tileIndex, int offsetX, int offsetY, const std::array<uint8_t, 3>& /*palette*/, bool horizontalMirror, bool verticalMirror, bool preserveSourceAlpha, const char* stageName) -> std::pair<uint32_t, DebugComposeStage> {
         DebugComposeStage stage;
         stage.valid = true;
         stage.stage = stageName;
@@ -4215,8 +4215,6 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
     const size_t rawSpritePixelsCount =
         snapshot.spritePixelsView != nullptr ? snapshot.spritePixelsViewCount : snapshot.spritePixels.size();
     const bool hasBackgroundData = backgroundPixelsData != nullptr && backgroundPixelsCount != 0;
-    const bool hasSpriteData = rawSpritePixelsData != nullptr && rawSpritePixelsCount != 0;
-
     static const std::vector<RenderPreparedBackground> emptyPreparedBackgrounds;
     const auto& preparedBackgrounds = hasBackgroundData ? *preparedBackgroundsPtr : emptyPreparedBackgrounds;
     const bool disableOriginalBackgroundTiles = applyModLogic && m_disableOriginalTiles && hasBackgroundData;
@@ -5100,7 +5098,7 @@ void ModManager::composeChrFrame(std::vector<uint32_t>& framebuffer, int width, 
         return storeCachedResult(found);
     };
 
-    auto sampleOverridePixel = [&](uint32_t baseColor, uint32_t /*fallbackLayerColor*/, const PreparedOverride* prepared, int tileIndex, int offsetX, int offsetY, int subX, int subY, uint8_t /*colorLowBits*/, const std::array<uint8_t, 3>& /*palette*/, bool horizontalMirror, bool verticalMirror, bool preserveSourceAlpha = false) {
+    auto sampleOverridePixel = [&](uint32_t baseColor, uint32_t /*fallbackLayerColor*/, const PreparedOverride* prepared, int tileIndex, int offsetX, int offsetY, int subX, int subY, uint8_t /*colorLowBits*/, const std::array<uint8_t, 3>& /*palette*/, bool horizontalMirror, bool verticalMirror, bool /*preserveSourceAlpha*/ = false) {
         if(prepared == nullptr) {
             return baseColor;
         }

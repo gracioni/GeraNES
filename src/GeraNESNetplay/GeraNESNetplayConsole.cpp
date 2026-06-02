@@ -64,6 +64,7 @@ bool GeraNESNetplayConsole::updateUntilFrame(uint32_t frameDtMs, bool resimulati
 
 void GeraNESNetplayConsole::applyRemoteInputTopology(const RoomState& room)
 {
+    (void)room;
     //topology is set on InputFrame
 }
 

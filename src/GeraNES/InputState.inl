@@ -95,6 +95,13 @@ size_t portPayloadSize(Settings::Device device)
     if(isVirtualBoyDevice(device)) return kVirtualBoySerializedSize;
 
     switch(device) {
+        case Settings::Device::CONTROLLER:
+        case Settings::Device::FAMICOM_CONTROLLER:
+            return kPad8SerializedSize;
+        case Settings::Device::SNES_CONTROLLER:
+            return kPad12SerializedSize;
+        case Settings::Device::VIRTUAL_BOY_CONTROLLER:
+            return kVirtualBoySerializedSize;
         case Settings::Device::ZAPPER:
             return kPointerSerializedSize;
         case Settings::Device::ARKANOID_CONTROLLER:
@@ -259,6 +266,16 @@ void serializeDefaultPortPayload(SerializationBase& s, Settings::Device device)
     }
 
     switch(device) {
+        case Settings::Device::CONTROLLER:
+        case Settings::Device::FAMICOM_CONTROLLER:
+            serializeDefaultPad8(s);
+            break;
+        case Settings::Device::SNES_CONTROLLER:
+            serializeDefaultPad12(s);
+            break;
+        case Settings::Device::VIRTUAL_BOY_CONTROLLER:
+            serializeDefaultVirtualBoy(s);
+            break;
         case Settings::Device::ZAPPER:
             serializeDefaultPointer(s);
             break;
