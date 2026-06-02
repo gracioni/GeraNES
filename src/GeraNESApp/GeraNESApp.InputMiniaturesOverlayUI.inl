@@ -11,9 +11,8 @@ inline void GeraNESApp::drawInputMiniaturesOverlay(ImDrawList* drawList, const I
         std::scoped_lock selectedFrameLock(m_selectedInputFrameMutex);
         if(m_latestSelectedInputFrame.has_value()) {
             state = m_latestSelectedInputFrame->state;
-        } else {
-            state.topology = m_inputTopology;
         }
+        state.topology = m_inputTopology;
     }
 
     const SDL_Rect clientArea = emulatorClientArea();
