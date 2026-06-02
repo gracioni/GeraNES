@@ -88,18 +88,17 @@ inline void GeraNESApp::drawReplayWindow()
         const bool recording = replayState.mode == ReplayManager::ReplayMode::Recording;
         const bool replayLoaded = replayState.loadedReplayActive;
         const bool playbackReady = replayState.mode == ReplayManager::ReplayMode::Playback && replayLoaded;
-        const bool seekInProgress = m_replaySeekInProgress;
         const bool replayPlaying = playbackReady ? hostReplayStatus.playing : replayState.playing;
         const bool netplayRestricted = isReplayRestricted();
         const bool canContinueRecordingFromReplay =
-            playbackReady && !replayPlaying && !seekInProgress;
+            playbackReady && !replayPlaying;
         const bool recordEnabled =
             hasRomLoaded && !netplayRestricted && (!replayLoaded || canContinueRecordingFromReplay);
         const uint32_t loadedReplayFrameCount =
             playbackReady ? hostReplayStatus.loadedFrameCount : replayState.loadedFrameCount;
-        const bool playEnabled = playbackReady && loadedReplayFrameCount > 0 && !seekInProgress && !replayPlaying;
-        const bool pauseEnabled = (recording || replayPlaying) && !seekInProgress;
-        const bool closeEnabled = replayLoaded && !seekInProgress;
+        const bool playEnabled = playbackReady && loadedReplayFrameCount > 0 && !replayPlaying;
+        const bool pauseEnabled = recording || replayPlaying;
+        const bool closeEnabled = replayLoaded;
         const uint32_t replayFrameCount =
             recording ? replayState.loadedFrameCount : loadedReplayFrameCount;
         const uint32_t replayCursorFrame =
@@ -110,7 +109,7 @@ inline void GeraNESApp::drawReplayWindow()
 
         if(ImGui::BeginMenuBar()) {
             if(ImGui::BeginMenu("File")) {
-                if(ImGui::MenuItem((std::string(FontAwesomeIcons::kFolderOpen) + " Load Replay").c_str(), nullptr, false, !seekInProgress)) {
+                if(ImGui::MenuItem((std::string(FontAwesomeIcons::kFolderOpen) + " Load Replay").c_str(), nullptr, false, true)) {
                     openReplayDialog();
                 }
                 if(ImGui::MenuItem((std::string(FontAwesomeIcons::kXmark) + " Close Replay").c_str(), nullptr, false, closeEnabled)) {
@@ -176,11 +175,11 @@ inline void GeraNESApp::drawReplayWindow()
         ImGui::EndDisabled();
 
         uint32_t sliderMax = replayFrameCount;
-        if(!m_replaySliderDragging && !seekInProgress) {
+        if(!m_replaySliderDragging) {
             m_replaySliderValue = static_cast<int>(std::min(replayCursorFrame, sliderMax));
         }
         m_replaySliderValue = std::clamp(m_replaySliderValue, 0, static_cast<int>(sliderMax));
-        const bool canSeek = playbackReady && !replayPlaying && !seekInProgress;
+        const bool canSeek = playbackReady && !replayPlaying;
         ImGui::BeginDisabled(!canSeek || sliderMax == 0);
         ImGui::SliderInt("Position", &m_replaySliderValue, 0, static_cast<int>(sliderMax), "%d");
         if(ImGui::IsItemActive()) {
@@ -202,7 +201,7 @@ inline void GeraNESApp::drawReplayWindow()
 
         const char* modeLabel = "Idle";
         if(recording) modeLabel = "Recording";
-        else if(playbackReady) modeLabel = seekInProgress ? "Seeking" : (replayPlaying ? "Playback" : "Replay Loaded");
+        else if(playbackReady) modeLabel = replayPlaying ? "Playback" : "Replay Loaded";
 
         ImGui::Text("Mode: %s", modeLabel);
         ImGui::Text("ROM: %s", replayState.data.romName.empty() ? "-" : replayState.data.romName.c_str());
@@ -218,10 +217,6 @@ inline void GeraNESApp::drawReplayWindow()
         ImGui::Text("Frames: %u", replayFrameCount);
         ImGui::Text("Cursor: %u", replayCursorFrame);
         ImGui::Text("File: %s", replayState.filePath.empty() ? "-" : replayState.filePath.string().c_str());
-        if(seekInProgress) {
-            ImGui::Text("Seeking to frame: %d", m_replaySliderValue);
-        }
-
         if(ImGui::BeginPopupModal(kReplayContinueRecordingPopupId, nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
             ImGui::TextUnformatted("Close the loaded replay and continue recording from the current replay position?");
             ImGui::Separator();
@@ -247,7 +242,7 @@ inline void GeraNESApp::drawReplayWindow()
             ImGui::TextUnformatted(
                 replayPlaying
                     ? "Pause the replay to continue recording from the current position."
-                    : "Recording is unavailable while the replay is seeking."
+                    : "Pause the replay to continue recording from the current position."
             );
         } else if(canContinueRecordingFromReplay) {
             ImGui::Separator();
@@ -257,11 +252,6 @@ inline void GeraNESApp::drawReplayWindow()
     ImGui::End();
 
     const auto replayState = m_replayManager.snapshot();
-    if(m_replaySeekInProgress) {
-        m_showReplayWindow = true;
-        return;
-    }
-
     if(!m_showReplayWindow && replayState.mode == ReplayManager::ReplayMode::Recording) {
         m_selectedEmulationSpeed = EmulationSpeed::Normal;
         m_maxSpeedRequested = false;

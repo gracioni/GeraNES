@@ -38,7 +38,6 @@ struct EmulationHostTypes
     using FrameInputResolver = std::function<bool(uint32_t, ReplayFrameInput&)>;
     using QueuedInputObserver = std::function<void(const InputFrame&)>;
     using SelectedInputObserver = std::function<void(const InputFrame&)>;
-    using ReplaySnapshotObserver = std::function<void(uint32_t, std::vector<uint8_t>)>;
     struct ReplayPlaybackStatus
     {
         bool loaded = false;
@@ -110,7 +109,6 @@ public:
     using FrameInputResolver = EmulationHostTypes::FrameInputResolver;
     using QueuedInputObserver = EmulationHostTypes::QueuedInputObserver;
     using SelectedInputObserver = EmulationHostTypes::SelectedInputObserver;
-    using ReplaySnapshotObserver = EmulationHostTypes::ReplaySnapshotObserver;
     using ReplayPlaybackStatus = EmulationHostTypes::ReplayPlaybackStatus;
     using ModFrameCaptureHook = EmulationHostTypes::ModFrameCaptureHook;
     using NetplayDiagnosticsSnapshot = ConsoleNetplay::NetplayRuntimeDiagnostics;
@@ -224,11 +222,6 @@ public:
     virtual bool replayPause(bool pauseEmulation) = 0;
     virtual bool replaySeekToFrame(uint32_t frame) = 0;
     virtual bool replayStopToStart() = 0;
-    virtual bool fastForwardReplayToFrame(uint32_t targetFrame,
-                                          const std::vector<InputFrame>& replayFrames,
-                                          std::optional<uint32_t> expectedCurrentStateCrc32,
-                                          const std::vector<uint32_t>& snapshotFramesToCapture = {},
-                                          ReplaySnapshotObserver snapshotObserver = {}) = 0;
     virtual uint32_t lastFrameReadyFrame() const = 0;
     virtual uint32_t lastFrameReadyNetplayCrc32() const = 0;
     virtual std::optional<std::shared_ptr<const std::vector<uint8_t>>> lastFrameReadyStateSnapshot() const = 0;

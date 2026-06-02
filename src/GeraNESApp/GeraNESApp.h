@@ -327,12 +327,9 @@ private:
     ModManager m_modManager;
     mutable std::mutex m_netplayInputStateMutex;
     IEmulationHost::InputState m_netplayLatestInputState = {};
-    IEmulationHost::InputState m_replayLiveInputState = {};
     ReplayManager m_replayManager;
     int m_replaySliderValue = 0;
     bool m_replaySliderDragging = false;
-    bool m_replaySeekInProgress = false;
-    bool m_replayAutoPlayAfterSeek = false;
     EmulationSpeed m_selectedEmulationSpeed = EmulationSpeed::Normal;
     EmulationSpeed m_lastEffectiveEmulationSpeed = EmulationSpeed::Normal;
     bool m_maxSpeedRequested = false;
@@ -614,7 +611,6 @@ private:
     bool openReplayFile(const fs::path& path);
     bool seekReplayToFrame(uint32_t frame);
     bool stopReplayToStart();
-    void synchronizeReplayInputAtCurrentFrame();
     void startReplayPlayback();
     void syncReplayRuntimeState();
 

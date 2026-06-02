@@ -1175,7 +1175,7 @@ void GeraNESApp::stopReplayPlayback(bool pauseEmulation)
     (void)m_emu.replayPause(pauseEmulation);
     const auto hostStatus = m_emu.replayPlaybackStatus();
     m_replayManager.stopPlayback();
-    m_replayManager.setCursorState(hostStatus.cursorFrame, hostStatus.cursorCanonicalCrc32);
+    m_replayManager.setCursorState(hostStatus.cursorFrame);
 }
 
 bool GeraNESApp::stopReplayToStart()
@@ -1191,27 +1191,10 @@ bool GeraNESApp::stopReplayToStart()
     m_emu.setSimulationSuspended(true);
     const auto hostStatus = m_emu.replayPlaybackStatus();
     m_replayManager.stopPlayback();
-    m_replayManager.setCursorState(hostStatus.cursorFrame, hostStatus.cursorCanonicalCrc32);
+    m_replayManager.setCursorState(hostStatus.cursorFrame);
     m_replaySliderValue = static_cast<int>(hostStatus.cursorFrame);
     m_replaySliderDragging = false;
     return true;
-}
-
-void GeraNESApp::synchronizeReplayInputAtCurrentFrame()
-{
-    if(!m_replayManager.isPlayback() || !m_emu.valid()) {
-        return;
-    }
-
-    m_emu.setSimulationSuspended(true);
-    m_emu.withExclusiveAccess([this](auto& emu) {
-        m_emu.clearQueuedInputFrames();
-
-        const uint32_t currentFrame = emu.frameCount();
-        if(const auto replayFrame = m_replayManager.playbackFrameForFrame(currentFrame); replayFrame.has_value()) {
-            m_emu.queueReplayInputFrame(*replayFrame);
-        }
-    });
 }
 
 void GeraNESApp::clearReplaySession(bool keepWindowOpen)
@@ -1223,8 +1206,6 @@ void GeraNESApp::clearReplaySession(bool keepWindowOpen)
     configureReplaySessionMode(ReplayManager::ReplayMode::None);
     m_replaySliderValue = 0;
     m_replaySliderDragging = false;
-    m_replaySeekInProgress = false;
-    m_replayAutoPlayAfterSeek = false;
     if(hadLoadedReplay && m_emu.valid() && m_emu.paused()) {
         m_emu.togglePaused();
     }
@@ -1418,7 +1399,7 @@ bool GeraNESApp::startReplayRecording()
     }
 
     applyReplayInputTopology(inputTopology);
-    m_replayManager.setCursorState(0u, std::nullopt);
+    m_replayManager.setCursorState(0u);
     m_replaySliderValue = 0;
     m_replaySliderDragging = false;
     configureReplaySessionMode(ReplayManager::ReplayMode::Recording);
@@ -1447,8 +1428,7 @@ bool GeraNESApp::continueReplayRecordingFromCurrentCursor()
     const auto hostReplayStatus = m_emu.replayPlaybackStatus();
     if(replayState.mode != ReplayManager::ReplayMode::Playback ||
        !replayState.loadedReplayActive ||
-       hostReplayStatus.playing ||
-       m_replaySeekInProgress) {
+       hostReplayStatus.playing) {
         m_userToast.show("Pause the replay before continuing recording");
         return false;
     }
@@ -1475,8 +1455,6 @@ bool GeraNESApp::continueReplayRecordingFromCurrentCursor()
     }
     m_replaySliderValue = static_cast<int>(continueFromFrame);
     m_replaySliderDragging = false;
-    m_replaySeekInProgress = false;
-    m_replayAutoPlayAfterSeek = false;
     m_showReplayWindow = true;
     m_imGuiWindowFocusBlocksEmulator = false;
     if(ImGui::GetCurrentContext() != nullptr) {
@@ -1546,8 +1524,8 @@ bool GeraNESApp::openReplayFile(const fs::path& path)
     const auto replayState = m_replayManager.snapshot();
     const std::string currentCrc = currentRomCrc32();
     if(currentCrc.empty() || (!replayState.data.romCrc.empty() && currentCrc != replayState.data.romCrc)) {
-        m_userToast.show("Replay ROM CRC does not match the loaded ROM");
-        Logger::instance().log("Replay ROM CRC mismatch", Logger::Type::ERROR);
+        m_userToast.show("Replay ROM does not match the loaded ROM");
+        Logger::instance().log("Replay ROM does not match the loaded ROM", Logger::Type::ERROR);
         m_replayManager.clear();
         return false;
     }
@@ -1569,7 +1547,7 @@ bool GeraNESApp::openReplayFile(const fs::path& path)
         return false;
     }
     const auto hostStatus = m_emu.replayPlaybackStatus();
-    m_replayManager.setCursorState(hostStatus.cursorFrame, hostStatus.cursorCanonicalCrc32);
+    m_replayManager.setCursorState(hostStatus.cursorFrame);
     m_replaySliderValue = 0;
     m_replaySliderDragging = false;
     startReplayPlayback();
@@ -1591,7 +1569,7 @@ bool GeraNESApp::seekReplayToFrame(uint32_t frame)
     }
     const auto hostStatus = m_emu.replayPlaybackStatus();
     m_replayManager.stopPlayback();
-    m_replayManager.setCursorState(hostStatus.cursorFrame, hostStatus.cursorCanonicalCrc32);
+    m_replayManager.setCursorState(hostStatus.cursorFrame);
     m_replaySliderValue = static_cast<int>(hostStatus.cursorFrame);
     return true;
 }
@@ -1616,7 +1594,7 @@ void GeraNESApp::syncReplayRuntimeState()
     const auto replayState = m_replayManager.snapshot();
     if(replayState.mode == ReplayManager::ReplayMode::Playback && replayState.loadedReplayActive) {
         const auto hostStatus = m_emu.replayPlaybackStatus();
-        m_replayManager.setCursorState(hostStatus.cursorFrame, hostStatus.cursorCanonicalCrc32);
+        m_replayManager.setCursorState(hostStatus.cursorFrame);
         if(hostStatus.playing) {
             m_replayManager.beginPlayback();
         } else {
@@ -4138,7 +4116,6 @@ void GeraNESApp::pollAndPrepareInput()
         m_maxSpeedRequested = maxSpeedRequested;
         {
             std::scoped_lock stateLock(m_netplayInputStateMutex);
-            m_replayLiveInputState = inputState;
             m_netplayLatestInputState = inputState;
         }
         m_emu.setPendingInput(inputState);
@@ -4147,7 +4124,6 @@ void GeraNESApp::pollAndPrepareInput()
         m_maxSpeedRequested = false;
         {
             std::scoped_lock stateLock(m_netplayInputStateMutex);
-            m_replayLiveInputState = {};
             m_netplayLatestInputState = {};
         }
         m_emu.setPendingInput({});
@@ -4878,7 +4854,7 @@ void GeraNESApp::mainLoop()
             netplayPacingOverrideActive,
             false
         );
-        if(framesToAdvance > 0u && !m_replaySeekInProgress) {
+        if(framesToAdvance > 0u) {
             render();
         }
     } else {
@@ -4904,9 +4880,7 @@ void GeraNESApp::mainLoop()
             stepDtMs = std::max<uint32_t>(1u, stepDtMs);
             m_presenterFrameAccumScaled = 0;
             m_emu.updateUntilFrame(stepDtMs);
-            if(!m_replaySeekInProgress) {
-                render();
-            }
+            render();
             m_netplayRuntime.recordFramePacing(
                 pacingDtMs,
                 1u,
@@ -4928,7 +4902,7 @@ void GeraNESApp::mainLoop()
                 netplayPacingOverrideActive,
                 false
             );
-            if(framesToAdvance > 0u && !m_replaySeekInProgress) {
+            if(framesToAdvance > 0u) {
                 render();
             }
         }

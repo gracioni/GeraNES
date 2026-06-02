@@ -31,15 +31,6 @@ SaveStateWithCrc32 captureSaveStateWithCrc32(GeraNESEmu& emu)
     return snapshot;
 }
 
-SaveStateWithCrc32 captureExactSaveStateWithCrc32(GeraNESEmu& emu)
-{
-    SaveStateWithCrc32 snapshot;
-    snapshot.data = emu.saveStateToMemory();
-    snapshot.crc32 = snapshot.data.empty()
-        ? 0u
-        : Crc32::calc(reinterpret_cast<const char*>(snapshot.data.data()), snapshot.data.size());
-    return snapshot;
-}
 }
 
 thread_local const ThreadedEmulationHost* ThreadedEmulationHost::t_directAccessHost = nullptr;
@@ -133,7 +124,7 @@ void ThreadedEmulationHost::resetReplayPlaybackSnapshotsLocked()
         }
     }
 
-    const SaveStateWithCrc32 baseline = captureExactSaveStateWithCrc32(m_emu);
+    const SaveStateWithCrc32 baseline = captureSaveStateWithCrc32(m_emu);
     captureReplayPlaybackSnapshotLocked(m_emu.frameCount(), baseline.data, baseline.crc32);
     m_replayPlayback.cursorCanonicalCrc32 = baseline.crc32;
 }
@@ -183,7 +174,7 @@ void ThreadedEmulationHost::updateReplayPlaybackFrameReadyStateLocked()
         return;
     }
 
-    const SaveStateWithCrc32 snapshot = captureExactSaveStateWithCrc32(m_emu);
+    const SaveStateWithCrc32 snapshot = captureSaveStateWithCrc32(m_emu);
     captureReplayPlaybackSnapshotLocked(frame, snapshot.data, snapshot.crc32);
     m_replayPlayback.cursorCanonicalCrc32 = snapshot.crc32;
 }
@@ -237,7 +228,7 @@ bool ThreadedEmulationHost::seekReplayPlaybackLocked(uint32_t targetFrame)
     m_replayPlayback.seeking = false;
     m_pendingInputFrames.clear();
     m_emu.setPaused(true);
-    const SaveStateWithCrc32 settledState = captureExactSaveStateWithCrc32(m_emu);
+    const SaveStateWithCrc32 settledState = captureSaveStateWithCrc32(m_emu);
     m_replayPlayback.cursorFrame = m_emu.frameCount();
     m_replayPlayback.cursorCanonicalCrc32 = settledState.crc32;
     if(std::find(

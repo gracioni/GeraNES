@@ -32,7 +32,6 @@ public:
     using FrameInputResolver = IEmulationHost::FrameInputResolver;
     using QueuedInputObserver = IEmulationHost::QueuedInputObserver;
     using SelectedInputObserver = IEmulationHost::SelectedInputObserver;
-    using ReplaySnapshotObserver = IEmulationHost::ReplaySnapshotObserver;
     using NetplayDiagnosticsSnapshot = IEmulationHost::NetplayDiagnosticsSnapshot;
     using ManualStateChangeKind = IEmulationHost::ManualStateChangeKind;
     using ManualStateChangeRecord = IEmulationHost::ManualStateChangeRecord;
@@ -744,65 +743,6 @@ public:
     {
         return replaySeekToFrame(0);
     }
-    bool fastForwardReplayToFrame(uint32_t targetFrame,
-                                  const std::vector<InputFrame>& replayFrames,
-                                  std::optional<uint32_t> expectedCurrentStateCrc32,
-                                  const std::vector<uint32_t>& snapshotFramesToCapture = {},
-                                  ReplaySnapshotObserver snapshotObserver = {}) override
-    {
-        if(expectedCurrentStateCrc32.has_value()) {
-            const std::vector<uint8_t> currentState = m_emu.saveStateToMemory();
-            const uint32_t currentStateCrc32 =
-                currentState.empty()
-                    ? 0u
-                    : Crc32::calc(reinterpret_cast<const char*>(currentState.data()), currentState.size());
-            if(currentStateCrc32 != *expectedCurrentStateCrc32) {
-                return false;
-            }
-        }
-        const FrameInputResolver previousResolver = m_frameInputResolver;
-        m_frameInputResolver = [&replayFrames](uint32_t nextFrame, ReplayFrameInput& input) {
-            if(nextFrame >= replayFrames.size()) {
-                return false;
-            }
-            input.hasFrameOverride = true;
-            input.frameOverride = replayFrames[static_cast<size_t>(nextFrame)];
-            return true;
-        };
-
-        const bool wasPaused = m_emu.paused();
-        if(wasPaused) {
-            m_emu.togglePaused();
-        }
-
-        const uint32_t frameDt = std::max<uint32_t>(1, 1000u / std::max<uint32_t>(1, m_emu.getRegionFPS()));
-        size_t nextSnapshotIndex = 0;
-        while(m_emu.valid() && m_emu.frameCount() < targetFrame) {
-            const uint32_t frameBefore = m_emu.frameCount();
-            runPreAdvanceHook();
-            prepareCurrentFrameInput();
-            m_emu.updateUntilFrame(frameDt, false);
-            if(m_emu.frameCount() <= frameBefore) {
-                m_frameInputResolver = previousResolver;
-                return false;
-            }
-            onFrameReady();
-                while(nextSnapshotIndex < snapshotFramesToCapture.size() &&
-                      m_emu.frameCount() >= snapshotFramesToCapture[nextSnapshotIndex]) {
-                    if(snapshotObserver) {
-                    snapshotObserver(snapshotFramesToCapture[nextSnapshotIndex], m_emu.saveStateToMemory());
-                }
-                ++nextSnapshotIndex;
-            }
-        }
-
-        if(wasPaused && !m_emu.paused()) {
-            m_emu.togglePaused();
-        }
-        m_frameInputResolver = previousResolver;
-        return m_emu.valid();
-    }
-
     template<typename InputProvider>
     bool resimulateToFrame(uint32_t targetFrame, InputProvider&& inputProvider)
     {
