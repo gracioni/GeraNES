@@ -71,10 +71,10 @@ inline void GeraNESApp::drawInputMiniaturesOverlay(ImDrawList* drawList, const I
         drawDPad(ImVec2(topLeft.x + 10.0f, topLeft.y + 18.0f), 5.0f, buttons.up, buttons.down, buttons.left, buttons.right);
         drawPressedRect(ImVec2(topLeft.x + 46.0f, topLeft.y + 30.0f), ImVec2(topLeft.x + 54.0f, topLeft.y + 33.0f), buttons.select);
         drawPressedRect(ImVec2(topLeft.x + 57.0f, topLeft.y + 30.0f), ImVec2(topLeft.x + 65.0f, topLeft.y + 33.0f), buttons.start);
-        drawPressedCircle(ImVec2(topLeft.x + 86.0f, topLeft.y + 30.0f), 4.0f, buttons.a);
-        drawPressedCircle(ImVec2(topLeft.x + 76.0f, topLeft.y + 30.0f), 4.0f, buttons.y);
-        drawPressedCircle(ImVec2(topLeft.x + 81.0f, topLeft.y + 22.0f), 4.0f, buttons.x);
-        drawPressedCircle(ImVec2(topLeft.x + 81.0f, topLeft.y + 38.0f), 4.0f, buttons.b);
+        drawPressedCircle(ImVec2(topLeft.x + 91.0f, topLeft.y + 30.0f), 4.0f, buttons.a);
+        drawPressedCircle(ImVec2(topLeft.x + 77.0f, topLeft.y + 30.0f), 4.0f, buttons.y);
+        drawPressedCircle(ImVec2(topLeft.x + 84.0f, topLeft.y + 23.0f), 4.0f, buttons.x);
+        drawPressedCircle(ImVec2(topLeft.x + 84.0f, topLeft.y + 37.0f), 4.0f, buttons.b);
     };
 
     auto drawVirtualBoyPad = [&](const ImVec2& topLeft, const std::string& label, const InputState::PadButtons& buttons) {
