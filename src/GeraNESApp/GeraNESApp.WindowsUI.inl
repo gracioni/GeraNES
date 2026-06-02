@@ -303,25 +303,22 @@ inline void GeraNESApp::drawInputMiniaturesOverlay(ImDrawList* drawList, const I
     const int rows = static_cast<int>((pads.size() + static_cast<size_t>(columns) - 1u) / static_cast<size_t>(columns));
     const float panelWidth = outerPadding * 2.0f + static_cast<float>(columns) * cardWidth + static_cast<float>(columns - 1) * gap;
     const float panelHeight = outerPadding * 2.0f + static_cast<float>(rows) * cardHeight + static_cast<float>(rows - 1) * gap;
+    const int overlayAlpha = 191;
     const ImVec2 panelMin(
         overlayOrigin.x + static_cast<float>(clientArea.x + clientArea.w) - panelWidth - 16.0f,
         overlayOrigin.y + static_cast<float>(clientArea.y + clientArea.h) - panelHeight - 16.0f
     );
-    const ImVec2 panelMax(panelMin.x + panelWidth, panelMin.y + panelHeight);
-
-    drawList->AddRectFilled(panelMin, panelMax, IM_COL32(18, 15, 11, 176), 8.0f);
-    drawList->AddRect(panelMin, panelMax, IM_COL32(223, 209, 166, 92), 8.0f, 0, 1.0f);
 
     auto drawPressedBlock = [drawList](const ImVec2& min, const ImVec2& max, bool pressed) {
-        drawList->AddRectFilled(min, max, pressed ? IM_COL32(196, 44, 36, 255) : IM_COL32(73, 67, 55, 255), 1.0f);
+        drawList->AddRectFilled(min, max, pressed ? IM_COL32(196, 44, 36, overlayAlpha) : IM_COL32(73, 67, 55, overlayAlpha), 1.0f);
     };
 
     auto drawMiniPad = [&](const ImVec2& topLeft, const MiniaturePad& pad) {
         const ImVec2 cardMax(topLeft.x + cardWidth, topLeft.y + cardHeight);
-        drawList->AddRectFilled(topLeft, cardMax, IM_COL32(173, 158, 122, 232), 4.0f);
-        drawList->AddRect(topLeft, cardMax, IM_COL32(60, 52, 40, 255), 4.0f, 0, 1.0f);
+        drawList->AddRectFilled(topLeft, cardMax, IM_COL32(173, 158, 122, overlayAlpha), 4.0f);
+        drawList->AddRect(topLeft, cardMax, IM_COL32(60, 52, 40, overlayAlpha), 4.0f, 0, 1.0f);
 
-        drawList->AddText(ImVec2(topLeft.x + 6.0f, topLeft.y + 3.0f), IM_COL32(34, 30, 24, 255), pad.label);
+        drawList->AddText(ImVec2(topLeft.x + 6.0f, topLeft.y + 3.0f), IM_COL32(34, 30, 24, overlayAlpha), pad.label);
 
         const float u = 4.0f;
         const float dpadX = topLeft.x + 10.0f;
