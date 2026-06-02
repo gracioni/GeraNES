@@ -2141,19 +2141,6 @@ public:
         return data;
     }
 
-    std::vector<uint8_t> saveExactStateToMemory()
-    {
-        Serialize s;
-        static thread_local size_t reserveHint = 0;
-        if(reserveHint > 0) {
-            s.reserve(reserveHint);
-        }
-        serialization(s);
-        std::vector<uint8_t> data = s.takeData();
-        reserveHint = data.size();
-        return data;
-    }
-
     /*
     void calculateSerializationSize()
     {

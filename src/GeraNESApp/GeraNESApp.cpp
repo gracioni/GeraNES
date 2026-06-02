@@ -1232,7 +1232,7 @@ GeraNESApp::ReplayStateSample GeraNESApp::sampleReplayStateAtCurrentFrame()
 
     m_emu.withExclusiveAccess([&](auto& emu) {
         sample.frame = emu.frameCount();
-        const std::vector<uint8_t> state = emu.saveExactStateToMemory();
+        const std::vector<uint8_t> state = emu.saveStateToMemory();
         sample.crc32 = state.empty()
             ? 0u
             : Crc32::calc(reinterpret_cast<const char*>(state.data()), state.size());

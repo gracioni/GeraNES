@@ -969,7 +969,7 @@ public:
                 if(!m_emu.valid()) {
                     return false;
                 }
-                currentState = m_emu.saveExactStateToMemory();
+                currentState = m_emu.saveStateToMemory();
             }
             const uint32_t currentStateCrc32 =
                 currentState.empty()
@@ -1022,7 +1022,7 @@ public:
             }
             onFrameReadyLocked();
             if(frameStateObserver) {
-                const std::vector<uint8_t> frameState = m_emu.saveExactStateToMemory();
+                const std::vector<uint8_t> frameState = m_emu.saveStateToMemory();
                 const uint32_t frameStateCrc32 =
                     frameState.empty() ? 0u
                                        : Crc32::calc(reinterpret_cast<const char*>(frameState.data()), frameState.size());
@@ -1031,7 +1031,7 @@ public:
             while(nextSnapshotIndex < snapshotFramesToCapture.size() &&
                   m_emu.frameCount() >= snapshotFramesToCapture[nextSnapshotIndex]) {
                 if(snapshotObserver) {
-                    snapshotObserver(snapshotFramesToCapture[nextSnapshotIndex], m_emu.saveExactStateToMemory());
+                    snapshotObserver(snapshotFramesToCapture[nextSnapshotIndex], m_emu.saveStateToMemory());
                 }
                 ++nextSnapshotIndex;
             }

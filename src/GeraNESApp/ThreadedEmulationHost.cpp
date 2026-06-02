@@ -34,7 +34,7 @@ SaveStateWithCrc32 captureSaveStateWithCrc32(GeraNESEmu& emu)
 SaveStateWithCrc32 captureExactSaveStateWithCrc32(GeraNESEmu& emu)
 {
     SaveStateWithCrc32 snapshot;
-    snapshot.data = emu.saveExactStateToMemory();
+    snapshot.data = emu.saveStateToMemory();
     snapshot.crc32 = snapshot.data.empty()
         ? 0u
         : Crc32::calc(reinterpret_cast<const char*>(snapshot.data.data()), snapshot.data.size());
@@ -300,7 +300,7 @@ void ThreadedEmulationHost::recordFrameReadyNetplayState(GeraNESEmu& emu)
     m_lastFrameReadyNetplayCrc32Value = crc32;
     m_lastFrameReadyReplayCrc32Value = 0;
     if(m_replayPlayback.loaded) {
-        const std::vector<uint8_t> replayState = emu.saveExactStateToMemory();
+        const std::vector<uint8_t> replayState = emu.saveStateToMemory();
         m_lastFrameReadyReplayCrc32Value = replayState.empty()
             ? 0u
             : Crc32::calc(reinterpret_cast<const char*>(replayState.data()), replayState.size());

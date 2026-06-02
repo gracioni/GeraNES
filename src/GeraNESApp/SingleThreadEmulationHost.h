@@ -754,7 +754,7 @@ public:
                                   ReplayFrameStateObserver frameStateObserver = {}) override
     {
         if(expectedCurrentStateCrc32.has_value()) {
-            const std::vector<uint8_t> currentState = m_emu.saveExactStateToMemory();
+            const std::vector<uint8_t> currentState = m_emu.saveStateToMemory();
             const uint32_t currentStateCrc32 =
                 currentState.empty()
                     ? 0u
@@ -791,7 +791,7 @@ public:
             }
             onFrameReady();
             if(frameStateObserver) {
-                const std::vector<uint8_t> frameState = m_emu.saveExactStateToMemory();
+                const std::vector<uint8_t> frameState = m_emu.saveStateToMemory();
                 const uint32_t frameStateCrc32 =
                     frameState.empty() ? 0u
                                        : Crc32::calc(reinterpret_cast<const char*>(frameState.data()), frameState.size());
@@ -800,7 +800,7 @@ public:
             while(nextSnapshotIndex < snapshotFramesToCapture.size() &&
                   m_emu.frameCount() >= snapshotFramesToCapture[nextSnapshotIndex]) {
                 if(snapshotObserver) {
-                    snapshotObserver(snapshotFramesToCapture[nextSnapshotIndex], m_emu.saveExactStateToMemory());
+                    snapshotObserver(snapshotFramesToCapture[nextSnapshotIndex], m_emu.saveStateToMemory());
                 }
                 ++nextSnapshotIndex;
             }

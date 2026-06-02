@@ -302,7 +302,7 @@ TEST_CASE("Replay-style restore and advance stays byte-exact from restored snaps
 
     std::vector<FrameBaseline> frames;
     {
-        const std::vector<uint8_t> state = baseline.saveExactStateToMemory();
+        const std::vector<uint8_t> state = baseline.saveStateToMemory();
         frames.push_back({
             state,
             stateCrc32(state),
@@ -317,7 +317,7 @@ TEST_CASE("Replay-style restore and advance stays byte-exact from restored snaps
         frames[frame].preparedReplayInputFrame =
             serializeInputFrame(makeReplayInputFrame(baseline, frame, frames[frame].nextInputMask));
         REQUIRE(advanceExactlyOneFrame(baseline, frames[frame].nextInputMask));
-        const std::vector<uint8_t> state = baseline.saveExactStateToMemory();
+        const std::vector<uint8_t> state = baseline.saveStateToMemory();
         frames.push_back({
             state,
             stateCrc32(state),
@@ -340,7 +340,7 @@ TEST_CASE("Replay-style restore and advance stays byte-exact from restored snaps
             REQUIRE(replay.valid());
             REQUIRE(loadFn(replay, frames[fromFrame].state));
             REQUIRE(replay.valid());
-            REQUIRE(stateCrc32(replay.saveExactStateToMemory()) == frames[fromFrame].crc32);
+            REQUIRE(stateCrc32(replay.saveStateToMemory()) == frames[fromFrame].crc32);
 
             for(uint32_t frame = fromFrame; frame < fromFrame + 8u; ++frame) {
                 INFO("advance from restored frame " << frame);
@@ -348,7 +348,7 @@ TEST_CASE("Replay-style restore and advance stays byte-exact from restored snaps
                     serializeInputFrame(makeReplayInputFrame(replay, frame, frames[frame].nextInputMask));
                 REQUIRE(preparedReplayInputFrame == frames[frame].preparedReplayInputFrame);
                 REQUIRE(advanceExactlyOneFrame(replay, frames[frame].nextInputMask));
-                const std::vector<uint8_t> replayState = replay.saveExactStateToMemory();
+                const std::vector<uint8_t> replayState = replay.saveStateToMemory();
                 const std::optional<ByteDiff> diff = firstByteDiff(frames[frame + 1u].state, replayState);
                 CAPTURE(frames[frame + 1u].crc32);
                 CAPTURE(stateCrc32(replayState));
@@ -374,7 +374,7 @@ TEST_CASE("Replay-style restore and advance stays byte-exact from restored snaps
     }
 }
 
-TEST_CASE("Replay file snapshots restore and continue with matching exact CRCs", "[state-replay][replay-file][seek-advance]")
+TEST_CASE("Replay file snapshots restore and continue with matching replay CRCs", "[state-replay][replay-file][seek-advance]")
 {
     GeraNESTestSupport::requireRomFixture();
 
@@ -388,8 +388,8 @@ TEST_CASE("Replay file snapshots restore and continue with matching exact CRCs",
 
     struct FrameRecord
     {
-        std::vector<uint8_t> exactState;
-        uint32_t exactCrc32 = 0u;
+        std::vector<uint8_t> state;
+        uint32_t crc32 = 0u;
     };
 
     GeraNESEmu baseline(DummyAudioOutput::instance());
@@ -399,14 +399,14 @@ TEST_CASE("Replay file snapshots restore and continue with matching exact CRCs",
     std::vector<FrameRecord> frames;
     frames.reserve(replayData.frames.size() + 1u);
     {
-        const std::vector<uint8_t> state = baseline.saveExactStateToMemory();
+        const std::vector<uint8_t> state = baseline.saveStateToMemory();
         frames.push_back({state, stateCrc32(state)});
     }
 
     for(size_t index = 0; index < replayData.frames.size(); ++index) {
         INFO("baseline replay frame " << index);
         REQUIRE(advanceExactlyOneReplayFrame(baseline, replayData.frames[index]));
-        const std::vector<uint8_t> state = baseline.saveExactStateToMemory();
+        const std::vector<uint8_t> state = baseline.saveStateToMemory();
         frames.push_back({state, stateCrc32(state)});
     }
 
@@ -440,26 +440,26 @@ TEST_CASE("Replay file snapshots restore and continue with matching exact CRCs",
             GeraNESEmu replay(DummyAudioOutput::instance());
             REQUIRE(replay.openRom(GeraNESTestSupport::romPath().string(), false));
             REQUIRE(replay.valid());
-            REQUIRE(loadFn(replay, frames[fromFrame].exactState));
+            REQUIRE(loadFn(replay, frames[fromFrame].state));
             REQUIRE(replay.valid());
-            REQUIRE(stateCrc32(replay.saveExactStateToMemory()) == frames[fromFrame].exactCrc32);
+            REQUIRE(stateCrc32(replay.saveStateToMemory()) == frames[fromFrame].crc32);
 
             const uint32_t horizon = std::min<uint32_t>(32u, lastFrame - fromFrame);
             for(uint32_t frame = fromFrame; frame < fromFrame + horizon; ++frame) {
                 INFO("advance replay frame " << frame);
                 REQUIRE(advanceExactlyOneReplayFrame(replay, replayData.frames[frame]));
-                const std::vector<uint8_t> replayState = replay.saveExactStateToMemory();
+                const std::vector<uint8_t> replayState = replay.saveStateToMemory();
                 const uint32_t replayCrc32 = stateCrc32(replayState);
-                CAPTURE(frames[frame + 1u].exactCrc32);
+                CAPTURE(frames[frame + 1u].crc32);
                 CAPTURE(replayCrc32);
-                if(replayCrc32 != frames[frame + 1u].exactCrc32) {
-                    const std::optional<ByteDiff> diff = firstByteDiff(frames[frame + 1u].exactState, replayState);
+                if(replayCrc32 != frames[frame + 1u].crc32) {
+                    const std::optional<ByteDiff> diff = firstByteDiff(frames[frame + 1u].state, replayState);
                     CAPTURE(diff.has_value());
                     CAPTURE(diff ? diff->offset : 0u);
                     CAPTURE(diff ? static_cast<uint32_t>(diff->expected) : 0u);
                     CAPTURE(diff ? static_cast<uint32_t>(diff->actual) : 0u);
                 }
-                REQUIRE(replayCrc32 == frames[frame + 1u].exactCrc32);
+                REQUIRE(replayCrc32 == frames[frame + 1u].crc32);
             }
         };
 
@@ -502,7 +502,7 @@ TEST_CASE("Threaded replay seek and resume matches baseline replay CRCs", "[stat
         REQUIRE(host.replayPlay());
 
         const std::vector<uint8_t> initialState = host.withExclusiveAccess([](GeraNESEmu& emu) {
-            return emu.saveExactStateToMemory();
+            return emu.saveStateToMemory();
         });
         baselineFrameCrc32[0] = stateCrc32(initialState);
 
