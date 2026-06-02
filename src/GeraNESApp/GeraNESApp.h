@@ -254,6 +254,7 @@ private:
     bool m_showMenuBar = true;
 
     InputTopology m_inputTopology = {};
+    std::optional<InputTopology> m_preMultitapInputTopology;
 
     std::string m_errorMessage = "";
     bool m_showErrorWindow = false;

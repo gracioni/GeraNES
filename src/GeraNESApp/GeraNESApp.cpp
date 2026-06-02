@@ -91,6 +91,27 @@ std::string replayInputFrameSummary(const InputFrame& frame)
     return ss.str();
 }
 
+InputTopology normalizeMultitapTopology(InputTopology topology)
+{
+    const bool multitapActive =
+        topology.nesMultitapDevice == Settings::NesMultitapDevice::FOUR_SCORE ||
+        topology.famicomMultitapDevice == Settings::FamicomMultitapDevice::HORI_ADAPTER;
+    if(!multitapActive) {
+        return topology;
+    }
+
+    topology.port1Device = Settings::Device::NONE;
+    topology.port2Device = Settings::Device::NONE;
+    topology.expansionDevice = Settings::ExpansionDevice::NONE;
+    return topology;
+}
+
+bool isMultitapTopology(const InputTopology& topology)
+{
+    return topology.nesMultitapDevice == Settings::NesMultitapDevice::FOUR_SCORE ||
+           topology.famicomMultitapDevice == Settings::FamicomMultitapDevice::HORI_ADAPTER;
+}
+
 #ifndef __EMSCRIPTEN__
 constexpr mz_ulong kPngCrc32Init = 0;
 constexpr int kPngBestCompression = 9;
@@ -1779,7 +1800,34 @@ void GeraNESApp::normalizeTouchControlsTargetForCurrentTopology()
 
 void GeraNESApp::applyInputTopology(const InputTopology& topology)
 {
-    m_inputTopology = topology;
+    const bool wasMultitapActive = isMultitapTopology(m_inputTopology);
+    const bool willMultitapBeActive = isMultitapTopology(topology);
+
+    if(willMultitapBeActive && !wasMultitapActive) {
+        m_preMultitapInputTopology = m_inputTopology;
+    }
+
+    if(!willMultitapBeActive && wasMultitapActive && m_preMultitapInputTopology.has_value() &&
+       topology.port1Device == Settings::Device::NONE &&
+       topology.port2Device == Settings::Device::NONE &&
+       topology.expansionDevice == Settings::ExpansionDevice::NONE) {
+        m_inputTopology = *m_preMultitapInputTopology;
+        m_inputTopology.nesMultitapDevice = topology.nesMultitapDevice;
+        m_inputTopology.famicomMultitapDevice = topology.famicomMultitapDevice;
+        m_preMultitapInputTopology.reset();
+    } else {
+        m_inputTopology = willMultitapBeActive ? normalizeMultitapTopology(topology) : topology;
+        if(!willMultitapBeActive) {
+            m_preMultitapInputTopology.reset();
+        }
+    }
+
+    if(!isArkanoidActive() && m_arkanoidGrabActive) {
+        setArkanoidGrab(false);
+    }
+    if(!isSnesMouseActive() && !isSuborMouseActive() && m_snesMouseGrabActive) {
+        setSnesMouseGrab(false);
+    }
 }
 
 AppSettings::TouchControlsTarget GeraNESApp::effectiveTouchControlsTarget() const
@@ -2007,12 +2055,20 @@ std::tuple<int, int> GeraNESApp::getClampedNesCursor(int screenX, int screenY)
 
 bool GeraNESApp::isSnesMouseActive() const
 {
+    if(m_inputTopology.nesMultitapDevice == Settings::NesMultitapDevice::FOUR_SCORE ||
+       m_inputTopology.famicomMultitapDevice == Settings::FamicomMultitapDevice::HORI_ADAPTER) {
+        return false;
+    }
     return m_inputTopology.port1Device == Settings::Device::SNES_MOUSE ||
            m_inputTopology.port2Device == Settings::Device::SNES_MOUSE;
 }
 
 bool GeraNESApp::isSuborMouseActive() const
 {
+    if(m_inputTopology.nesMultitapDevice == Settings::NesMultitapDevice::FOUR_SCORE ||
+       m_inputTopology.famicomMultitapDevice == Settings::FamicomMultitapDevice::HORI_ADAPTER) {
+        return false;
+    }
     return m_inputTopology.port1Device == Settings::Device::SUBOR_MOUSE ||
            m_inputTopology.port2Device == Settings::Device::SUBOR_MOUSE;
 }
@@ -2231,6 +2287,10 @@ IExpansionDevice::FamilyBasicKeyboardKeys GeraNESApp::captureFamilyBasicKeyboard
 
 bool GeraNESApp::isArkanoidActive() const
 {
+    if(m_inputTopology.nesMultitapDevice == Settings::NesMultitapDevice::FOUR_SCORE ||
+       m_inputTopology.famicomMultitapDevice == Settings::FamicomMultitapDevice::HORI_ADAPTER) {
+        return false;
+    }
     return m_inputTopology.port1Device == Settings::Device::ARKANOID_CONTROLLER ||
            m_inputTopology.port2Device == Settings::Device::ARKANOID_CONTROLLER ||
            m_inputTopology.expansionDevice == Settings::ExpansionDevice::ARKANOID_CONTROLLER;
@@ -2397,7 +2457,8 @@ bool GeraNESApp::finishOpenRomPath(const fs::path& requestedPath, const std::str
             ? 0
             : std::max(0, AppSettings::instance().data.improvements.maxRewindTime);
         m_emu.setupRewindSystem(effectiveMaxRewindTime > 0, effectiveMaxRewindTime);
-        m_inputTopology = m_emu.getInputTopologySnapshot();
+        m_inputTopology = normalizeMultitapTopology(m_emu.getInputTopologySnapshot());
+        m_preMultitapInputTopology.reset();
 
         if(modLoad.modLoaded) {
             Logger::instance().log(modLoad.message + " " + modLoad.modPath.string(), Logger::Type::USER);
@@ -2576,7 +2637,8 @@ void GeraNESApp::syncSettings()
     cfg.input.getVirtualBoyControllerInfo(1, m_virtualBoyController2);
     m_konamiHyperShot = cfg.input.konamiHyperShot;
     m_systemInput = cfg.input.system;
-    m_inputTopology = m_emu.getInputTopologySnapshot();
+    m_inputTopology = normalizeMultitapTopology(m_emu.getInputTopologySnapshot());
+    m_preMultitapInputTopology.reset();
 
     cfg.improvements.maxRewindTime = std::max(0, cfg.improvements.maxRewindTime);
     const int effectiveMaxRewindTime = shouldSuppressRewindForNetplay() ? 0 : cfg.improvements.maxRewindTime;
@@ -3933,6 +3995,7 @@ void GeraNESApp::pollAndPrepareInput()
             inputTopology.nesMultitapDevice = netplayMenu.nesMultitapDevice;
             inputTopology.famicomMultitapDevice = netplayMenu.famicomMultitapDevice;
         }
+        inputTopology = normalizeMultitapTopology(inputTopology);
         const bool touchInputActive = !m_imGuiWantsMouse;
         const auto touchTarget = effectiveTouchControlsTarget();
         const bool multitapActive =
