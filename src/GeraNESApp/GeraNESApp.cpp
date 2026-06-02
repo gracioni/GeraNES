@@ -880,10 +880,6 @@ void GeraNESApp::notifyNetplayPauseRestrictedAction()
 void GeraNESApp::togglePauseAction()
 {
     if(!m_emu.valid()) return;
-    if(isReplaySessionInteractionLocked()) {
-        notifyReplaySessionInteractionLocked("Pause");
-        return;
-    }
     if(AppSettings::instance().data.debug.cpuDebuggerEnabled) {
         return;
     }
@@ -895,7 +891,30 @@ void GeraNESApp::togglePauseAction()
         notifyNetplayPauseRestrictedAction();
         return;
     }
+
+    const auto replayState = m_replaySession.snapshot();
+    if(replayState.mode == ReplaySession::ReplayMode::Playback && replayState.loadedReplayActive) {
+        const auto hostStatus = m_emu.replayPlaybackStatus();
+        if(hostStatus.seeking) {
+            return;
+        }
+        if(hostStatus.playing) {
+            stopReplayPlayback(true);
+        } else {
+            startReplayPlayback();
+        }
+        return;
+    }
+
     m_emu.togglePaused();
+
+    if(replayState.mode == ReplaySession::ReplayMode::Recording) {
+        if(m_emu.paused()) {
+            m_replaySession.stopPlayback();
+        } else {
+            m_replaySession.beginPlayback();
+        }
+    }
 }
 
 void GeraNESApp::resetAction()
@@ -1635,6 +1654,11 @@ void GeraNESApp::syncReplayRuntimeState()
     } else if(replayState.mode == ReplaySession::ReplayMode::Recording) {
         m_replaySession.setCursorFrame(
             std::min(m_emu.lastFrameReadyFrame(), m_replaySession.inputCount()));
+        if(m_emu.paused()) {
+            m_replaySession.stopPlayback();
+        } else {
+            m_replaySession.beginPlayback();
+        }
         m_replaySeekCompletionPending = false;
         m_replayAutoPlayAfterSeek = false;
     } else {

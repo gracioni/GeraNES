@@ -185,7 +185,7 @@ inline void GeraNESApp::menuBar() {
                 ? (m_netplayRuntime.uiSnapshot().room.state == ConsoleNetplay::SessionState::Paused)
                 : m_emu.paused();
             const bool debugOwnsFlowControl = AppSettings::instance().data.debug.cpuDebuggerEnabled;
-            if(ImGui::MenuItem(withMenuIcon(FontAwesomeIcons::kPause, "Pause").c_str(), pauseKey, pauseSelected, hasRomLoaded && !isNetplayPauseRestricted() && !debugOwnsFlowControl && !replayInteractionLocked)) {
+            if(ImGui::MenuItem(withMenuIcon(FontAwesomeIcons::kPause, "Pause").c_str(), pauseKey, pauseSelected, hasRomLoaded && !isNetplayPauseRestricted() && !debugOwnsFlowControl)) {
                 togglePauseAction();
             }
 

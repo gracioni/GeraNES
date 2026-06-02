@@ -81,11 +81,13 @@ inline void GeraNESApp::drawReplayWindow()
         return;
     }
 
-    if(ImGui::Begin("Replay", &m_showReplayWindow, ImGuiWindowFlags_MenuBar)) {
+    SetNextWindowCenteredOnMainViewport(ImVec2(660.0f, 380.0f));
+    if(ImGui::Begin("Replay", &m_showReplayWindow, ImGuiWindowFlags_MenuBar | ImGuiWindowFlags_NoSavedSettings)) {
         const auto replayState = m_replaySession.snapshot();
         const auto hostReplayStatus = m_emu.replayPlaybackStatus();
         const bool hasRomLoaded = m_emu.valid();
         const bool recording = replayState.mode == ReplaySession::ReplayMode::Recording;
+        const bool recordingPaused = recording && m_emu.paused();
         const bool replayLoaded = replayState.loadedReplayActive;
         const bool playbackReady = replayState.mode == ReplaySession::ReplayMode::Playback && replayLoaded;
         const bool replaySeeking = playbackReady && hostReplayStatus.seeking;
@@ -136,8 +138,21 @@ inline void GeraNESApp::drawReplayWindow()
 
         ImGui::SameLine();
         ImGui::BeginDisabled(!pauseEnabled);
-        if(ImGui::Button((std::string(FontAwesomeIcons::kPause) + " Pause").c_str(), ImVec2(100.0f, 0.0f))) {
-            stopReplayPlayback(true);
+        const std::string pauseLabel =
+            recording
+                ? std::string(FontAwesomeIcons::kPause) + (recordingPaused ? " Resume" : " Pause")
+                : std::string(FontAwesomeIcons::kPause) + " Pause";
+        if(ImGui::Button(pauseLabel.c_str(), ImVec2(100.0f, 0.0f))) {
+            if(recording) {
+                m_emu.togglePaused();
+                if(recordingPaused) {
+                    m_replaySession.beginPlayback();
+                } else {
+                    m_replaySession.stopPlayback();
+                }
+            } else {
+                stopReplayPlayback(true);
+            }
         }
         ImGui::EndDisabled();
 
@@ -200,11 +215,6 @@ inline void GeraNESApp::drawReplayWindow()
 
         ImGui::Separator();
 
-        const char* modeLabel = "Idle";
-        if(recording) modeLabel = "Recording";
-        else if(playbackReady) modeLabel = replaySeeking ? "Seeking" : (replayPlaying ? "Playback" : "Replay Loaded");
-
-        ImGui::Text("Mode: %s", modeLabel);
         ImGui::Text("ROM: %s", replayState.data.romName.empty() ? "-" : replayState.data.romName.c_str());
         ImGui::Text("CRC: %s", replayState.data.romCrc.empty() ? "-" : replayState.data.romCrc.c_str());
         ImGui::Text("Port 1: %s", replayPortDeviceLabel(replayState.data.inputTopology.port1Device));
@@ -215,8 +225,7 @@ inline void GeraNESApp::drawReplayWindow()
         ImGui::Text("Time: %s/%s",
                     replayFormatTimeHms(replayCursorFrame, replayFps).c_str(),
                     replayFormatTimeHms(replayFrameCount, replayFps).c_str());
-        ImGui::Text("Frames: %u", replayFrameCount);
-        ImGui::Text("Cursor: %u", replayCursorFrame);
+        ImGui::Text("Cursor: %u/%u", replayCursorFrame, replayFrameCount);
         ImGui::Text("File: %s", replayState.filePath.empty() ? "-" : replayState.filePath.string().c_str());
         if(replaySeeking) {
             ImGui::Text("Seeking to frame: %d", m_replaySliderValue);
