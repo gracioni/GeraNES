@@ -329,6 +329,22 @@ private:
     IEmulationHost::InputState m_netplayLatestInputState = {};
     IEmulationHost::InputState m_replayLiveInputState = {};
     ReplayManager m_replayManager;
+    enum class ReplayFrameCrcDiagnosticsMode : uint8_t {
+        Idle,
+        RecordingBaseline,
+        Comparing
+    };
+    struct ReplayStateSample {
+        uint32_t frame = 0;
+        uint32_t crc32 = 0;
+    };
+    std::unordered_map<uint32_t, uint32_t> m_replayBaselineFrameStateCrc32;
+    ReplayFrameCrcDiagnosticsMode m_replayFrameCrcDiagnosticsMode = ReplayFrameCrcDiagnosticsMode::Idle;
+    bool m_replayFrameCrcMismatchDetected = false;
+    bool m_replayBaselineCaptureArmed = false;
+    uint32_t m_replayBaselineFrameStateCrcMaxFrame = 0;
+    uint32_t m_lastReplayRuntimeSyncedFrame = UINT32_MAX;
+    std::deque<std::string> m_replayTraceLog;
     int m_replaySliderValue = 0;
     bool m_replaySliderDragging = false;
     bool m_replaySeekInProgress = false;
@@ -619,7 +635,14 @@ private:
     bool openReplayFile(const fs::path& path);
     bool seekReplayToFrame(uint32_t frame);
     bool stopReplayToStart();
-    void primeReplayInputAtFrame(uint32_t frame);
+    void synchronizeReplayInputAtCurrentFrame();
+    ReplayStateSample sampleReplayStateAtCurrentFrame();
+    void resetReplayFrameCrcDiagnostics();
+    void updateReplayFrameCrcDiagnostics(uint32_t frame, uint32_t crc32, const char* source);
+    void captureReplayFrameCrcAtCurrentFrame(const char* source);
+    void beginReplayFrameCrcBaselineSession();
+    void logReplayTrace(const std::string& message, Logger::Type type = Logger::Type::INFO);
+    void dumpReplayTraceOnMismatch() const;
     void startReplayPlayback();
     bool beginReplaySeekCatchup(uint32_t targetFrame,
                                 std::vector<InputFrame> replayFrames,

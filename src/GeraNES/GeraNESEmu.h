@@ -1952,7 +1952,7 @@ public:
 
     GERANES_INLINE bool updateUntilFrame(uint32_t dt, bool renderAudio = true) {
         applyPendingNsfControllerActions();
-        if(m_paused) return true;
+        if(m_paused) return false;
 
         const bool ret = _update<true>(dt, renderAudio);
         if(renderAudio && ret) {
@@ -2138,6 +2138,19 @@ public:
         m_hardwareActions = savedHardwareActions;
         m_updateCyclesAcc = savedUpdateCyclesAcc;
         m_audioRenderCyclesAcc = savedAudioRenderCyclesAcc;
+        return data;
+    }
+
+    std::vector<uint8_t> saveExactStateToMemory()
+    {
+        Serialize s;
+        static thread_local size_t reserveHint = 0;
+        if(reserveHint > 0) {
+            s.reserve(reserveHint);
+        }
+        serialization(s);
+        std::vector<uint8_t> data = s.takeData();
+        reserveHint = data.size();
         return data;
     }
 

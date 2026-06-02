@@ -30,6 +30,16 @@ SaveStateWithCrc32 captureSaveStateWithCrc32(GeraNESEmu& emu)
         : Crc32::calc(reinterpret_cast<const char*>(snapshot.data.data()), snapshot.data.size());
     return snapshot;
 }
+
+SaveStateWithCrc32 captureExactSaveStateWithCrc32(GeraNESEmu& emu)
+{
+    SaveStateWithCrc32 snapshot;
+    snapshot.data = emu.saveExactStateToMemory();
+    snapshot.crc32 = snapshot.data.empty()
+        ? 0u
+        : Crc32::calc(reinterpret_cast<const char*>(snapshot.data.data()), snapshot.data.size());
+    return snapshot;
+}
 }
 
 thread_local const ThreadedEmulationHost* ThreadedEmulationHost::t_directAccessHost = nullptr;
@@ -69,6 +79,177 @@ void ThreadedEmulationHost::discardNetplaySnapshotsAfter(uint32_t frame)
     m_netplayDiagnostics.currentFrame = frame;
 }
 
+bool ThreadedEmulationHost::resolveReplayPlaybackInputLocked(uint32_t targetFrame,
+                                                             ReplayFrameInput& input,
+                                                             bool& handled)
+{
+    handled = false;
+    if(!m_replayPlayback.loaded) {
+        return true;
+    }
+
+    if(!m_replayPlayback.playing && !m_replayPlayback.seeking) {
+        handled = true;
+        m_pendingInputFrames.clear();
+        m_emu.setPaused(true);
+        return false;
+    }
+
+    handled = true;
+    const InputFrame* replayFrame = findReplayFrameByNumber(m_replayPlayback.frames, targetFrame);
+    if(replayFrame == nullptr) {
+        m_replayPlayback.playing = false;
+        m_replayPlayback.seeking = false;
+        m_pendingInputFrames.clear();
+        m_emu.setPaused(true);
+        return false;
+    }
+
+    input.hasFrameOverride = true;
+    input.frameOverride = *replayFrame;
+    return true;
+}
+
+void ThreadedEmulationHost::resetReplayPlaybackSnapshotsLocked()
+{
+    m_replayPlayback.cursorFrame = m_emu.frameCount();
+    m_replayPlayback.cursorCanonicalCrc32.reset();
+    m_replayPlayback.scheduledSnapshotFrames.clear();
+    m_replayPlayback.snapshots.clear();
+
+    const uint32_t replayFrameCount = replayFrameCountFromFrames(m_replayPlayback.frames);
+    if(replayFrameCount > 1u) {
+        constexpr size_t kReplaySnapshotCapacity = 10u;
+        for(uint32_t i = 1; i <= kReplaySnapshotCapacity; ++i) {
+            const uint32_t frame = (i * replayFrameCount) / (static_cast<uint32_t>(kReplaySnapshotCapacity) + 1u);
+            if(frame == 0 || frame >= replayFrameCount) {
+                continue;
+            }
+            if(!m_replayPlayback.scheduledSnapshotFrames.empty() &&
+               m_replayPlayback.scheduledSnapshotFrames.back() == frame) {
+                continue;
+            }
+            m_replayPlayback.scheduledSnapshotFrames.push_back(frame);
+        }
+    }
+
+    const SaveStateWithCrc32 baseline = captureExactSaveStateWithCrc32(m_emu);
+    captureReplayPlaybackSnapshotLocked(m_emu.frameCount(), baseline.data, baseline.crc32);
+    m_replayPlayback.cursorCanonicalCrc32 = baseline.crc32;
+}
+
+void ThreadedEmulationHost::captureReplayPlaybackSnapshotLocked(uint32_t frame,
+                                                                const std::vector<uint8_t>& state,
+                                                                uint32_t crc32)
+{
+    if(state.empty()) {
+        return;
+    }
+
+    const auto existing = std::find_if(
+        m_replayPlayback.snapshots.begin(),
+        m_replayPlayback.snapshots.end(),
+        [frame](const ReplayPlaybackState::StoredSnapshot& snapshot) {
+            return snapshot.frame == frame;
+        });
+    if(existing != m_replayPlayback.snapshots.end()) {
+        existing->crc32 = crc32;
+        existing->data = std::make_shared<std::vector<uint8_t>>(state);
+        return;
+    }
+
+    m_replayPlayback.snapshots.push_back(ReplayPlaybackState::StoredSnapshot{
+        frame,
+        crc32,
+        std::make_shared<std::vector<uint8_t>>(state)
+    });
+}
+
+void ThreadedEmulationHost::updateReplayPlaybackFrameReadyStateLocked()
+{
+    if(!m_replayPlayback.loaded) {
+        return;
+    }
+
+    const uint32_t frame = m_emu.frameCount();
+    m_replayPlayback.cursorFrame = frame;
+    m_replayPlayback.cursorCanonicalCrc32.reset();
+
+    const bool shouldCapture = std::find(
+        m_replayPlayback.scheduledSnapshotFrames.begin(),
+        m_replayPlayback.scheduledSnapshotFrames.end(),
+        frame) != m_replayPlayback.scheduledSnapshotFrames.end();
+    if(!shouldCapture || !m_lastFrameReadyStateSnapshot) {
+        return;
+    }
+
+    const SaveStateWithCrc32 snapshot = captureExactSaveStateWithCrc32(m_emu);
+    captureReplayPlaybackSnapshotLocked(frame, snapshot.data, snapshot.crc32);
+    m_replayPlayback.cursorCanonicalCrc32 = snapshot.crc32;
+}
+
+bool ThreadedEmulationHost::seekReplayPlaybackLocked(uint32_t targetFrame)
+{
+    if(!m_replayPlayback.loaded || !m_emu.valid()) {
+        return false;
+    }
+
+    const uint32_t clampedTarget =
+        std::min(targetFrame, replayFrameCountFromFrames(m_replayPlayback.frames));
+    const auto bestSnapshot = std::find_if(
+        m_replayPlayback.snapshots.rbegin(),
+        m_replayPlayback.snapshots.rend(),
+        [clampedTarget](const ReplayPlaybackState::StoredSnapshot& snapshot) {
+            return snapshot.frame <= clampedTarget && snapshot.data && !snapshot.data->empty();
+        });
+    if(bestSnapshot == m_replayPlayback.snapshots.rend()) {
+        return false;
+    }
+
+    m_replayPlayback.playing = false;
+    m_replayPlayback.seeking = true;
+    m_pendingInputFrames.clear();
+    m_emu.loadStateFromMemory(*bestSnapshot->data);
+    if(!m_emu.valid()) {
+        m_replayPlayback.seeking = false;
+        return false;
+    }
+
+    const uint32_t frameDt = std::max<uint32_t>(1u, 1000u / std::max<uint32_t>(1u, m_emu.getRegionFPS()));
+    if(m_emu.frameCount() < clampedTarget && m_emu.paused()) {
+        m_emu.setPaused(false);
+    }
+    while(m_emu.frameCount() < clampedTarget) {
+        runPreAdvanceHookLocked();
+        if(!prepareCurrentFrameInputLocked().has_value()) {
+            m_replayPlayback.seeking = false;
+            return false;
+        }
+        const uint32_t frameBefore = m_emu.frameCount();
+        m_emu.updateUntilFrame(frameDt, false);
+        if(m_emu.frameCount() <= frameBefore) {
+            m_replayPlayback.seeking = false;
+            return false;
+        }
+        onFrameReadyLocked();
+    }
+
+    m_replayPlayback.seeking = false;
+    m_pendingInputFrames.clear();
+    m_emu.setPaused(true);
+    const SaveStateWithCrc32 settledState = captureExactSaveStateWithCrc32(m_emu);
+    m_replayPlayback.cursorFrame = m_emu.frameCount();
+    m_replayPlayback.cursorCanonicalCrc32 = settledState.crc32;
+    if(std::find(
+           m_replayPlayback.scheduledSnapshotFrames.begin(),
+           m_replayPlayback.scheduledSnapshotFrames.end(),
+           m_replayPlayback.cursorFrame) != m_replayPlayback.scheduledSnapshotFrames.end()) {
+        captureReplayPlaybackSnapshotLocked(m_replayPlayback.cursorFrame, settledState.data, settledState.crc32);
+    }
+
+    return true;
+}
+
 void ThreadedEmulationHost::onResetExecutedLocked(uint32_t frame)
 {
     std::scoped_lock eventLock(m_manualStateChangeMutex);
@@ -84,22 +265,51 @@ void ThreadedEmulationHost::onLoadExecutedLocked(uint32_t frame)
 void ThreadedEmulationHost::recordFrameReadyNetplayState(GeraNESEmu& emu)
 {
     const uint32_t frame = emu.frameCount();
-    const auto snapshotSaveStart = HostTimingClock::now();
-    SaveStateWithCrc32 snapshot = captureSaveStateWithCrc32(emu);
-    const uint64_t snapshotSaveElapsedUs = elapsedMicrosSince(snapshotSaveStart);
-    const uint32_t crc32 = snapshot.crc32;
-    m_lastFrameReadyFrameValue = frame;
-    m_lastFrameReadyNetplayCrc32Value = crc32;
+    const bool captureReplaySnapshot =
+        m_replayPlayback.loaded &&
+        std::find(
+            m_replayPlayback.scheduledSnapshotFrames.begin(),
+            m_replayPlayback.scheduledSnapshotFrames.end(),
+            frame) != m_replayPlayback.scheduledSnapshotFrames.end();
     size_t snapshotCapacity = 0;
     {
         std::scoped_lock netplayLock(m_netplaySnapshotMutex);
         snapshotCapacity = m_netplaySnapshotCapacity;
     }
+    if(snapshotCapacity == 0 && !captureReplaySnapshot) {
+        {
+            std::scoped_lock snapshotLock(m_snapshotMutex);
+            m_lastFrameReadyStateSnapshot.reset();
+        }
+        m_lastFrameReadyFrameValue = frame;
+        m_lastFrameReadyNetplayCrc32Value = 0;
+        m_lastFrameReadyReplayCrc32Value = 0;
+        return;
+    }
+
+    const auto snapshotSaveStart = HostTimingClock::now();
+    SaveStateWithCrc32 snapshot = captureSaveStateWithCrc32(emu);
+    const uint64_t snapshotSaveElapsedUs = elapsedMicrosSince(snapshotSaveStart);
+    const uint32_t crc32 = snapshot.crc32;
+    const size_t snapshotDataSize = snapshot.data.size();
+    {
+        std::scoped_lock snapshotLock(m_snapshotMutex);
+        m_lastFrameReadyStateSnapshot = std::make_shared<std::vector<uint8_t>>(snapshot.data);
+    }
+    m_lastFrameReadyFrameValue = frame;
+    m_lastFrameReadyNetplayCrc32Value = crc32;
+    m_lastFrameReadyReplayCrc32Value = 0;
+    if(m_replayPlayback.loaded) {
+        const std::vector<uint8_t> replayState = emu.saveExactStateToMemory();
+        m_lastFrameReadyReplayCrc32Value = replayState.empty()
+            ? 0u
+            : Crc32::calc(reinterpret_cast<const char*>(replayState.data()), replayState.size());
+    }
 
     if(snapshotCapacity == 0) {
         std::scoped_lock netplayLock(m_netplaySnapshotMutex);
         m_netplayDiagnostics.netplayStateSaveTiming.record(snapshotSaveElapsedUs);
-        m_netplayDiagnostics.netplayStateSerializedBytes.record(snapshot.data.size());
+        m_netplayDiagnostics.netplayStateSerializedBytes.record(snapshotDataSize);
         return;
     }
 
@@ -109,8 +319,6 @@ void ThreadedEmulationHost::recordFrameReadyNetplayState(GeraNESEmu& emu)
         m_netplayDiagnostics.netplaySnapshotSerializedBytes.record(0);
         return;
     }
-    const size_t snapshotDataSize = snapshot.data.size();
-
     std::scoped_lock netplayLock(m_netplaySnapshotMutex);
     if(const std::optional<size_t> index = snapshotIndexForFrameLocked(frame); index.has_value()) {
         auto& existing = m_netplaySnapshots[*index];
@@ -300,6 +508,11 @@ void ThreadedEmulationHost::refreshSnapshotLocked()
     const uint32_t inputTimelineEpoch = m_pendingInputTimelineEpoch;
     const uint32_t regionFps = m_emu.getRegionFPS();
     const Settings::Region region = m_emu.region();
+    const bool replayLoaded = m_replayPlayback.loaded;
+    const bool replayPlaying = m_replayPlayback.playing;
+    const uint32_t replayCursorFrame = m_replayPlayback.cursorFrame;
+    const uint32_t replayLoadedFrameCount = replayFrameCountFromFrames(m_replayPlayback.frames);
+    const std::optional<uint32_t> replayCursorCanonicalCrc32 = m_replayPlayback.cursorCanonicalCrc32;
     const GameDatabase::System cartridgeSystem =
         valid
             ? m_emu.getConsole().cartridge().system()
@@ -314,6 +527,7 @@ void ThreadedEmulationHost::refreshSnapshotLocked()
     const int nsfCurrentSong = m_emu.nsfCurrentSong();
     const uint32_t lastFrameReadyFrame = m_lastFrameReadyFrameValue;
     const uint32_t lastFrameReadyNetplayCrc32 = m_lastFrameReadyNetplayCrc32Value;
+    const uint32_t lastFrameReadyReplayCrc32 = m_lastFrameReadyReplayCrc32Value;
 
     refreshPpuViewerSnapshotLocked(frameCount);
     refreshPpuEventViewerSnapshotLocked(frameCount);
@@ -358,6 +572,11 @@ void ThreadedEmulationHost::refreshSnapshotLocked()
         m_snapshot.frameCount = frameCount;
         m_snapshot.inputTimelineEpoch = inputTimelineEpoch;
         m_snapshot.regionFps = regionFps;
+        m_snapshot.replayLoaded = replayLoaded;
+        m_snapshot.replayPlaying = replayPlaying;
+        m_snapshot.replayCursorFrame = replayCursorFrame;
+        m_snapshot.replayLoadedFrameCount = replayLoadedFrameCount;
+        m_snapshot.replayCursorCanonicalCrc32 = replayCursorCanonicalCrc32;
         m_snapshot.region = region;
         m_snapshot.cartridgeSystem = cartridgeSystem;
         m_snapshot.inputTopology = inputTopology;
@@ -365,6 +584,7 @@ void ThreadedEmulationHost::refreshSnapshotLocked()
         m_snapshot.nsfCurrentSong = nsfCurrentSong;
         m_snapshot.lastFrameReadyFrame = lastFrameReadyFrame;
         m_snapshot.lastFrameReadyNetplayCrc32 = lastFrameReadyNetplayCrc32;
+        m_snapshot.lastFrameReadyReplayCrc32 = lastFrameReadyReplayCrc32;
         if(refreshSlowFields) {
             m_snapshot.audioDeviceName = std::move(audioDeviceName);
             m_snapshot.audioDevices = std::move(audioDevices);
@@ -408,6 +628,7 @@ void ThreadedEmulationHost::publishPresentedStateLocked(bool recordNetplayState)
         if(recordNetplayState) {
             m_snapshot.lastFrameReadyFrame = m_lastFrameReadyFrameValue;
             m_snapshot.lastFrameReadyNetplayCrc32 = m_lastFrameReadyNetplayCrc32Value;
+            m_snapshot.lastFrameReadyReplayCrc32 = m_lastFrameReadyReplayCrc32Value;
         }
     }
 }
@@ -415,6 +636,7 @@ void ThreadedEmulationHost::publishPresentedStateLocked(bool recordNetplayState)
 void ThreadedEmulationHost::onFrameReadyLocked()
 {
     publishPresentedStateLocked(true);
+    updateReplayPlaybackFrameReadyStateLocked();
 }
 
 void ThreadedEmulationHost::workerLoop(std::stop_token stopToken)
@@ -445,7 +667,6 @@ void ThreadedEmulationHost::workerLoop(std::stop_token stopToken)
             {
                 std::scoped_lock emuLock(m_emuMutex);
                 dispatch_queued_calls();
-                runPreAdvanceHookLocked();
                 m_workerWakeRequested.store(false, std::memory_order_release);
                 refreshSnapshotLocked();
             }
@@ -485,7 +706,7 @@ void ThreadedEmulationHost::workerLoop(std::stop_token stopToken)
                     m_emu.updateUntilFrame(dtMs);
                     const uint32_t frameAfter = m_emu.frameCount();
                     if(frameAfter != frameBefore) {
-                        publishPresentedStateLocked(frameAfter > frameBefore);
+                        onFrameReadyLocked();
                     }
                 }
                 else if(m_emu.valid() &&
@@ -497,7 +718,7 @@ void ThreadedEmulationHost::workerLoop(std::stop_token stopToken)
                     m_emu.updateUntilFrame(dtMs);
                     const uint32_t frameAfter = m_emu.frameCount();
                     if(frameAfter != frameBefore) {
-                        publishPresentedStateLocked(frameAfter > frameBefore);
+                        onFrameReadyLocked();
                     }
                 }
 
@@ -533,7 +754,7 @@ void ThreadedEmulationHost::workerLoop(std::stop_token stopToken)
                     m_emu.updateUntilFrame(frameDtMs);
                     const uint32_t frameAfter = m_emu.frameCount();
                     if(frameAfter != frameBefore) {
-                        publishPresentedStateLocked(frameAfter > frameBefore);
+                        onFrameReadyLocked();
                     }
                     refreshSnapshotLocked();
                 } else {
@@ -908,13 +1129,30 @@ uint32_t ThreadedEmulationHost::lastFrameReadyNetplayCrc32() const
     return m_snapshot.lastFrameReadyNetplayCrc32;
 }
 
+uint32_t ThreadedEmulationHost::lastFrameReadyReplayCrc32() const
+{
+    std::scoped_lock snapshotLock(m_snapshotMutex);
+    return m_snapshot.lastFrameReadyReplayCrc32;
+}
+
+std::optional<std::shared_ptr<const std::vector<uint8_t>>> ThreadedEmulationHost::lastFrameReadyStateSnapshot() const
+{
+    std::scoped_lock snapshotLock(m_snapshotMutex);
+    if(!m_lastFrameReadyStateSnapshot) {
+        return std::nullopt;
+    }
+    return m_lastFrameReadyStateSnapshot;
+}
+
 void ThreadedEmulationHost::setAuthoritativeFrameReadyState(uint32_t frame, uint32_t canonicalCrc32)
 {
     m_lastFrameReadyFrameValue = frame;
     m_lastFrameReadyNetplayCrc32Value = canonicalCrc32;
+    m_lastFrameReadyReplayCrc32Value = canonicalCrc32;
     std::scoped_lock snapshotLock(m_snapshotMutex);
     m_snapshot.lastFrameReadyFrame = frame;
     m_snapshot.lastFrameReadyNetplayCrc32 = canonicalCrc32;
+    m_snapshot.lastFrameReadyReplayCrc32 = canonicalCrc32;
 }
 
 std::optional<std::shared_ptr<const std::vector<uint8_t>>> ThreadedEmulationHost::netplaySnapshotForFrame(uint32_t frame) const

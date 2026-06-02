@@ -23,7 +23,7 @@ static constexpr const char* GERANES_NAME = "GeraNES";
 static constexpr const char* GERANES_VERSION = "2.0";
 
 static constexpr uint32_t SAVE_STATE_MAGIC = makeMagic('G','N','E','S');
-static constexpr uint32_t SAVE_STATE_VERSION = 11;
+static constexpr uint32_t SAVE_STATE_VERSION = 12;
 
 static constexpr const char* STATES_FOLDER  = "states/";
 

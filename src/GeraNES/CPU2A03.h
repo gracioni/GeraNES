@@ -430,8 +430,6 @@ public:
     void resetVolatileStateAfterLoad()
     {
         m_resetRequest = false;
-        m_lastReadHadDma = false;
-        m_indexedDummyReadHadDma = false;
         m_dma.resetVolatileStateAfterLoad();
     }
 
@@ -1450,6 +1448,8 @@ public:
         SERIALIZEDATA(s, m_poolIntsAtCycle);
         SERIALIZEDATA(s, m_runCount);
         SERIALIZEDATA(s, m_writeCycle);
+        SERIALIZEDATA(s, m_lastReadHadDma);
+        SERIALIZEDATA(s, m_indexedDummyReadHadDma);
         SERIALIZEDATA(s, m_ppuTimingRegion);
         SERIALIZEDATA(s, m_ppuLateCycleRemainder);
         m_dma.serialization(s);

@@ -34,6 +34,7 @@ public:
     using QueuedInputObserver = IEmulationHost::QueuedInputObserver;
     using SelectedInputObserver = IEmulationHost::SelectedInputObserver;
     using ReplaySnapshotObserver = IEmulationHost::ReplaySnapshotObserver;
+    using ReplayFrameStateObserver = IEmulationHost::ReplayFrameStateObserver;
     using NetplayDiagnosticsSnapshot = IEmulationHost::NetplayDiagnosticsSnapshot;
     using ManualStateChangeKind = IEmulationHost::ManualStateChangeKind;
     using ManualStateChangeRecord = IEmulationHost::ManualStateChangeRecord;
@@ -51,6 +52,37 @@ private:
         InputFrame frame = emu.createInputFrame(frameNumber);
         frame.state.serializedInputData = input.serializedInputData;
         return frame;
+    }
+
+    static uint32_t replayFrameCountFromFrames(const std::vector<InputFrame>& frames)
+    {
+        uint32_t maxFramePlusOne = 0u;
+        for(const InputFrame& frame : frames) {
+            maxFramePlusOne = std::max(maxFramePlusOne, frame.frame + 1u);
+        }
+        return maxFramePlusOne;
+    }
+
+    static const InputFrame* findReplayFrameByNumber(const std::vector<InputFrame>& frames, uint32_t targetFrame)
+    {
+        if(targetFrame < frames.size()) {
+            const InputFrame& indexed = frames[static_cast<size_t>(targetFrame)];
+            if(indexed.frame == targetFrame) {
+                return &indexed;
+            }
+        }
+
+        const auto it = std::lower_bound(
+            frames.begin(),
+            frames.end(),
+            targetFrame,
+            [](const InputFrame& frame, uint32_t frameNumber) {
+                return frame.frame < frameNumber;
+            });
+        if(it == frames.end() || it->frame != targetFrame) {
+            return nullptr;
+        }
+        return &*it;
     }
 
     static std::optional<InputFrame> queueReplayFrameInputToEmu(GeraNESEmu& emu,
@@ -76,9 +108,14 @@ private:
 
         ReplayFrameInput input;
         bool hasResolvedInput = false;
+        bool handledByReplayPlayback = false;
+        if(!resolveReplayPlaybackInputLocked(targetFrame, input, handledByReplayPlayback)) {
+            return std::nullopt;
+        }
+        hasResolvedInput = handledByReplayPlayback;
         {
             std::scoped_lock resolverLock(m_frameInputResolverMutex);
-            if(m_frameInputResolver) {
+            if(!hasResolvedInput && m_frameInputResolver) {
                 if(!m_frameInputResolver(targetFrame, input)) {
                     return std::nullopt;
                 }
@@ -134,7 +171,13 @@ private:
         uint32_t inputTimelineEpoch = 0;
         uint32_t lastFrameReadyFrame = 0;
         uint32_t lastFrameReadyNetplayCrc32 = 0;
+        uint32_t lastFrameReadyReplayCrc32 = 0;
         uint32_t regionFps = 60;
+        bool replayLoaded = false;
+        bool replayPlaying = false;
+        uint32_t replayCursorFrame = 0;
+        uint32_t replayLoadedFrameCount = 0;
+        std::optional<uint32_t> replayCursorCanonicalCrc32;
         Settings::Region region = Settings::Region::NTSC;
         GameDatabase::System cartridgeSystem = GameDatabase::System::Unknown;
         InputTopology inputTopology = {};
@@ -155,6 +198,23 @@ private:
         uint32_t crc32 = 0;
         std::shared_ptr<std::vector<uint8_t>> data;
     };
+    struct ReplayPlaybackState
+    {
+        bool loaded = false;
+        bool playing = false;
+        bool seeking = false;
+        uint32_t cursorFrame = 0;
+        std::optional<uint32_t> cursorCanonicalCrc32;
+        std::vector<InputFrame> frames;
+        struct StoredSnapshot
+        {
+            uint32_t frame = 0;
+            uint32_t crc32 = 0;
+            std::shared_ptr<std::vector<uint8_t>> data;
+        };
+        std::vector<uint32_t> scheduledSnapshotFrames;
+        std::deque<StoredSnapshot> snapshots;
+    };
 
     mutable std::mutex m_netplaySnapshotMutex;
     std::deque<NetplayStoredSnapshot> m_netplaySnapshots;
@@ -165,6 +225,9 @@ private:
     mutable NetplayDiagnosticsSnapshot m_netplayDiagnostics;
     uint32_t m_lastFrameReadyFrameValue = 0;
     uint32_t m_lastFrameReadyNetplayCrc32Value = 0;
+    uint32_t m_lastFrameReadyReplayCrc32Value = 0;
+    std::shared_ptr<const std::vector<uint8_t>> m_lastFrameReadyStateSnapshot;
+    ReplayPlaybackState m_replayPlayback;
     mutable std::mutex m_manualStateChangeMutex;
     std::deque<ManualStateChangeRecord> m_manualStateChanges;
     void onResetExecutedLocked(uint32_t frame);
@@ -172,6 +235,11 @@ private:
     void recordFrameReadyNetplayState(GeraNESEmu& emu);
     std::optional<size_t> snapshotIndexForFrameLocked(uint32_t frame) const;
     void discardNetplaySnapshotsAfter(uint32_t frame);
+    bool resolveReplayPlaybackInputLocked(uint32_t targetFrame, ReplayFrameInput& input, bool& handled);
+    void resetReplayPlaybackSnapshotsLocked();
+    void captureReplayPlaybackSnapshotLocked(uint32_t frame, const std::vector<uint8_t>& state, uint32_t crc32);
+    void updateReplayPlaybackFrameReadyStateLocked();
+    bool seekReplayPlaybackLocked(uint32_t targetFrame);
 
     enum class FramePacingMode : uint8_t
     {
@@ -286,6 +354,11 @@ public:
     void setSelectedInputObserver(SelectedInputObserver observer) override;
     void queueReplayInputFrame(const InputFrame& frame) override
     {
+        if(hasDirectEmuAccess()) {
+            InputFrame replayFrame = frame;
+            m_pendingInputFrames.set(replayFrame);
+            return;
+        }
         postCommand([this, frame](GeraNESEmu& emu) {
             (void)emu;
             InputFrame replayFrame = frame;
@@ -775,6 +848,18 @@ public:
         });
     }
 
+    void clearQueuedInputFrames() override
+    {
+        if(hasDirectEmuAccess()) {
+            m_pendingInputFrames.clear();
+            return;
+        }
+        postCommand([this](GeraNESEmu& emu) {
+            (void)emu;
+            m_pendingInputFrames.clear();
+        });
+    }
+
     const uint32_t* getFramebuffer() const override;
     void copyFramebuffer(std::vector<uint32_t>& out) const override;
     bool getModRenderSnapshot(ModRenderSnapshot& out) const override;
@@ -789,11 +874,93 @@ public:
     bool loadStateFromMemory(const std::vector<uint8_t>& data) override;
     bool loadStateFromMemoryOnCleanBoot(const std::vector<uint8_t>& data) override;
     bool loadStateFromMemoryAsManualStateChange(const std::vector<uint8_t>& data) override;
+    void loadReplayPlayback(const std::vector<InputFrame>& frames) override
+    {
+        std::scoped_lock emuLock(m_emuMutex);
+        m_replayPlayback.loaded = true;
+        m_replayPlayback.playing = false;
+        m_replayPlayback.seeking = false;
+        m_replayPlayback.frames = frames;
+        std::stable_sort(
+            m_replayPlayback.frames.begin(),
+            m_replayPlayback.frames.end(),
+            [](const InputFrame& lhs, const InputFrame& rhs) {
+                return lhs.frame < rhs.frame;
+            });
+        m_pendingInputFrames.clear();
+        resetReplayPlaybackSnapshotsLocked();
+        refreshSnapshotLocked();
+    }
+    void clearReplayPlayback() override
+    {
+        std::scoped_lock emuLock(m_emuMutex);
+        m_replayPlayback = {};
+        m_pendingInputFrames.clear();
+        refreshSnapshotLocked();
+    }
+    ReplayPlaybackStatus replayPlaybackStatus() const override
+    {
+        ReplayPlaybackStatus status;
+        if(hasDirectEmuAccess()) {
+            status.loaded = m_replayPlayback.loaded;
+            status.playing = m_replayPlayback.playing;
+            status.cursorFrame = m_replayPlayback.cursorFrame;
+            status.loadedFrameCount = replayFrameCountFromFrames(m_replayPlayback.frames);
+            status.cursorCanonicalCrc32 = m_replayPlayback.cursorCanonicalCrc32;
+            return status;
+        }
+
+        std::scoped_lock snapshotLock(m_snapshotMutex);
+        status.loaded = m_snapshot.replayLoaded;
+        status.playing = m_snapshot.replayPlaying;
+        status.cursorFrame = m_snapshot.replayCursorFrame;
+        status.loadedFrameCount = m_snapshot.replayLoadedFrameCount;
+        status.cursorCanonicalCrc32 = m_snapshot.replayCursorCanonicalCrc32;
+        return status;
+    }
+    bool replayPlay() override
+    {
+        std::scoped_lock emuLock(m_emuMutex);
+        if(!m_replayPlayback.loaded || !m_emu.valid()) return false;
+        m_pendingInputFrames.clear();
+        m_replayPlayback.playing = true;
+        m_replayPlayback.seeking = false;
+        m_emu.setPaused(false);
+        refreshSnapshotLocked();
+        return true;
+    }
+    bool replayPause(bool pauseEmulation) override
+    {
+        std::scoped_lock emuLock(m_emuMutex);
+        if(!m_replayPlayback.loaded) return false;
+        m_replayPlayback.playing = false;
+        m_replayPlayback.seeking = false;
+        m_pendingInputFrames.clear();
+        if(pauseEmulation && m_emu.valid()) {
+            m_emu.setPaused(true);
+        }
+        m_replayPlayback.cursorFrame = m_emu.frameCount();
+        m_replayPlayback.cursorCanonicalCrc32.reset();
+        refreshSnapshotLocked();
+        return true;
+    }
+    bool replaySeekToFrame(uint32_t frame) override
+    {
+        std::scoped_lock emuLock(m_emuMutex);
+        if(!seekReplayPlaybackLocked(frame)) return false;
+        refreshSnapshotLocked();
+        return true;
+    }
+    bool replayStopToStart() override
+    {
+        return replaySeekToFrame(0);
+    }
     bool fastForwardReplayToFrame(uint32_t targetFrame,
                                   const std::vector<InputFrame>& replayFrames,
                                   std::optional<uint32_t> expectedCurrentStateCrc32,
                                   const std::vector<uint32_t>& snapshotFramesToCapture = {},
-                                  ReplaySnapshotObserver snapshotObserver = {}) override
+                                  ReplaySnapshotObserver snapshotObserver = {},
+                                  ReplayFrameStateObserver frameStateObserver = {}) override
     {
         if(expectedCurrentStateCrc32.has_value()) {
             std::vector<uint8_t> currentState;
@@ -802,7 +969,7 @@ public:
                 if(!m_emu.valid()) {
                     return false;
                 }
-                currentState = m_emu.saveStateToMemory();
+                currentState = m_emu.saveExactStateToMemory();
             }
             const uint32_t currentStateCrc32 =
                 currentState.empty()
@@ -842,6 +1009,7 @@ public:
         size_t nextSnapshotIndex = 0;
         while(m_emu.frameCount() < targetFrame) {
             const uint32_t frameBefore = m_emu.frameCount();
+            runPreAdvanceHookLocked();
             prepareCurrentFrameInputLocked();
             m_emu.updateUntilFrame(frameDt, false);
             if(m_emu.frameCount() <= frameBefore) {
@@ -853,10 +1021,17 @@ public:
                 return false;
             }
             onFrameReadyLocked();
+            if(frameStateObserver) {
+                const std::vector<uint8_t> frameState = m_emu.saveExactStateToMemory();
+                const uint32_t frameStateCrc32 =
+                    frameState.empty() ? 0u
+                                       : Crc32::calc(reinterpret_cast<const char*>(frameState.data()), frameState.size());
+                frameStateObserver(m_emu.frameCount(), frameStateCrc32);
+            }
             while(nextSnapshotIndex < snapshotFramesToCapture.size() &&
                   m_emu.frameCount() >= snapshotFramesToCapture[nextSnapshotIndex]) {
                 if(snapshotObserver) {
-                    snapshotObserver(snapshotFramesToCapture[nextSnapshotIndex], m_emu.saveStateToMemory());
+                    snapshotObserver(snapshotFramesToCapture[nextSnapshotIndex], m_emu.saveExactStateToMemory());
                 }
                 ++nextSnapshotIndex;
             }
@@ -890,6 +1065,7 @@ public:
         bool hasLastReplayInput = false;
         while(m_emu.frameCount() < targetFrame) {
             const uint32_t currentFrame = m_emu.frameCount();
+            runPreAdvanceHookLocked();
             const ReplayFrameInput replayInput = std::forward<InputProvider>(inputProvider)(currentFrame);
             {
                 std::scoped_lock pendingInputLock(m_pendingInputMutex);
@@ -925,6 +1101,8 @@ public:
 
     uint32_t lastFrameReadyFrame() const override;
     uint32_t lastFrameReadyNetplayCrc32() const override;
+    uint32_t lastFrameReadyReplayCrc32() const override;
+    std::optional<std::shared_ptr<const std::vector<uint8_t>>> lastFrameReadyStateSnapshot() const override;
     void setAuthoritativeFrameReadyState(uint32_t frame, uint32_t canonicalCrc32) override;
     std::optional<std::shared_ptr<const std::vector<uint8_t>>> netplaySnapshotForFrame(uint32_t frame) const override;
     std::optional<uint32_t> netplaySnapshotCrc32ForFrame(uint32_t frame) const override;

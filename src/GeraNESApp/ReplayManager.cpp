@@ -2,6 +2,40 @@
 
 #include <algorithm>
 
+namespace
+{
+uint32_t replayTimelineFrameCount(const std::vector<InputFrame>& frames)
+{
+    uint32_t maxFramePlusOne = 0u;
+    for(const InputFrame& frame : frames) {
+        maxFramePlusOne = std::max(maxFramePlusOne, frame.frame + 1u);
+    }
+    return maxFramePlusOne;
+}
+
+std::optional<InputFrame> replayFrameForNumber(const std::vector<InputFrame>& frames, uint32_t frameNumber)
+{
+    if(frameNumber < frames.size()) {
+        const InputFrame& indexed = frames[static_cast<size_t>(frameNumber)];
+        if(indexed.frame == frameNumber) {
+            return indexed;
+        }
+    }
+
+    const auto it = std::lower_bound(
+        frames.begin(),
+        frames.end(),
+        frameNumber,
+        [](const InputFrame& frame, uint32_t targetFrame) {
+            return frame.frame < targetFrame;
+        });
+    if(it == frames.end() || it->frame != frameNumber) {
+        return std::nullopt;
+    }
+    return *it;
+}
+}
+
 std::vector<uint32_t> ReplayManager::scheduledRuntimeSnapshotFramesLocked() const
 {
     std::vector<uint32_t> frames;
@@ -9,7 +43,7 @@ std::vector<uint32_t> ReplayManager::scheduledRuntimeSnapshotFramesLocked() cons
         return frames;
     }
 
-    const uint32_t replayFrameCount = static_cast<uint32_t>(m_state.data.frames.size());
+    const uint32_t replayFrameCount = replayTimelineFrameCount(m_state.data.frames);
     if(replayFrameCount <= 1u) {
         return frames;
     }
@@ -72,14 +106,14 @@ void ReplayManager::beginRecordingFromLoadedReplay(uint32_t continueFromFrame)
     std::scoped_lock lock(m_mutex);
     const uint32_t preservedFrameCount = std::min(
         continueFromFrame + 1u,
-        static_cast<uint32_t>(m_state.data.frames.size()));
+        replayTimelineFrameCount(m_state.data.frames));
     m_runtimeSnapshots.clear();
     m_state.mode = ReplayMode::Recording;
     m_state.filePath.clear();
     m_state.data.frames.resize(preservedFrameCount);
     m_state.cursorFrame = preservedFrameCount;
     m_state.cursorCanonicalCrc32.reset();
-    m_state.loadedFrameCount = preservedFrameCount;
+    m_state.loadedFrameCount = replayTimelineFrameCount(m_state.data.frames);
     m_state.playing = true;
     m_state.pendingStopAtEnd = false;
     m_state.loadedReplayActive = false;
@@ -93,7 +127,7 @@ void ReplayManager::appendRecordedFrame(const InputFrame& frame)
     } else {
         m_state.data.frames.push_back(frame);
     }
-    m_state.loadedFrameCount = static_cast<uint32_t>(m_state.data.frames.size());
+    m_state.loadedFrameCount = replayTimelineFrameCount(m_state.data.frames);
     m_state.cursorFrame = m_state.loadedFrameCount;
 }
 
@@ -102,10 +136,10 @@ void ReplayManager::trimRecordedFramesAfter(uint32_t frame)
     std::scoped_lock lock(m_mutex);
     const uint32_t preservedFrameCount = std::min(
         frame + 1u,
-        static_cast<uint32_t>(m_state.data.frames.size()));
+        replayTimelineFrameCount(m_state.data.frames));
     m_state.data.frames.resize(preservedFrameCount);
-    m_state.loadedFrameCount = preservedFrameCount;
-    m_state.cursorFrame = std::min(frame, preservedFrameCount);
+    m_state.loadedFrameCount = replayTimelineFrameCount(m_state.data.frames);
+    m_state.cursorFrame = std::min(frame, m_state.loadedFrameCount);
     m_state.cursorCanonicalCrc32.reset();
 }
 
@@ -115,7 +149,7 @@ void ReplayManager::finalizeRecordingAsPlayback(const fs::path& path)
     m_state.filePath = path;
     m_state.mode = ReplayMode::Playback;
     m_state.loadedReplayActive = true;
-    m_state.loadedFrameCount = static_cast<uint32_t>(m_state.data.frames.size());
+    m_state.loadedFrameCount = replayTimelineFrameCount(m_state.data.frames);
     m_state.playing = false;
     m_state.pendingStopAtEnd = false;
 }
@@ -129,19 +163,19 @@ void ReplayManager::setLoadedReplay(const fs::path& path, ReplayData data)
     m_state.filePath = path;
     m_state.data = std::move(data);
     m_state.loadedReplayActive = true;
-    m_state.loadedFrameCount = static_cast<uint32_t>(m_state.data.frames.size());
+    m_state.loadedFrameCount = replayTimelineFrameCount(m_state.data.frames);
 }
 
 uint32_t ReplayManager::inputCount() const
 {
     std::scoped_lock lock(m_mutex);
-    return static_cast<uint32_t>(m_state.data.frames.size());
+    return replayTimelineFrameCount(m_state.data.frames);
 }
 
 uint32_t ReplayManager::clampedFrame(uint32_t frame) const
 {
     std::scoped_lock lock(m_mutex);
-    return std::min(frame, static_cast<uint32_t>(m_state.data.frames.size()));
+    return std::min(frame, replayTimelineFrameCount(m_state.data.frames));
 }
 
 InputTopology ReplayManager::inputTopology() const
@@ -153,10 +187,7 @@ InputTopology ReplayManager::inputTopology() const
 std::optional<InputFrame> ReplayManager::playbackFrameForFrame(uint32_t frame) const
 {
     std::scoped_lock lock(m_mutex);
-    if(frame >= m_state.data.frames.size()) {
-        return std::nullopt;
-    }
-    return m_state.data.frames[static_cast<size_t>(frame)];
+    return replayFrameForNumber(m_state.data.frames, frame);
 }
 
 void ReplayManager::setCursorFrame(uint32_t frame)
@@ -203,15 +234,15 @@ bool ReplayManager::syncRuntimeFrame(uint32_t emuFrame)
         if(emuFrame < m_state.cursorFrame) {
             const uint32_t preservedFrameCount = std::min(
                 emuFrame + 1u,
-                static_cast<uint32_t>(m_state.data.frames.size()));
+                replayTimelineFrameCount(m_state.data.frames));
             m_state.data.frames.resize(preservedFrameCount);
         }
-        m_state.cursorFrame = std::min(emuFrame, static_cast<uint32_t>(m_state.data.frames.size()));
-        m_state.loadedFrameCount = static_cast<uint32_t>(m_state.data.frames.size());
+        m_state.loadedFrameCount = replayTimelineFrameCount(m_state.data.frames);
+        m_state.cursorFrame = std::min(emuFrame, m_state.loadedFrameCount);
         return false;
     }
 
-    m_state.loadedFrameCount = static_cast<uint32_t>(m_state.data.frames.size());
+    m_state.loadedFrameCount = replayTimelineFrameCount(m_state.data.frames);
     m_state.cursorFrame = std::min(emuFrame, m_state.loadedFrameCount);
     return m_state.pendingStopAtEnd || m_state.cursorFrame >= m_state.loadedFrameCount;
 }

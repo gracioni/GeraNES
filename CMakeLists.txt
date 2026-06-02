@@ -811,6 +811,49 @@ catch_discover_tests(GeraNESTests
         RUN_SERIAL TRUE
 )
 
+add_executable(GeraNESStateReplayTests
+    tests/StateReplayTests.cpp
+)
+target_compile_features(GeraNESStateReplayTests PUBLIC cxx_std_20)
+target_include_directories(GeraNESStateReplayTests PRIVATE
+    "${CMAKE_CURRENT_BINARY_DIR}/generated"
+    "${CMAKE_CURRENT_SOURCE_DIR}/tests"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src"
+)
+target_precompile_headers(GeraNESStateReplayTests PRIVATE
+    <catch2/catch_test_macros.hpp>
+    <algorithm>
+    <chrono>
+    <cstdint>
+    <optional>
+    <random>
+    <string>
+    <thread>
+    <vector>
+)
+if(MINGW)
+    target_compile_options(GeraNESStateReplayTests PRIVATE -Wa,-mbig-obj)
+endif()
+if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+    target_compile_options(GeraNESStateReplayTests PRIVATE -Wno-template-body)
+endif()
+if(NOT EMSCRIPTEN)
+    target_compile_definitions(GeraNESStateReplayTests PRIVATE ASIO_STANDALONE _WEBSOCKETPP_CPP11_STL_ _WEBSOCKETPP_CPP11_THREAD_ RTC_STATIC)
+endif()
+target_link_libraries(GeraNESStateReplayTests PRIVATE GeraNESAppLib ConsoleNetplay GeraNESLib Catch2::Catch2WithMain)
+target_link_libraries(GeraNESStateReplayTests PRIVATE geranes_warnings)
+if(NOT EMSCRIPTEN)
+    target_link_libraries(GeraNESStateReplayTests PRIVATE asio_headers)
+endif()
+if(WIN32)
+    target_link_libraries(GeraNESStateReplayTests PRIVATE mswsock)
+endif()
+
+catch_discover_tests(GeraNESStateReplayTests
+    PROPERTIES
+        RUN_SERIAL TRUE
+)
+
 set(LIBRETRO_CORE_NAME "geranes_libretro")
 
 add_library(${LIBRETRO_CORE_NAME} SHARED

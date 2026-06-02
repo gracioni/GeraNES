@@ -39,6 +39,15 @@ struct EmulationHostTypes
     using QueuedInputObserver = std::function<void(const InputFrame&)>;
     using SelectedInputObserver = std::function<void(const InputFrame&)>;
     using ReplaySnapshotObserver = std::function<void(uint32_t, std::vector<uint8_t>)>;
+    using ReplayFrameStateObserver = std::function<void(uint32_t, uint32_t)>;
+    struct ReplayPlaybackStatus
+    {
+        bool loaded = false;
+        bool playing = false;
+        uint32_t cursorFrame = 0;
+        uint32_t loadedFrameCount = 0;
+        std::optional<uint32_t> cursorCanonicalCrc32;
+    };
     struct ModRenderSnapshot;
     using ModFrameCaptureHook = std::function<bool(GeraNESEmu&, ModRenderSnapshot&, std::vector<uint32_t>&)>;
 
@@ -103,6 +112,8 @@ public:
     using QueuedInputObserver = EmulationHostTypes::QueuedInputObserver;
     using SelectedInputObserver = EmulationHostTypes::SelectedInputObserver;
     using ReplaySnapshotObserver = EmulationHostTypes::ReplaySnapshotObserver;
+    using ReplayFrameStateObserver = EmulationHostTypes::ReplayFrameStateObserver;
+    using ReplayPlaybackStatus = EmulationHostTypes::ReplayPlaybackStatus;
     using ModFrameCaptureHook = EmulationHostTypes::ModFrameCaptureHook;
     using NetplayDiagnosticsSnapshot = ConsoleNetplay::NetplayRuntimeDiagnostics;
     using ManualStateChangeKind = ConsoleNetplay::NetplayManualStateChangeKind;
@@ -193,6 +204,7 @@ public:
     virtual uint32_t inputTimelineEpoch() const = 0;
     virtual void setInputTimelineEpoch(uint32_t timelineEpoch) = 0;
     virtual void discardQueuedInputFramesAfter(uint32_t frame) = 0;
+    virtual void clearQueuedInputFrames() = 0;
     virtual const uint32_t* getFramebuffer() const = 0;
     virtual void copyFramebuffer(std::vector<uint32_t>& out) const = 0;
     virtual bool getModRenderSnapshot(ModRenderSnapshot& out) const = 0;
@@ -207,13 +219,23 @@ public:
     virtual bool loadStateFromMemory(const std::vector<uint8_t>& data) = 0;
     virtual bool loadStateFromMemoryOnCleanBoot(const std::vector<uint8_t>& data) = 0;
     virtual bool loadStateFromMemoryAsManualStateChange(const std::vector<uint8_t>& data) = 0;
+    virtual void loadReplayPlayback(const std::vector<InputFrame>& frames) = 0;
+    virtual void clearReplayPlayback() = 0;
+    virtual ReplayPlaybackStatus replayPlaybackStatus() const = 0;
+    virtual bool replayPlay() = 0;
+    virtual bool replayPause(bool pauseEmulation) = 0;
+    virtual bool replaySeekToFrame(uint32_t frame) = 0;
+    virtual bool replayStopToStart() = 0;
     virtual bool fastForwardReplayToFrame(uint32_t targetFrame,
                                           const std::vector<InputFrame>& replayFrames,
                                           std::optional<uint32_t> expectedCurrentStateCrc32,
                                           const std::vector<uint32_t>& snapshotFramesToCapture = {},
-                                          ReplaySnapshotObserver snapshotObserver = {}) = 0;
+                                          ReplaySnapshotObserver snapshotObserver = {},
+                                          ReplayFrameStateObserver frameStateObserver = {}) = 0;
     virtual uint32_t lastFrameReadyFrame() const = 0;
     virtual uint32_t lastFrameReadyNetplayCrc32() const = 0;
+    virtual uint32_t lastFrameReadyReplayCrc32() const = 0;
+    virtual std::optional<std::shared_ptr<const std::vector<uint8_t>>> lastFrameReadyStateSnapshot() const = 0;
     virtual void setAuthoritativeFrameReadyState(uint32_t frame, uint32_t canonicalCrc32) = 0;
     virtual std::optional<std::shared_ptr<const std::vector<uint8_t>>> netplaySnapshotForFrame(uint32_t frame) const = 0;
     virtual std::optional<uint32_t> netplaySnapshotCrc32ForFrame(uint32_t frame) const = 0;
