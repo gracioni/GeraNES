@@ -122,8 +122,8 @@ void AppSettings::Input::sanitizeDefaults()
     if(snesController.count("0") == 0) {
         SnesControllerInfo i;
 
-        i.a = "Z";
-        i.b = "X";
+        i.a = "X";
+        i.b = "Z";
         i.x = "S";
         i.y = "A";
         i.l = "Q";
@@ -141,12 +141,12 @@ void AppSettings::Input::sanitizeDefaults()
     if(snesController.count("1") == 0) {
         SnesControllerInfo i;
 
-        i.a = "G";
-        i.b = "H";
-        i.x = "T";
-        i.y = "R";
-        i.l = "Y";
-        i.r = "U";
+        i.a = "H";
+        i.b = "G";
+        i.x = "Y";
+        i.y = "T";
+        i.l = "5";
+        i.r = "6";
         i.select = "N";
         i.start = "M";
         i.up = "I";
@@ -170,8 +170,8 @@ void AppSettings::Input::sanitizeDefaults()
     if(virtualBoyController.count("0") == 0) {
         VirtualBoyControllerInfo i;
 
-        i.a = "Z";
-        i.b = "X";
+        i.a = "X";
+        i.b = "Z";
         i.l = "A";
         i.r = "S";
         i.select = "Space";
@@ -214,8 +214,8 @@ void AppSettings::Input::sanitizeDefaults()
     if(system.rewind.empty()) system.rewind = "Backspace";
     if(system.speed.empty()) system.speed = "+";
 
-    if(konamiHyperShot.p1Run.empty()) konamiHyperShot.p1Run = "Left Alt";
-    if(konamiHyperShot.p1Jump.empty()) konamiHyperShot.p1Jump = "Left Ctrl";
+    if(konamiHyperShot.p1Run.empty()) konamiHyperShot.p1Run = "X";
+    if(konamiHyperShot.p1Jump.empty()) konamiHyperShot.p1Jump = "Z";
     if(konamiHyperShot.p2Run.empty()) konamiHyperShot.p2Run = "H";
     if(konamiHyperShot.p2Jump.empty()) konamiHyperShot.p2Jump = "G";
 
