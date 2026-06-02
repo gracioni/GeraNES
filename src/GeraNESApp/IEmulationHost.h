@@ -42,6 +42,8 @@ struct EmulationHostTypes
     {
         bool loaded = false;
         bool playing = false;
+        bool seeking = false;
+        bool lastSeekSucceeded = true;
         uint32_t cursorFrame = 0;
         uint32_t loadedFrameCount = 0;
     };

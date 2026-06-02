@@ -142,6 +142,8 @@ private:
         uint32_t regionFps = 60;
         bool replayLoaded = false;
         bool replayPlaying = false;
+        bool replaySeeking = false;
+        bool replayLastSeekSucceeded = true;
         uint32_t replayCursorFrame = 0;
         uint32_t replayLoadedFrameCount = 0;
         Settings::Region region = Settings::Region::NTSC;
@@ -175,6 +177,7 @@ private:
     uint32_t m_lastFrameReadyNetplayCrc32Value = 0;
     std::shared_ptr<const std::vector<uint8_t>> m_lastFrameReadyStateSnapshot;
     ReplayPlaybackController m_replayPlayback;
+    bool m_replayLastSeekSucceeded = true;
     mutable std::mutex m_manualStateChangeMutex;
     std::deque<ManualStateChangeRecord> m_manualStateChanges;
     void onResetExecutedLocked(uint32_t frame);
@@ -259,7 +262,7 @@ private:
     void refreshPpuEventViewerSnapshotLocked(uint32_t frameCount);
     void refreshModRenderSnapshotLocked();
     void publishPresentedStateLocked(bool recordNetplayState);
-    void onFrameReadyLocked();
+    void onFrameReadyLocked(bool publishPresentedState = true);
     void workerLoop(std::stop_token stopToken);
     static thread_local const ThreadedEmulationHost* t_directAccessHost;
     bool onWorkerThread() const
@@ -842,6 +845,8 @@ public:
         if(hasDirectEmuAccess()) {
             status.loaded = m_replayPlayback.loaded;
             status.playing = m_replayPlayback.playing;
+            status.seeking = m_replayPlayback.seeking;
+            status.lastSeekSucceeded = m_replayLastSeekSucceeded;
             status.cursorFrame = m_replayPlayback.cursorFrame;
             status.loadedFrameCount = m_replayPlayback.loadedFrameCount();
             return status;
@@ -850,6 +855,8 @@ public:
         std::scoped_lock snapshotLock(m_snapshotMutex);
         status.loaded = m_snapshot.replayLoaded;
         status.playing = m_snapshot.replayPlaying;
+        status.seeking = m_snapshot.replaySeeking;
+        status.lastSeekSucceeded = m_snapshot.replayLastSeekSucceeded;
         status.cursorFrame = m_snapshot.replayCursorFrame;
         status.loadedFrameCount = m_snapshot.replayLoadedFrameCount;
         return status;
@@ -861,6 +868,7 @@ public:
         m_pendingInputFrames.clear();
         m_replayPlayback.playing = true;
         m_replayPlayback.seeking = false;
+        m_replayLastSeekSucceeded = true;
         m_emu.setPaused(false);
         refreshSnapshotLocked();
         return true;
@@ -871,6 +879,7 @@ public:
         if(!m_replayPlayback.loaded) return false;
         m_replayPlayback.playing = false;
         m_replayPlayback.seeking = false;
+        m_replayLastSeekSucceeded = true;
         m_pendingInputFrames.clear();
         if(pauseEmulation && m_emu.valid()) {
             m_emu.setPaused(true);
@@ -882,8 +891,21 @@ public:
     bool replaySeekToFrame(uint32_t frame) override
     {
         std::scoped_lock emuLock(m_emuMutex);
-        if(!seekReplayPlaybackLocked(frame)) return false;
+        if(!m_replayPlayback.loaded || !m_emu.valid() || m_replayPlayback.seeking) {
+            return false;
+        }
+        m_replayPlayback.playing = false;
+        m_replayPlayback.seeking = true;
+        m_replayLastSeekSucceeded = true;
         refreshSnapshotLocked();
+        m_signalCommand([this, frame](GeraNESEmu&) {
+            const bool succeeded = seekReplayPlaybackLocked(frame);
+            m_replayLastSeekSucceeded = succeeded;
+            refreshSnapshotLocked();
+        });
+        refreshSnapshotLocked();
+        m_workerWakeRequested.store(true, std::memory_order_release);
+        m_presenterCv.notify_one();
         return true;
     }
     bool replayStopToStart() override

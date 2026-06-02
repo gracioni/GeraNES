@@ -140,17 +140,18 @@ void ThreadedEmulationHost::updateReplayPlaybackFrameReadyStateLocked()
 bool ThreadedEmulationHost::seekReplayPlaybackLocked(uint32_t targetFrame)
 {
     if(!m_replayPlayback.loaded || !m_emu.valid()) {
+        m_replayPlayback.seeking = false;
         return false;
     }
 
     const uint32_t clampedTarget = m_replayPlayback.clampTargetFrame(targetFrame);
     const ReplayPlaybackController::StoredSnapshot* bestSnapshot = m_replayPlayback.bestSnapshotAtOrBefore(clampedTarget);
     if(bestSnapshot == nullptr) {
+        m_replayPlayback.seeking = false;
         return false;
     }
 
     m_replayPlayback.playing = false;
-    m_replayPlayback.seeking = true;
     m_pendingInputFrames.clear();
     m_emu.loadStateFromMemory(*bestSnapshot->data);
     if(!m_emu.valid()) {
@@ -174,7 +175,7 @@ bool ThreadedEmulationHost::seekReplayPlaybackLocked(uint32_t targetFrame)
             m_replayPlayback.seeking = false;
             return false;
         }
-        onFrameReadyLocked();
+        onFrameReadyLocked(false);
     }
 
     m_replayPlayback.seeking = false;
@@ -185,6 +186,7 @@ bool ThreadedEmulationHost::seekReplayPlaybackLocked(uint32_t targetFrame)
     if(m_replayPlayback.shouldCaptureScheduledSnapshot(m_replayPlayback.cursorFrame)) {
         captureReplayPlaybackSnapshotLocked(m_replayPlayback.cursorFrame, settledState.data, settledState.crc32);
     }
+    publishPresentedStateLocked(true);
 
     return true;
 }
@@ -438,6 +440,7 @@ void ThreadedEmulationHost::refreshSnapshotLocked()
     const Settings::Region region = m_emu.region();
     const bool replayLoaded = m_replayPlayback.loaded;
     const bool replayPlaying = m_replayPlayback.playing;
+    const bool replaySeeking = m_replayPlayback.seeking;
     const uint32_t replayCursorFrame = m_replayPlayback.cursorFrame;
     const uint32_t replayLoadedFrameCount = m_replayPlayback.loadedFrameCount();
     const GameDatabase::System cartridgeSystem =
@@ -500,6 +503,8 @@ void ThreadedEmulationHost::refreshSnapshotLocked()
         m_snapshot.regionFps = regionFps;
         m_snapshot.replayLoaded = replayLoaded;
         m_snapshot.replayPlaying = replayPlaying;
+        m_snapshot.replaySeeking = replaySeeking;
+        m_snapshot.replayLastSeekSucceeded = m_replayLastSeekSucceeded;
         m_snapshot.replayCursorFrame = replayCursorFrame;
         m_snapshot.replayLoadedFrameCount = replayLoadedFrameCount;
         m_snapshot.region = region;
@@ -556,9 +561,11 @@ void ThreadedEmulationHost::publishPresentedStateLocked(bool recordNetplayState)
     }
 }
 
-void ThreadedEmulationHost::onFrameReadyLocked()
+void ThreadedEmulationHost::onFrameReadyLocked(bool publishPresentedState)
 {
-    publishPresentedStateLocked(true);
+    if(publishPresentedState) {
+        publishPresentedStateLocked(true);
+    }
     updateReplayPlaybackFrameReadyStateLocked();
 }
 

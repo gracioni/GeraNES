@@ -330,6 +330,8 @@ private:
     ReplaySession m_replaySession;
     int m_replaySliderValue = 0;
     bool m_replaySliderDragging = false;
+    bool m_replaySeekCompletionPending = false;
+    bool m_replayAutoPlayAfterSeek = false;
     EmulationSpeed m_selectedEmulationSpeed = EmulationSpeed::Normal;
     EmulationSpeed m_lastEffectiveEmulationSpeed = EmulationSpeed::Normal;
     bool m_maxSpeedRequested = false;

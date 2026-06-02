@@ -164,6 +164,44 @@ inline void GeraNESApp::showOverlay()
     ImGuiViewport* mainViewport = ImGui::GetMainViewport();
     ImDrawList* drawList = ImGui::GetForegroundDrawList(mainViewport);
     const ImVec2 overlayOrigin = mainViewport != nullptr ? mainViewport->Pos : ImVec2(0.0f, 0.0f);
+    const auto replayPlaybackStatus = m_emu.replayPlaybackStatus();
+
+    if(replayPlaybackStatus.seeking) {
+        const SDL_Rect clientArea = emulatorClientArea();
+        const ImVec2 panelMin(
+            overlayOrigin.x + static_cast<float>(clientArea.x) + (static_cast<float>(clientArea.w) - 220.0f) * 0.5f,
+            overlayOrigin.y + static_cast<float>(clientArea.y) + (static_cast<float>(clientArea.h) - 92.0f) * 0.5f
+        );
+        const ImVec2 panelMax(panelMin.x + 220.0f, panelMin.y + 92.0f);
+        const ImVec2 panelCenter((panelMin.x + panelMax.x) * 0.5f, (panelMin.y + panelMax.y) * 0.5f);
+        const float time = static_cast<float>(SDL_GetTicks()) / 1000.0f;
+        const float angleOffset = time * 3.5f;
+
+        drawList->AddRectFilled(panelMin, panelMax, IM_COL32(0, 0, 0, 170), 12.0f);
+        drawList->AddRect(panelMin, panelMax, IM_COL32(255, 255, 255, 64), 12.0f, 0, 1.5f);
+
+        for(int i = 0; i < 8; ++i) {
+            const float angle = angleOffset + (static_cast<float>(i) * 3.14159265f * 0.25f);
+            const float alphaScale = static_cast<float>(i + 1) / 8.0f;
+            const ImVec2 dotPos(
+                panelCenter.x + std::cos(angle) * 16.0f,
+                panelCenter.y - 12.0f + std::sin(angle) * 16.0f
+            );
+            drawList->AddCircleFilled(
+                dotPos,
+                3.5f,
+                IM_COL32(255, 255, 255, static_cast<int>(70.0f + alphaScale * 185.0f))
+            );
+        }
+
+        const char* label = "Seeking replay...";
+        const ImVec2 labelSize = ImGui::CalcTextSize(label);
+        drawList->AddText(
+            ImVec2(panelCenter.x - labelSize.x * 0.5f, panelCenter.y + 20.0f),
+            IM_COL32(255, 255, 255, 255),
+            label
+        );
+    }
 
     if(AppSettings::instance().data.debug.showFps) {
         const int fontSize = 24;

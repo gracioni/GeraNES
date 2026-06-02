@@ -1184,6 +1184,7 @@ bool GeraNESApp::stopReplayToStart()
         return false;
     }
 
+    m_replayAutoPlayAfterSeek = false;
     if(!m_emu.replayStopToStart()) {
         return false;
     }
@@ -1206,6 +1207,8 @@ void GeraNESApp::clearReplaySession(bool keepWindowOpen)
     configureReplaySessionMode(ReplaySession::ReplayMode::None);
     m_replaySliderValue = 0;
     m_replaySliderDragging = false;
+    m_replaySeekCompletionPending = false;
+    m_replayAutoPlayAfterSeek = false;
     if(hadLoadedReplay && m_emu.valid() && m_emu.paused()) {
         m_emu.togglePaused();
     }
@@ -1540,17 +1543,16 @@ bool GeraNESApp::openReplayFile(const fs::path& path)
     }
     applyReplayInputTopology(replayState.data.inputTopology);
     m_emu.loadReplayPlayback(replayState.data.frames);
-    if(!m_emu.replayStopToStart()) {
+    m_replayAutoPlayAfterSeek = true;
+    if(!seekReplayToFrame(0)) {
+        m_replayAutoPlayAfterSeek = false;
         Logger::instance().log("Failed to normalize replay to frame 0 after load", Logger::Type::ERROR);
         clearReplaySession(true);
         m_userToast.show("Failed to prepare replay playback");
         return false;
     }
-    const auto hostStatus = m_emu.replayPlaybackStatus();
-    m_replaySession.setCursorState(hostStatus.cursorFrame);
     m_replaySliderValue = 0;
     m_replaySliderDragging = false;
-    startReplayPlayback();
     return true;
 }
 
@@ -1561,16 +1563,23 @@ bool GeraNESApp::seekReplayToFrame(uint32_t frame)
     }
 
     const uint32_t requestedFrame = m_replaySession.clampedFrame(frame);
+    const auto hostStatus = m_emu.replayPlaybackStatus();
+    if(hostStatus.seeking) {
+        return false;
+    }
+
     m_emu.setSimulationSuspended(true);
+    m_replaySession.stopPlayback();
+    m_replaySliderValue = static_cast<int>(requestedFrame);
+    m_replaySeekCompletionPending = true;
     if(!m_emu.replaySeekToFrame(requestedFrame)) {
+        m_replaySeekCompletionPending = false;
+        m_replayAutoPlayAfterSeek = false;
         m_replaySession.stopPlayback();
+        m_emu.setSimulationSuspended(false);
         m_userToast.show("Replay seek failed");
         return false;
     }
-    const auto hostStatus = m_emu.replayPlaybackStatus();
-    m_replaySession.stopPlayback();
-    m_replaySession.setCursorState(hostStatus.cursorFrame);
-    m_replaySliderValue = static_cast<int>(hostStatus.cursorFrame);
     return true;
 }
 
@@ -1594,7 +1603,27 @@ void GeraNESApp::syncReplayRuntimeState()
     const auto replayState = m_replaySession.snapshot();
     if(replayState.mode == ReplaySession::ReplayMode::Playback && replayState.loadedReplayActive) {
         const auto hostStatus = m_emu.replayPlaybackStatus();
+        if(hostStatus.seeking) {
+            m_replaySession.stopPlayback();
+            m_showReplayWindow = true;
+            return;
+        }
+
         m_replaySession.setCursorState(hostStatus.cursorFrame);
+        if(m_replaySeekCompletionPending) {
+            if(!hostStatus.lastSeekSucceeded) {
+                m_userToast.show("Replay seek failed");
+                m_replayAutoPlayAfterSeek = false;
+            }
+            m_replaySeekCompletionPending = false;
+        }
+        if(!hostStatus.seeking && m_replayAutoPlayAfterSeek) {
+            m_replayAutoPlayAfterSeek = false;
+            if(hostStatus.lastSeekSucceeded) {
+                startReplayPlayback();
+                return;
+            }
+        }
         if(hostStatus.playing) {
             m_replaySession.beginPlayback();
         } else {
@@ -1606,6 +1635,11 @@ void GeraNESApp::syncReplayRuntimeState()
     } else if(replayState.mode == ReplaySession::ReplayMode::Recording) {
         m_replaySession.setCursorFrame(
             std::min(m_emu.lastFrameReadyFrame(), m_replaySession.inputCount()));
+        m_replaySeekCompletionPending = false;
+        m_replayAutoPlayAfterSeek = false;
+    } else {
+        m_replaySeekCompletionPending = false;
+        m_replayAutoPlayAfterSeek = false;
     }
 }
 

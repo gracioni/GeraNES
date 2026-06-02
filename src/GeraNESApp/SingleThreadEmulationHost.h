@@ -651,6 +651,8 @@ public:
         ReplayPlaybackStatus status;
         status.loaded = m_replayPlayback.loaded;
         status.playing = m_replayPlayback.playing;
+        status.seeking = m_replayPlayback.seeking;
+        status.lastSeekSucceeded = true;
         status.cursorFrame = m_replayPlayback.cursorFrame;
         status.loadedFrameCount = m_replayPlayback.loadedFrameCount();
         return status;
