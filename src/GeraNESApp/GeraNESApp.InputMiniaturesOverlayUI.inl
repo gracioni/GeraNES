@@ -309,7 +309,10 @@ inline void GeraNESApp::drawInputMiniaturesOverlay(ImDrawList* drawList, const I
         return;
     }
 
-    const float maxLayoutWidth = std::max(120.0f, std::min(320.0f, static_cast<float>(clientArea.w) - inset * 2.0f));
+    const float availableLayoutWidth = std::max(120.0f, static_cast<float>(clientArea.w) - inset * 2.0f);
+    const float multitapRowWidth = 92.0f * 4.0f + gap * 3.0f;
+    const float layoutWidthCap = state.multitapActive() ? multitapRowWidth : 320.0f;
+    const float maxLayoutWidth = std::max(120.0f, std::min(layoutWidthCap, availableLayoutWidth));
     std::vector<std::vector<size_t>> rows;
     std::vector<float> rowWidths;
     std::vector<float> rowHeights;
