@@ -4140,7 +4140,7 @@ void GeraNESApp::pollAndPrepareInput()
 
             zapperX = mouseAllowed ? (rightClick ? -1 : nesX) : -1;
             zapperY = mouseAllowed ? (rightClick ? -1 : nesY) : -1;
-            p1ZapperTrigger = rightClick;
+            p1ZapperTrigger = leftClick || rightClick;
             p2ZapperTrigger = leftClick || rightClick;
             bandaiTrigger = leftClick || rightClick;
             mousePrimaryButton = leftClick;
