@@ -123,14 +123,12 @@ inline void GeraNESApp::drawInputMiniaturesOverlay(ImDrawList* drawList, const I
         const ImVec2 max(topLeft.x + 92.0f, topLeft.y + 54.0f);
         drawCardBase(topLeft, max, 4.0f);
         drawLabel(ImVec2(topLeft.x + 6.0f, topLeft.y + 3.0f), label + (sideB ? " B" : " A"));
-        static constexpr std::array<const char*, 12> names = {"1","2","3","4","5","6","7","8","9","10","11","12"};
         for(int row = 0; row < 3; ++row) {
             for(int col = 0; col < 4; ++col) {
                 const int index = row * 4 + col;
                 const ImVec2 cellMin(topLeft.x + 8.0f + static_cast<float>(col) * 19.0f, topLeft.y + 17.0f + static_cast<float>(row) * 11.0f);
                 const ImVec2 cellMax(cellMin.x + 16.0f, cellMin.y + 8.0f);
                 drawPressedRect(cellMin, cellMax, buttons[static_cast<size_t>(index)], 1.0f);
-                drawList->AddText(ImVec2(cellMin.x + 2.0f, cellMin.y - 1.0f), baseText, names[static_cast<size_t>(index)]);
             }
         }
     };
