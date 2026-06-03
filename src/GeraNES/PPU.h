@@ -2039,8 +2039,9 @@ yyy NN YYYYY XXXXX
     GERANES_INLINE_HOT void ppuCyclePreRenderLine(bool renderingEnabled, bool prevCycleRenderingEnabled)
     {
         const unsigned cycle = static_cast<unsigned>(m_cycle);
+        const bool visibleCycle = cycle - 1u < 256u;
         const bool spriteFetchCycles = cycle - 257u < 64u;
-        const bool bgFetchCycles = cycle - 321u < 16u;
+        const bool bgFetchCycles = visibleCycle || (cycle - 321u < 16u);
 
         if(prevCycleRenderingEnabled) {
             if(bgFetchCycles) {
