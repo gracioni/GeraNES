@@ -164,6 +164,7 @@ private:
     bool m_audioOutputRewinding = false;
 
     uint8_t m_openBus;
+    uint8_t m_internalDataBus;
     uint16_t m_prevControllerReadAddr;
 
     uint32_t m_frameCounter;
@@ -837,7 +838,7 @@ private:
                     }
                     else {
                         data = m_apu.read(addr&0x3FFF, (m_cpu.cycleCounter() & 0x01) != 0);
-                        data = static_cast<uint8_t>((data & ~0x20) | (m_openBus & 0x20));
+                        data = static_cast<uint8_t>((data & ~0x20) | (m_internalDataBus & 0x20));
                         updateOpenBusOnRead = false;
                     }
                     break;
@@ -978,6 +979,10 @@ private:
             }
             break;
 
+        }
+
+        if(!m_cpu.isDmaReadInProgress()) {
+            m_internalDataBus = data;
         }
 
         if constexpr(accessType == AccessType::Write) {
@@ -1662,6 +1667,7 @@ public:
         m_applyingPendingNsfActions = false;
 
         m_openBus = 0;
+        m_internalDataBus = 0;
         m_prevControllerReadAddr = 0xFFFF;
 
         memset(m_ram, 0, sizeof(m_ram));            
@@ -2380,6 +2386,7 @@ public:
         SERIALIZEDATA(s, m_emulationTickCounter);
 
         SERIALIZEDATA(s, m_openBus);
+        SERIALIZEDATA(s, m_internalDataBus);
 
         SERIALIZEDATA(s, m_halt);
 
@@ -2588,6 +2595,7 @@ public:
         //m_vsyncAudioCompMsAcc = 0.0;
         //m_vsyncAudioSkipMsDebt = 0;
         m_openBus = 0;
+        m_internalDataBus = 0;
         m_prevControllerReadAddr = 0xFFFF;
         m_4011WriteCounter = 0;
         //m_newFrame = false;
