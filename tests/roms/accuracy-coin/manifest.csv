@@ -51,7 +51,7 @@ global_index,page_number,page_title,test_index_on_page,test_name,result_symbol,e
 50,7,Unofficial Instructions: *AX,7,$AF   LAX absolute,result_UnOp_LAX_AF,TEST_LAX_AF,07-Unofficial-Instructions-AX,07-$AF-LAX-absolute.nes,07-Unofficial-Instructions-AX\07-$AF-LAX-absolute.nes
 51,7,Unofficial Instructions: *AX,8,"$B3   LAX indirect,Y",result_UnOp_LAX_B3,TEST_LAX_B3,07-Unofficial-Instructions-AX,"08-$B3-LAX-indirect,Y.nes","07-Unofficial-Instructions-AX\08-$B3-LAX-indirect,Y.nes"
 52,7,Unofficial Instructions: *AX,9,"$B7   LAX zeropage,Y",result_UnOp_LAX_B7,TEST_LAX_B7,07-Unofficial-Instructions-AX,"09-$B7-LAX-zeropage,Y.nes","07-Unofficial-Instructions-AX\09-$B7-LAX-zeropage,Y.nes"
-53,7,Unofficial Instructions: *AX,10,"$BF   LAX absolute,X",result_UnOp_LAX_BF,TEST_LAX_BF,07-Unofficial-Instructions-AX,"10-$BF-LAX-absolute,X.nes","07-Unofficial-Instructions-AX\10-$BF-LAX-absolute,X.nes"
+53,7,Unofficial Instructions: *AX,10,"$BF   LAX absolute,Y",result_UnOp_LAX_BF,TEST_LAX_BF,07-Unofficial-Instructions-AX,"10-$BF-LAX-absolute,Y.nes","07-Unofficial-Instructions-AX\10-$BF-LAX-absolute,Y.nes"
 54,8,Unofficial Instructions: DCP,1,"$C3   DCP indirect,X",result_UnOp_DCP_C3,TEST_DCP_C3,08-Unofficial-Instructions-DCP,"01-$C3-DCP-indirect,X.nes","08-Unofficial-Instructions-DCP\01-$C3-DCP-indirect,X.nes"
 55,8,Unofficial Instructions: DCP,2,$C7   DCP zeropage,result_UnOp_DCP_C7,TEST_DCP_C7,08-Unofficial-Instructions-DCP,02-$C7-DCP-zeropage.nes,08-Unofficial-Instructions-DCP\02-$C7-DCP-zeropage.nes
 56,8,Unofficial Instructions: DCP,3,$CF   DCP absolute,result_UnOp_DCP_CF,TEST_DCP_CF,08-Unofficial-Instructions-DCP,03-$CF-DCP-absolute.nes,08-Unofficial-Instructions-DCP\03-$CF-DCP-absolute.nes
@@ -133,11 +133,13 @@ global_index,page_number,page_title,test_index_on_page,test_name,result_symbol,e
 132,19,PPU Misc.,1,Attributes As Tiles,result_AttributesAsTiles,TEST_AttributesAsTiles,19-PPU-Misc,01-Attributes-As-Tiles.nes,19-PPU-Misc\01-Attributes-As-Tiles.nes
 133,19,PPU Misc.,2,t Register Quirks,result_tRegisterQuirks,TEST_tRegisterQuirks,19-PPU-Misc,02-t-Register-Quirks.nes,19-PPU-Misc\02-t-Register-Quirks.nes
 134,19,PPU Misc.,3,Stale BG Shift Registers,result_StaleBGShiftRegisters,TEST_StaleBGShiftRegisters,19-PPU-Misc,03-Stale-BG-Shift-Registers.nes,19-PPU-Misc\03-Stale-BG-Shift-Registers.nes
-135,19,PPU Misc.,4,BG Serial In,result_BGSerialIn,TEST_BGSerialIn,19-PPU-Misc,04-BG-Serial-In.nes,19-PPU-Misc\04-BG-Serial-In.nes
-136,19,PPU Misc.,5,Sprites On Scanline 0,result_Scanline0Sprites,TEST_Scanline0Sprites,19-PPU-Misc,05-Sprites-On-Scanline-0.nes,19-PPU-Misc\05-Sprites-On-Scanline-0.nes
-137,19,PPU Misc.,6,$2004 Stress Test,result_2004_Stress,TEST_2004_Stress,19-PPU-Misc,06-$2004-Stress-Test.nes,19-PPU-Misc\06-$2004-Stress-Test.nes
-138,19,PPU Misc.,7,$2007 Stress Test,result_2007_Stress,TEST_2007_Stress,19-PPU-Misc,07-$2007-Stress-Test.nes,19-PPU-Misc\07-$2007-Stress-Test.nes
-139,20,CPU Behavior 2,1,Instruction Timing,result_InstructionTiming,TEST_InstructionTiming,20-CPU-Behavior-2,01-Instruction-Timing.nes,20-CPU-Behavior-2\01-Instruction-Timing.nes
-140,20,CPU Behavior 2,2,Implied Dummy Reads,result_ImpliedDummyRead,TEST_ImpliedDummyRead,20-CPU-Behavior-2,02-Implied-Dummy-Reads.nes,20-CPU-Behavior-2\02-Implied-Dummy-Reads.nes
-141,20,CPU Behavior 2,3,Branch Dummy Reads,result_BranchDummyRead,TEST_BranchDummyRead,20-CPU-Behavior-2,03-Branch-Dummy-Reads.nes,20-CPU-Behavior-2\03-Branch-Dummy-Reads.nes
-142,20,CPU Behavior 2,4,JSR Edge Cases,result_JSREdgeCases,TEST_JSREdgeCases,20-CPU-Behavior-2,04-JSR-Edge-Cases.nes,20-CPU-Behavior-2\04-JSR-Edge-Cases.nes
+135,19,PPU Misc.,4,Stale Sprite Shift Regs,result_StaleSpriteShiftRegs,TEST_StaleSpriteShiftRegs,19-PPU-Misc,04-Stale-Sprite-Shift-Regs.nes,19-PPU-Misc\04-Stale-Sprite-Shift-Regs.nes
+136,19,PPU Misc.,5,BG Serial In,result_BGSerialIn,TEST_BGSerialIn,19-PPU-Misc,05-BG-Serial-In.nes,19-PPU-Misc\05-BG-Serial-In.nes
+137,19,PPU Misc.,6,Sprites On Scanline 0,result_Scanline0Sprites,TEST_Scanline0Sprites,19-PPU-Misc,06-Sprites-On-Scanline-0.nes,19-PPU-Misc\06-Sprites-On-Scanline-0.nes
+138,19,PPU Misc.,7,$2004 Stress Test,result_2004_Stress,TEST_2004_Stress,19-PPU-Misc,07-$2004-Stress-Test.nes,19-PPU-Misc\07-$2004-Stress-Test.nes
+139,19,PPU Misc.,8,$2007 Stress Test,result_2007_Stress,TEST_2007_Stress,19-PPU-Misc,08-$2007-Stress-Test.nes,19-PPU-Misc\08-$2007-Stress-Test.nes
+140,20,CPU Behavior 2,1,Instruction Timing,result_InstructionTiming,TEST_InstructionTiming,20-CPU-Behavior-2,01-Instruction-Timing.nes,20-CPU-Behavior-2\01-Instruction-Timing.nes
+141,20,CPU Behavior 2,2,Implied Dummy Reads,result_ImpliedDummyRead,TEST_ImpliedDummyRead,20-CPU-Behavior-2,02-Implied-Dummy-Reads.nes,20-CPU-Behavior-2\02-Implied-Dummy-Reads.nes
+142,20,CPU Behavior 2,3,Branch Dummy Reads,result_BranchDummyRead,TEST_BranchDummyRead,20-CPU-Behavior-2,03-Branch-Dummy-Reads.nes,20-CPU-Behavior-2\03-Branch-Dummy-Reads.nes
+143,20,CPU Behavior 2,4,JSR Edge Cases,result_JSREdgeCases,TEST_JSREdgeCases,20-CPU-Behavior-2,04-JSR-Edge-Cases.nes,20-CPU-Behavior-2\04-JSR-Edge-Cases.nes
+144,20,CPU Behavior 2,5,Internal Data Bus,result_InternalDataBus,TEST_InternalDataBus,20-CPU-Behavior-2,05-Internal-Data-Bus.nes,20-CPU-Behavior-2\05-Internal-Data-Bus.nes
