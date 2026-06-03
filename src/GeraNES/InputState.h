@@ -114,10 +114,10 @@ struct InputState
         SERIALIZEDATA(s, topology.famicomMultitapDevice);
         uint32_t serializedSize = static_cast<uint32_t>(serializedInputData.size());
         SERIALIZEDATA(s, serializedSize);
-        if(auto* deserialize = dynamic_cast<Deserialize*>(&s); deserialize != nullptr) {
+        if(s.isReading()) {
             serializedInputData.assign(serializedSize, 0u);
             if(serializedSize != 0u) {
-                deserialize->array(serializedInputData.data(), 1, serializedSize);
+                s.array(serializedInputData.data(), 1, serializedSize);
             }
         } else if(serializedSize != 0u) {
             s.array(serializedInputData.data(), 1, serializedSize);

@@ -20,6 +20,11 @@ class SerializationBase
 
     public:
 
+        enum class Mode {
+            Read,
+            Write
+        };
+
         SerializationBase()
         {
             _littleEndian = false;
@@ -27,6 +32,7 @@ class SerializationBase
             if( *reinterpret_cast<char*>(&n) == 0x01) _littleEndian = true;
         }
 
+        virtual Mode mode() const = 0;
         virtual void single(uint8_t* pointer, size_t size) = 0;
 
         void array(uint8_t* pointer, size_t typeSize, size_t nelements)
@@ -50,6 +56,16 @@ class SerializationBase
         {
             return _littleEndian;
         }
+
+        bool isReading() const
+        {
+            return mode() == Mode::Read;
+        }
+
+        bool isWriting() const
+        {
+            return mode() == Mode::Write;
+        }
 };
 
 class Serialize : public SerializationBase
@@ -59,6 +75,11 @@ class Serialize : public SerializationBase
         std::vector<uint8_t> _data;
 
     public:
+
+        Mode mode() const override
+        {
+            return Mode::Write;
+        }
 
         void single(uint8_t* pointer, size_t size) override
         {
@@ -126,6 +147,11 @@ class Deserialize : public SerializationBase
         bool _error = false;
 
     public:
+
+        Mode mode() const override
+        {
+            return Mode::Read;
+        }
 
         void single(uint8_t* pointer, size_t size) override
         {
@@ -222,6 +248,11 @@ private:
     size_t m_size = 0;
 
 public:
+
+    Mode mode() const override
+    {
+        return Mode::Read;
+    }
 
     void single(uint8_t* /*pointer*/, size_t size) override
     {

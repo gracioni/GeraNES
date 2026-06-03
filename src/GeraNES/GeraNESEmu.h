@@ -2369,7 +2369,7 @@ public:
         m_apu.serialization(s);
         s.array(m_ram, 1, 0x800);
         m_settings.serialization(s);
-        if(dynamic_cast<Deserialize*>(&s) != nullptr) {
+        if(s.isReading()) {
             recreateInputRouting();
         }
         if(m_portDevice1) m_portDevice1->serialization(s);
@@ -2397,11 +2397,11 @@ public:
         bool hasCurrentInputFrame = m_currentInputFrame.has_value();
         SERIALIZEDATA(s, hasCurrentInputFrame);
         if(hasCurrentInputFrame) {
-            if(dynamic_cast<Deserialize*>(&s) != nullptr) {
+            if(s.isReading()) {
                 m_currentInputFrame.emplace();
             }
             m_currentInputFrame->serialization(s);
-        } else if(dynamic_cast<Deserialize*>(&s) != nullptr) {
+        } else if(s.isReading()) {
             m_currentInputFrame.reset();
         }
 

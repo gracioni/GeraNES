@@ -346,7 +346,7 @@ public:
 
         SERIALIZEDATA(s, m_currentRAMSize);
         setPRGRAMSize(m_currentRAMSize);
-        if(dynamic_cast<Deserialize*>(&s) != nullptr) deserializePRGRAM(s);
+        if(s.isReading()) deserializePRGRAM(s);
         else serializePRGRAM(s);
 
         SERIALIZEDATA(s, command);

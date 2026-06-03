@@ -137,7 +137,7 @@ public:
         SERIALIZEDATA(s, m_muted);
         SERIALIZEDATA(s, m_volume);
 
-        if(dynamic_cast<Deserialize*>(&s) != nullptr) {
+        if(s.isReading()) {
             applyRegisters();
         }
     }

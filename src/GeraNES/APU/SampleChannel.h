@@ -134,8 +134,7 @@ public:
         SERIALIZEDATA(s, m_bytesRemaining);
         uint32_t periodIndex = static_cast<uint32_t>(m_periodIndex);
         SERIALIZEDATA(s, periodIndex);
-        if(auto* deserialize = dynamic_cast<Deserialize*>(&s); deserialize != nullptr) {
-            (void)deserialize;
+        if(s.isReading()) {
             m_periodIndex = periodIndex;
         }
         SERIALIZEDATA(s, m_periodCounter);

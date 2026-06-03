@@ -80,6 +80,7 @@ private:
 
     uint32_t m_framebuffer[SCREEN_WIDTH*SCREEN_HEIGHT];
     std::array<uint32_t, 64> m_colorPalette = {};
+    std::array<uint32_t, 64> m_outputColorPalette = {};
 
     uint8_t m_currentPixelColorIndex;
 
@@ -725,12 +726,14 @@ public:
     PPU(Settings& settings, Cartridge& cartridge) : m_settings(settings), m_cartridge(cartridge)
     {
         std::copy(std::begin(NES_PALETTE), std::end(NES_PALETTE), m_colorPalette.begin());
+        refreshOutputColorPalette();
         init();
     }
 
     void setColorPalette(const std::array<uint32_t, 64>& palette)
     {
         m_colorPalette = palette;
+        refreshOutputColorPalette();
     }
 
     const std::array<uint32_t, 64>& colorPalette() const
@@ -2429,30 +2432,42 @@ yyy NN YYYYY XXXXX
         return (color&0xFF000000) | (r) | (g<<8) | (b<<16);
     }
 
+    GERANES_INLINE void refreshOutputColorPalette()
+    {
+        for(size_t i = 0; i < m_outputColorPalette.size(); ++i) {
+            uint8_t index = static_cast<uint8_t>(i);
+
+            switch(m_vsPpuModel) {
+            case GameDatabase::PpuModel::Ppu2C04A: index = VS_PALETTE_LUT_2C04_0001[index]; break;
+            case GameDatabase::PpuModel::Ppu2C04B: index = VS_PALETTE_LUT_2C04_0002[index]; break;
+            case GameDatabase::PpuModel::Ppu2C04C: index = VS_PALETTE_LUT_2C04_0003[index]; break;
+            case GameDatabase::PpuModel::Ppu2C04D: index = VS_PALETTE_LUT_2C04_0004[index]; break;
+            default:
+                break;
+            }
+
+            uint32_t color = m_colorPalette[index];
+
+            if(m_colorEmphasis != 0) {
+                color = getEmphasisColor(color);
+            }
+            if(m_monochromeDisplay) {
+                color = getMonochromeColor(color);
+            }
+
+            m_outputColorPalette[i] = color;
+        }
+    }
+
     GERANES_INLINE_HOT uint32_t NESToRGBAColor(uint8_t index)
     {
-        index &= 0x3F;
-
-        switch(m_vsPpuModel) {
-        case GameDatabase::PpuModel::Ppu2C04A: index = VS_PALETTE_LUT_2C04_0001[index]; break;
-        case GameDatabase::PpuModel::Ppu2C04B: index = VS_PALETTE_LUT_2C04_0002[index]; break;
-        case GameDatabase::PpuModel::Ppu2C04C: index = VS_PALETTE_LUT_2C04_0003[index]; break;
-        case GameDatabase::PpuModel::Ppu2C04D: index = VS_PALETTE_LUT_2C04_0004[index]; break;
-        default:
-            break;
-        }
-
-        uint32_t color = m_colorPalette[index];
-
-        if(m_colorEmphasis != 0) color =  getEmphasisColor(color);
-        if(m_monochromeDisplay) color = getMonochromeColor(color);
-
-        return color;
+        return m_outputColorPalette[index & 0x3F];
     }
 
     void setVsPpuModel(GameDatabase::PpuModel model)
     {
         m_vsPpuModel = model;
+        refreshOutputColorPalette();
     }
     
     GERANES_INLINE void writePPUCTRL(uint8_t data, bool notifyMapper = true)
@@ -2478,12 +2493,17 @@ yyy NN YYYYY XXXXX
 
     GERANES_INLINE void writePPUMASK(uint8_t data, bool notifyMapper = true)
     {
+        const bool prevMonochromeDisplay = m_monochromeDisplay;
+        const uint8_t prevColorEmphasis = m_colorEmphasis;
         m_monochromeDisplay = (data&0x01) ? true : false;
         m_showBackgroundLeftmost8Pixels = (data&0x02) ? true : false;
         m_showSpritesLeftmost8Pixels = (data&0x04) ? true : false;
         m_backgroundEnabled = (data&0x08) ? true : false;
         m_spritesEnabled = (data&0x10) ? true : false;
         m_colorEmphasis = data >> 5;        
+        if(prevMonochromeDisplay != m_monochromeDisplay || prevColorEmphasis != m_colorEmphasis) {
+            refreshOutputColorPalette();
+        }
         if(notifyMapper) {
             m_cartridge.setPpuMask(data);
         }
@@ -3122,6 +3142,9 @@ yyy NNYY YYYX XXXX
         SERIALIZEDATA(s, m_currentReadAffectsBus);
         SERIALIZEDATA(s, m_vsPpuModel);
 
+        if(s.isReading()) {
+            refreshOutputColorPalette();
+        }
         m_pFrameBuffer = &m_framebuffer[m_currentY*SCREEN_WIDTH+m_currentX];
     }
 
