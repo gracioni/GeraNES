@@ -1091,37 +1091,84 @@ public:
 
     GERANES_INLINE_HOT void renderPixel()
     {
-        m_currentPixelColorIndex = 0;
-        const bool renderingEnabled = m_renderingEnabled;
+        if(m_renderingEnabled) {
+            if(m_debugModRenderCaptureEnabled) {
+                renderPixelRenderedDebug();
+            }
+            else {
+                renderPixelRenderedFast();
+            }
+        }
+        else {
+            renderPixelForcedBlank();
+        }
 
-        if(m_backgroundEnabled) renderBackgroundPixel();
+        advanceRenderPosition();
+    }
+
+    GERANES_INLINE_HOT void renderPixelRenderedFast()
+    {
+        m_currentPixelColorIndex = 0;
+
+        if(m_backgroundEnabled) {
+            renderBackgroundPixel();
+        }
+        if(m_spritesEnabled) {
+            renderSpritesPixel();
+        }
+
+        const uint8_t paletteIndex = ((m_currentPixelColorIndex & 0x03) == 0)
+            ? 0
+            : m_currentPixelColorIndex;
+        *m_pFrameBuffer++ = NESToRGBAColor(static_cast<uint8_t>(m_palette[paletteIndex] & 0x3F));
+    }
+
+    GERANES_INLINE_HOT void renderPixelRenderedDebug()
+    {
+        m_currentPixelColorIndex = 0;
+
+        if(m_backgroundEnabled) {
+            renderBackgroundPixel();
+        }
+        captureModScanlineScroll();
+        captureModBackgroundPixel();
+        if(m_spritesEnabled) {
+            renderSpritesPixel();
+        }
+
+        const uint8_t paletteIndex = ((m_currentPixelColorIndex & 0x03) == 0)
+            ? 0
+            : m_currentPixelColorIndex;
+        *m_pFrameBuffer++ = NESToRGBAColor(static_cast<uint8_t>(m_palette[paletteIndex] & 0x3F));
+    }
+
+    GERANES_INLINE_HOT void renderPixelForcedBlank()
+    {
+        m_currentPixelColorIndex = 0;
+
         if(m_debugModRenderCaptureEnabled) {
             captureModScanlineScroll();
             captureModBackgroundPixel();
         }
-        if(m_spritesEnabled) renderSpritesPixel();
 
-        uint8_t value;
-
-        //if reg v is pointing to the palette
-        if(!renderingEnabled && isOnPaletteAddr()) {
-            value  = fakeReadPpuMemory(m_reg_v)&0x3F;
+        uint8_t value = 0;
+        if(isOnPaletteAddr()) {
+            value = static_cast<uint8_t>(fakeReadPpuMemory(m_reg_v) & 0x3F);
         }
         else {
-            if( (m_currentPixelColorIndex&0x03) == 0) m_currentPixelColorIndex = 0;
-            value  = m_palette[m_currentPixelColorIndex]&0x3F;
+            value = static_cast<uint8_t>(m_palette[0] & 0x3F);
         }
+        *m_pFrameBuffer++ = NESToRGBAColor(value);
+    }
 
-        *m_pFrameBuffer = NESToRGBAColor(value);
-        m_pFrameBuffer++;
-
-        if(++m_currentX == SCREEN_WIDTH){
+    GERANES_INLINE void advanceRenderPosition()
+    {
+        if(++m_currentX == SCREEN_WIDTH) {
             m_currentX = 0;
 
             if(++m_currentY == SCREEN_HEIGHT) {
                 m_currentY = 0;
-                m_currentX = 0;
-                m_pFrameBuffer = &m_framebuffer[0];          
+                m_pFrameBuffer = &m_framebuffer[0];
             }
         }
     }
