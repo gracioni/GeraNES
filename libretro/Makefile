@@ -8,6 +8,7 @@ PYTHON ?= $(shell command -v python 2>/dev/null || command -v python3 2>/dev/nul
 UNAME_S := $(shell uname -s 2>/dev/null)
 MINGW_STATIC_FLAGS := -static-libgcc -static-libstdc++
 MINGW_STATIC_LIBS := -Wl,-Bstatic -lstdc++ -lgcc -lwinpthread -Wl,-Bdynamic
+MINGW_ASM_FLAGS := -Wa,-mbig-obj
 
 # GNU make predefines CC=cc by default. If the user did not explicitly set CC,
 # derive it from CXX so MinGW cross toolchains stay consistent.
@@ -25,6 +26,8 @@ EMBEDDED_DB_GEN := ./gen_embedded_db.py
 SOURCES_CXX := \
 	$(CORE_DIR)/GeraNESLibretro.cpp \
 	$(EMBEDDED_DB_SRC) \
+	$(SRC_DIR)/GeraNESApp/AudioOutputBase.cpp \
+	$(SRC_DIR)/GeraNES/ThirdParty/emu2413.cpp \
 	$(FLIPS_DIR)/libips.cpp \
 	$(FLIPS_DIR)/libups.cpp \
 	$(FLIPS_DIR)/libbps.cpp \
@@ -59,18 +62,21 @@ ifeq ($(strip $(platform)),)
 	ifeq ($(OS),Windows_NT)
 		EXT := dll
 		SHARED := -shared
+		CXXFLAGS += $(MINGW_ASM_FLAGS)
 		LDFLAGS += -Wl,--no-undefined
 		LDFLAGS += $(MINGW_STATIC_FLAGS)
 		LIBS += $(MINGW_STATIC_LIBS)
 	else ifneq (,$(findstring MINGW,$(UNAME_S)))
 		EXT := dll
 		SHARED := -shared
+		CXXFLAGS += $(MINGW_ASM_FLAGS)
 		LDFLAGS += -Wl,--no-undefined
 		LDFLAGS += $(MINGW_STATIC_FLAGS)
 		LIBS += $(MINGW_STATIC_LIBS)
 	else ifneq (,$(findstring MSYS,$(UNAME_S)))
 		EXT := dll
 		SHARED := -shared
+		CXXFLAGS += $(MINGW_ASM_FLAGS)
 		LDFLAGS += -Wl,--no-undefined
 		LDFLAGS += $(MINGW_STATIC_FLAGS)
 		LIBS += $(MINGW_STATIC_LIBS)
@@ -91,6 +97,7 @@ endif
 ifneq (,$(findstring win,$(platform)))
 	EXT := dll
 	SHARED := -shared
+	CXXFLAGS += $(MINGW_ASM_FLAGS)
 	LDFLAGS += -Wl,--no-undefined
 	LDFLAGS += $(MINGW_STATIC_FLAGS)
 	LIBS += $(MINGW_STATIC_LIBS)
@@ -99,6 +106,7 @@ endif
 ifneq (,$(findstring mingw,$(platform)))
 	EXT := dll
 	SHARED := -shared
+	CXXFLAGS += $(MINGW_ASM_FLAGS)
 	LDFLAGS += -Wl,--no-undefined
 	LDFLAGS += $(MINGW_STATIC_FLAGS)
 	LIBS += $(MINGW_STATIC_LIBS)
