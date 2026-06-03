@@ -1008,6 +1008,10 @@ public:
                 if(isOnPaletteAddr()) {
                     data &= 0x3F; //the 2 high bits are open and they should be from decay value
                     data |= m_openBus&(~0x3F);
+                    if(m_monochromeDisplay) {
+                        // Greyscale mode masks the low 4 bits on palette RAM reads.
+                        data &= 0xF0;
+                    }
                     openBusMask = 0x3F; //the 6 low bits need refresh
                 }
                 else openBusMask = 0xFF;
