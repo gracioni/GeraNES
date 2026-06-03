@@ -74,6 +74,7 @@ list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_LIST_DIR}/cmake")
 include(CMakeRC)
 
 include(FetchContent)
+include(CheckCCompilerFlag)
 Set(FETCHCONTENT_QUIET FALSE)
 
 if(NOT EMSCRIPTEN)
@@ -345,16 +346,22 @@ if(NOT EMSCRIPTEN)
     set(USE_STATIC_MBEDTLS_LIBRARY ON CACHE BOOL "Build static mbedtls libraries" FORCE)
 
     FetchContent_MakeAvailable(mbedtls)
-    if(CMAKE_C_COMPILER_ID MATCHES "Clang")
-        foreach(_mbedtls_target mbedtls mbedx509 mbedcrypto)
-            if(TARGET ${_mbedtls_target})
+    check_c_compiler_flag("-Wno-error=unterminated-string-initialization" GERANES_HAS_WNO_ERROR_UNTERMINATED_STRING_INITIALIZATION)
+    check_c_compiler_flag("-Wno-unterminated-string-initialization" GERANES_HAS_WNO_UNTERMINATED_STRING_INITIALIZATION)
+    foreach(_mbedtls_target mbedtls mbedx509 mbedcrypto)
+        if(TARGET ${_mbedtls_target})
+            if(GERANES_HAS_WNO_ERROR_UNTERMINATED_STRING_INITIALIZATION)
                 target_compile_options(${_mbedtls_target} PRIVATE
                     -Wno-error=unterminated-string-initialization
+                )
+            endif()
+            if(GERANES_HAS_WNO_UNTERMINATED_STRING_INITIALIZATION)
+                target_compile_options(${_mbedtls_target} PRIVATE
                     -Wno-unterminated-string-initialization
                 )
             endif()
-        endforeach()
-    endif()
+        endif()
+    endforeach()
     foreach(_mbedtls_target mbedtls mbedx509 mbedcrypto)
         if(TARGET ${_mbedtls_target})
             target_compile_definitions(${_mbedtls_target} PUBLIC MBEDTLS_USER_CONFIG_FILE=\"mbedtls_user_config.h\")
