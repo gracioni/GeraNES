@@ -612,17 +612,17 @@ inline void GeraNESApp::menuBar() {
             const bool allowMultitapP3Config = !netplayInputManaged || localHasNetplayAssignment(GeraNESNetplay::kMultitapP3PlayerSlot);
             const bool allowMultitapP4Config = !netplayInputManaged || localHasNetplayAssignment(GeraNESNetplay::kMultitapP4PlayerSlot);
 
-            ImGui::BeginDisabled(replayInputLocked);
-
             bool automaticOnRomLoad = AppSettings::instance().data.input.automaticOnRomLoad;
-            if(ImGui::MenuItem("Automatic on ROM load", nullptr, automaticOnRomLoad, topologyEditingEnabled)) {
+            if(ImGui::MenuItem("Automatic on ROM load", nullptr, automaticOnRomLoad)) {
                 AppSettings::instance().data.input.automaticOnRomLoad = !automaticOnRomLoad;
             }
 
             bool showMiniatures = AppSettings::instance().data.input.showMiniatures;
-            if(ImGui::MenuItem("Show miniatures", nullptr, showMiniatures)) {
+            if(ImGui::MenuItem("Show Miniatures", nullptr, showMiniatures)) {
                 AppSettings::instance().data.input.showMiniatures = !showMiniatures;
             }
+
+            ImGui::BeginDisabled(replayInputLocked);
 
             ImGui::Separator();
 
