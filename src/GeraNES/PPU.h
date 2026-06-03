@@ -1924,6 +1924,172 @@ yyy NN YYYYY XXXXX
         signalScanlineStart();
     }
 
+    GERANES_INLINE void updateInterruptState()
+    {
+        if(!m_interruptFlag) {
+            if(m_VBlankHasStarted && m_NMIOnVBlank) {
+                m_interruptFlag = m_NMIOnVBlank;
+            }
+        }
+        else if(!m_VBlankHasStarted) {
+            m_interruptFlag = false;
+        }
+    }
+
+    GERANES_INLINE void runBackgroundFetchPipeline()
+    {
+        shiftTileData();
+
+        switch(m_cycle & 0x07) {
+            case 1: setupNameTableByte(); break;
+            case 2: fetchNameTableByte(); break;
+            case 3: setupAttributeTableByte(); break;
+            case 4: fetchAttributeTableByte(); break;
+            case 5: setupLowTileByte(); break;
+            case 6: fetchLowTileByte(); break;
+            case 7: setupHighTileByte(); break;
+            case 0: fetchHighTileByte(); storeTileData(); incrementVX(); break;
+        }
+    }
+
+    GERANES_INLINE void runRenderLineFetches()
+    {
+        switch(m_cycle) {
+            case 256:
+                incrementVY();
+                break;
+            case 257:
+                m_firstSpriteFetchV = m_reg_v;
+                copyVX();
+                break;
+            case 337:
+                setupNameTableByte();
+                break;
+            case 338:
+                fetchNameTableByte();
+                break;
+            case 339:
+                setupNameTableByte();
+                break;
+            case 340:
+                fetchNameTableByte();
+                break;
+            case 0:
+                setupLowTileByte();
+                break;
+        }
+    }
+
+    GERANES_INLINE void updateSpriteCountersAtEndOfScanline()
+    {
+        for(int i = 0; i < 8; i++) {
+            SpriteRenderEntry& entry = m_spriteRenderEntries[i];
+            if(entry.active) {
+                entry.counting = entry.xCounter > 0;
+            }
+        }
+    }
+
+    GERANES_INLINE_HOT void ppuCycleVisibleLine(bool renderingEnabled, bool prevCycleRenderingEnabled)
+    {
+        const unsigned cycle = static_cast<unsigned>(m_cycle);
+        const bool visibleCycle = cycle - 1u < 256u;
+        const bool spriteFetchCycles = cycle - 257u < 64u;
+        const bool bgFetchCycles = visibleCycle || (cycle - 321u < 16u);
+
+        if(visibleCycle) {
+            renderPixel();
+        }
+
+        if(renderingEnabled) {
+            if(cycle == 321u) {
+                m_oamCopyBuffer = m_secondaryOam[0];
+            }
+
+            if(visibleCycle) {
+                evaluateSprites();
+            }
+        }
+
+        if(prevCycleRenderingEnabled) {
+            if(bgFetchCycles) {
+                runBackgroundFetchPipeline();
+            }
+
+            runRenderLineFetches();
+
+            if(spriteFetchCycles) {
+                // OAMADDR is forced to zero during sprite tile loading when rendering.
+                m_oamAddr = 0;
+                fetchSprites();
+            }
+
+            if(cycle == 339u) {
+                updateSpriteCountersAtEndOfScanline();
+            }
+        }
+
+        if(visibleCycle && (prevCycleRenderingEnabled || m_spriteRenderClockingActiveThisLine)) {
+            // During forced blanking, sprite X counters keep advancing but the stale pattern
+            // shift registers stop shifting until rendering is active again.
+            clockSpriteRenderers(prevCycleRenderingEnabled);
+        }
+    }
+
+    GERANES_INLINE_HOT void ppuCyclePreRenderLine(bool renderingEnabled, bool prevCycleRenderingEnabled)
+    {
+        const unsigned cycle = static_cast<unsigned>(m_cycle);
+        const bool spriteFetchCycles = cycle - 257u < 64u;
+        const bool bgFetchCycles = cycle - 321u < 16u;
+
+        if(prevCycleRenderingEnabled) {
+            if(bgFetchCycles) {
+                runBackgroundFetchPipeline();
+            }
+
+            runRenderLineFetches();
+
+            if(spriteFetchCycles) {
+                // OAMADDR is forced to zero during sprite tile loading when rendering.
+                m_oamAddr = 0;
+                fetchSprites();
+            }
+
+            if(cycle == 339u) {
+                updateSpriteCountersAtEndOfScanline();
+            }
+        }
+
+        if(cycle <= 8u && renderingEnabled && m_oamAddr >= 0x08) {
+            // If OAMADDR is not less than eight when rendering starts, the eight bytes
+            // starting at OAMADDR & $F8 are copied to the first eight bytes of OAM.
+            m_primaryOam[m_cycle - 1] = m_primaryOam[(m_oamAddr & 0xF8) + (m_cycle - 1)];
+        }
+
+        if(cycle - 280u < 25u) {
+            if(m_prevCycleRenderingEnabled) {
+                copyVY();
+            }
+        }
+        else if(m_cycle == VBLANK_CYCLE) {
+            m_VBlankHasStarted = false;
+        }
+        else if(cycle == 339u && m_settings.region() == Settings::Region::NTSC) {
+            // Only NTSC has the skipped cycle on odd frames.
+            if(m_oddFrameFlag && renderingEnabled) {
+                m_cycle++;
+            }
+            m_oddFrameFlag = !m_oddFrameFlag;
+        }
+    }
+
+    GERANES_INLINE void ppuCycleVBlankStartLine()
+    {
+        if(m_cycle == VBLANK_CYCLE && m_lastPPUSTATUSReadCycle != VBLANK_CYCLE) {
+            m_VBlankHasStarted = true;
+        }
+    }
+
     GERANES_HOT void ppuCycle()
     {        
         if(m_cycle == 0) onScanlineStart();
@@ -1932,130 +2098,16 @@ yyy NN YYYYY XXXXX
         const bool renderLineWithPrevRendering = m_renderLine && prevCycleRenderingEnabled;
 
         m_cartridge.onPpuCycle(m_scanline, m_cycle, renderLineWithPrevRendering, m_preLine);
+        updateInterruptState();
 
-        if(!m_interruptFlag) {
-            if(m_VBlankHasStarted && m_NMIOnVBlank) {
-                m_interruptFlag =  m_NMIOnVBlank;
-            }
+        if(m_visibleLine) {
+            ppuCycleVisibleLine(renderingEnabled, prevCycleRenderingEnabled);
         }
-        else {
-            if(!m_VBlankHasStarted) {
-                m_interruptFlag = false;
-            }
+        else if(m_preLine) {
+            ppuCyclePreRenderLine(renderingEnabled, prevCycleRenderingEnabled);
         }
-
-        if(m_renderLine) {
-
-            const bool preFetchCycle = m_cycle >= 321 && m_cycle <= 336;
-            const bool spriteFetchCycles = m_cycle >= 257 && m_cycle <= 320;
-            const bool visibleCycle = m_cycle >= 1 && m_cycle <= 256;
-            const bool bgFetchCycles = preFetchCycle || visibleCycle;
-
-            if(m_visibleLine && visibleCycle) {
-                renderPixel();
-            }            
-
-            if(m_visibleLine && renderingEnabled) {
-
-                if(m_cycle == 321) {
-                    m_oamCopyBuffer = m_secondaryOam[0];
-                }
-
-                if(visibleCycle) evaluateSprites();
-            }            
-            
-            if(prevCycleRenderingEnabled) {
-                if(bgFetchCycles) {
-
-                    shiftTileData();
-
-                    switch(m_cycle & 0x07) {
-                        case 1: setupNameTableByte(); break;
-                        case 2: fetchNameTableByte(); break;
-                        case 3: setupAttributeTableByte(); break;
-                        case 4: fetchAttributeTableByte(); break;
-                        case 5: setupLowTileByte(); break;
-                        case 6: fetchLowTileByte(); break;
-                        case 7: setupHighTileByte(); break;
-                        case 0: fetchHighTileByte(); storeTileData(); incrementVX(); break; 
-                    }
-                }
-                
-                switch(m_cycle) {
-                    case 256: incrementVY(); break;
-                    case 257:
-                        m_firstSpriteFetchV = m_reg_v;
-                        copyVX();
-                        break;
-                }
-
-                if(m_cycle == 337) {
-                    setupNameTableByte();
-                }
-                else if(m_cycle == 338) {
-                    fetchNameTableByte();
-                }
-                else if(m_cycle == 339) {
-                    setupNameTableByte();
-                }
-                else if(m_cycle == 340) {
-                    fetchNameTableByte();
-                }
-                else if(m_cycle == 0) {
-                    setupLowTileByte();
-                }
-            }
-
-            if(m_visibleLine && visibleCycle && (prevCycleRenderingEnabled || m_spriteRenderClockingActiveThisLine)) {
-                // During forced blanking, sprite X counters keep advancing but the stale pattern
-                // shift registers stop shifting until rendering is active again.
-                clockSpriteRenderers(prevCycleRenderingEnabled);
-            }
-
-            if(prevCycleRenderingEnabled) {
-                //"OAMADDR is set to 0 during each of ticks 257-320 (the sprite tile loading interval) of the pre-render and visible scanlines." (When rendering)
-			    if(spriteFetchCycles) {
-                    m_oamAddr = 0;
-                    fetchSprites();
-                }
-            }
-
-            if(m_cycle == 339 && prevCycleRenderingEnabled) {
-                for(int i = 0; i < 8; i++) {
-                    SpriteRenderEntry& entry = m_spriteRenderEntries[i];
-                    if(entry.active) {
-                        entry.counting = entry.xCounter > 0;
-                    }
-                }
-            }
-
-            if(m_preLine) {
-                if(m_cycle <= 8 && renderingEnabled && m_oamAddr >= 0x08) {
-                    //"If OAMADDR is not less than eight when rendering starts, the eight bytes starting at OAMADDR & $F8 are copied to the first eight bytes of OAM."
-                    m_primaryOam[m_cycle - 1] = m_primaryOam[(m_oamAddr & 0xF8) + (m_cycle - 1)];
-                }
-
-                if(m_cycle >= 280 && m_cycle <= 304) { //280 to 304 copy each tick
-                    if(m_prevCycleRenderingEnabled) copyVY();
-                }
-                else if(m_cycle == VBLANK_CYCLE){
-                    m_VBlankHasStarted = false;
-                }
-
-                else if(m_cycle == 339 && m_settings.region() == Settings::Region::NTSC /*&& GetPpuModel() == PpuModel::Ppu2C02*/) //only NTSC has skip cycle in odd frames
-                {
-                    if(m_oddFrameFlag && renderingEnabled) m_cycle++;
-                    m_oddFrameFlag = !m_oddFrameFlag;
-                }
-
-            }
-        }
-
-        else if(m_scanline == FRAME_VBLANK_START_LINE)
-        {
-            if(m_cycle == VBLANK_CYCLE) {
-                if(m_lastPPUSTATUSReadCycle != VBLANK_CYCLE) m_VBlankHasStarted = true;
-            }
+        else if(m_scanline == FRAME_VBLANK_START_LINE) {
+            ppuCycleVBlankStartLine();
         }
 
         if(++m_cycle == 341) {
