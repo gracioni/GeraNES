@@ -1088,12 +1088,14 @@ public:
 
     GERANES_INLINE_HOT void renderPixel()
     {
-        captureModScanlineScroll();
         m_currentPixelColorIndex = 0;
         const bool renderingEnabled = m_renderingEnabled;
 
         if(m_backgroundEnabled) renderBackgroundPixel();
-        captureModBackgroundPixel();
+        if(m_debugModRenderCaptureEnabled) {
+            captureModScanlineScroll();
+            captureModBackgroundPixel();
+        }
         if(m_spritesEnabled) renderSpritesPixel();
 
         uint8_t value;
@@ -2202,8 +2204,7 @@ yyy NN YYYYY XXXXX
 
     void fetchSprites() {
         // Mapper hooks must classify sprite-cycle PPU reads as sprite-source.
-        m_isSpritePatternFetch = true;
-        m_cartridge.setPpuFetchSource(true);
+        setPpuFetchSourceCached(true);
 
         const int startCycle = 257;
         const int cycleOffset = m_cycle - startCycle;
@@ -2876,21 +2877,27 @@ yyy NNYY YYYX XXXX
         m_reg_v = (m_reg_v & 0x841F) | (m_reg_t & 0x7BE0);
     }
 
+    GERANES_INLINE void setPpuFetchSourceCached(bool spriteFetch)
+    {
+        if(m_isSpritePatternFetch != spriteFetch) {
+            m_isSpritePatternFetch = spriteFetch;
+            m_cartridge.setPpuFetchSource(spriteFetch);
+        }
+    }
+
     GERANES_INLINE uint16_t getNameTableAddr() {
         uint16_t address = 0x2000 | (m_reg_v & 0x0FFF);
         return address;
     }
 
     GERANES_INLINE void setupNameTableByte() {
-        m_isSpritePatternFetch = false;
-        m_cartridge.setPpuFetchSource(false);
+        setPpuFetchSourceCached(false);
         setupPpuReadAddress(getNameTableAddr());
     }
 
     GERANES_INLINE void fetchNameTableByte() {
         // Background tile fetch source for mapper CHR/NT substitution.
-        m_isSpritePatternFetch = false;
-        m_cartridge.setPpuFetchSource(false);
+        setPpuFetchSourceCached(false);
         const uint16_t address = getNameTableAddr();
         const uint8_t tileIndex = completePpuRead(address);
 
@@ -2906,15 +2913,13 @@ yyy NNYY YYYX XXXX
     }
 
     GERANES_INLINE void setupAttributeTableByte() {
-        m_isSpritePatternFetch = false;
-        m_cartridge.setPpuFetchSource(false);
+        setPpuFetchSourceCached(false);
         setupPpuReadAddress(getAttributeTableAddr());
     }
 
     GERANES_INLINE void fetchAttributeTableByte() {
         // Background tile fetch source for mapper CHR/NT substitution.
-        m_isSpritePatternFetch = false;
-        m_cartridge.setPpuFetchSource(false);
+        setPpuFetchSourceCached(false);
 
         const int address = getAttributeTableAddr();
         const int shift = ((m_reg_v >> 4) & 4) | (m_reg_v & 2);
@@ -2922,22 +2927,22 @@ yyy NNYY YYYX XXXX
     }
 
     GERANES_INLINE void fetchLowTileByte() {
-        m_isSpritePatternFetch = false;
+        setPpuFetchSourceCached(false);
         m_lowTileByte = completePpuRead(m_tileAddr);        
     }
 
     GERANES_INLINE void setupLowTileByte() {
-        m_isSpritePatternFetch = false;
+        setPpuFetchSourceCached(false);
         setupPpuReadAddress(m_tileAddr);
     }
 
     GERANES_INLINE void fetchHighTileByte() {
-        m_isSpritePatternFetch = false;
+        setPpuFetchSourceCached(false);
         m_highTileByte = completePpuRead(m_tileAddr + 8);        
     }
 
     GERANES_INLINE void setupHighTileByte() {
-        m_isSpritePatternFetch = false;
+        setPpuFetchSourceCached(false);
         setupPpuReadAddress(static_cast<uint16_t>(m_tileAddr + 8));
     }
 
@@ -2956,19 +2961,22 @@ yyy NNYY YYYX XXXX
         m_bgAttribHighLatch = (m_paletteOffset & 0x08) != 0;
         m_bgAttribLowShift = static_cast<uint16_t>((m_bgAttribLowShift & 0xFF00) | (m_bgAttribLowLatch ? 0x00FF : 0x0000));
         m_bgAttribHighShift = static_cast<uint16_t>((m_bgAttribHighShift & 0xFF00) | (m_bgAttribHighLatch ? 0x00FF : 0x0000));
-        const uint8_t offsetY = static_cast<uint8_t>(m_tileAddr & 0x07);
-        for(uint8_t x = 0; x < 8; ++x) {
-            DebugModBackgroundShiftPixel& pixel = m_debugModBackgroundShift[8 + x];
+        if(m_debugModRenderCaptureEnabled) {
+            const uint8_t offsetY = static_cast<uint8_t>(m_tileAddr & 0x07);
             const int32_t absoluteChrAddress = m_cartridge.mapper() != nullptr
                 ? m_cartridge.mapper()->debugToAbsoluteChrAddress(m_tileAddr)
                 : -1;
-            pixel.tileIndex = static_cast<uint16_t>(absoluteChrAddress >= 0
+            const uint16_t tileIndex = static_cast<uint16_t>(absoluteChrAddress >= 0
                 ? (absoluteChrAddress >> 4)
                 : ((m_tileAddr >> 4) & 0x01FF));
-            pixel.paletteOffset = m_paletteOffset;
-            pixel.offsetX = x;
-            pixel.offsetY = offsetY;
-            pixel.valid = true;
+            for(uint8_t x = 0; x < 8; ++x) {
+                DebugModBackgroundShiftPixel& pixel = m_debugModBackgroundShift[8 + x];
+                pixel.tileIndex = tileIndex;
+                pixel.paletteOffset = m_paletteOffset;
+                pixel.offsetX = x;
+                pixel.offsetY = offsetY;
+                pixel.valid = true;
+            }
         }
         m_staleBgShiftActive = false;
     }
@@ -2979,10 +2987,12 @@ yyy NNYY YYYX XXXX
         m_bgPatternHighShift |= 0x01;
         m_bgAttribLowShift <<= 1;
         m_bgAttribHighShift <<= 1;
-        for(size_t i = 0; i + 1 < m_debugModBackgroundShift.size(); ++i) {
-            m_debugModBackgroundShift[i] = m_debugModBackgroundShift[i + 1];
+        if(m_debugModRenderCaptureEnabled) {
+            for(size_t i = 0; i + 1 < m_debugModBackgroundShift.size(); ++i) {
+                m_debugModBackgroundShift[i] = m_debugModBackgroundShift[i + 1];
+            }
+            m_debugModBackgroundShift.back() = {};
         }
-        m_debugModBackgroundShift.back() = {};
     }
 
     GERANES_INLINE uint32_t fetchTileData() {
