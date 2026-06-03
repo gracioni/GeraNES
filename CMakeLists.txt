@@ -345,7 +345,7 @@ if(NOT EMSCRIPTEN)
     set(USE_STATIC_MBEDTLS_LIBRARY ON CACHE BOOL "Build static mbedtls libraries" FORCE)
 
     FetchContent_MakeAvailable(mbedtls)
-    if(CMAKE_C_COMPILER_ID STREQUAL "GNU" OR CMAKE_C_COMPILER_ID MATCHES "Clang")
+    if(CMAKE_C_COMPILER_ID MATCHES "Clang")
         foreach(_mbedtls_target mbedtls mbedx509 mbedcrypto)
             if(TARGET ${_mbedtls_target})
                 target_compile_options(${_mbedtls_target} PRIVATE
