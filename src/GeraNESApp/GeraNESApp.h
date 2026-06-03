@@ -472,6 +472,15 @@ private:
         ModManager::LoadRequest modLoad;
     } m_pendingRomLoad;
 
+#ifdef __EMSCRIPTEN__
+    enum class WebUploadTarget : uint8_t {
+        OpenRom,
+        OpenReplay
+    };
+
+    WebUploadTarget m_webUploadTarget = WebUploadTarget::OpenRom;
+#endif
+
     std::unique_ptr<TouchControls> m_touch;
 
     std::optional<SdlCursor> m_defaultCursor;

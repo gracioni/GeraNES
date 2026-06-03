@@ -4,6 +4,7 @@
 #include <cstdint>
 
 void emcriptenFileDialog(intptr_t handler);
+void emcriptenReplayFileDialog(intptr_t handler);
 
 void emcriptenRegisterVisibilityHandler(intptr_t handler);
 

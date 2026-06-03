@@ -663,28 +663,27 @@ EM_JS(void, emcriptenSyncImGuiTextInputJs, (int wantTextInput), {
     }
 });
 
-void emcriptenFileDialog(intptr_t handler) {
-    constexpr const char* kAcceptedExtensions =
-#ifdef ENABLE_NSF_PLAYER
-        ".nes,.fds,.nsf,.zip,.7z";
-#else
-        ".nes,.fds,.zip,.7z";
-#endif
+namespace {
 
+void emscriptenOpenUploadDialog(intptr_t handler, const char* acceptedExtensions, const char* elementId)
+{
     EM_ASM({
         var handler = Number(arguments[0]);
         var accepted = UTF8ToString(arguments[1]);
+        var elementId = UTF8ToString(arguments[2]);
 
         function openFileDialog() {
 
-            var input = document.getElementById('__geranes_open_rom_input');
+            var input = document.getElementById(elementId);
             if (!input) {
                 input = document.createElement('input');
-                input.id = '__geranes_open_rom_input';
+                input.id = elementId;
                 input.type = 'file';
                 input.accept = accepted;
                 input.style.display = 'none';
                 document.body.appendChild(input);
+            } else {
+                input.accept = accepted;
             }
 
             input.addEventListener('change', function () {
@@ -733,7 +732,24 @@ void emcriptenFileDialog(intptr_t handler) {
         }
         openFileDialog();
 
-    }, handler, kAcceptedExtensions);
+    }, handler, acceptedExtensions, elementId);
+}
+
+} // namespace
+
+void emcriptenFileDialog(intptr_t handler) {
+    constexpr const char* kAcceptedExtensions =
+#ifdef ENABLE_NSF_PLAYER
+        ".nes,.fds,.nsf,.zip,.7z";
+#else
+        ".nes,.fds,.zip,.7z";
+#endif
+    emscriptenOpenUploadDialog(handler, kAcceptedExtensions, "__geranes_open_rom_input");
+}
+
+void emcriptenReplayFileDialog(intptr_t handler) {
+    constexpr const char* kAcceptedExtensions = ".replay,.json";
+    emscriptenOpenUploadDialog(handler, kAcceptedExtensions, "__geranes_open_replay_input");
 }
 
 void emcriptenRegisterVisibilityHandler(intptr_t handler)

@@ -1298,8 +1298,9 @@ std::string GeraNESApp::currentRomCrc32() const
 bool GeraNESApp::openReplayDialog()
 {
 #ifdef __EMSCRIPTEN__
-    Logger::instance().log("Replay file loading from disk is not available in the web build.", Logger::Type::USER);
-    return false;
+    m_webUploadTarget = WebUploadTarget::OpenReplay;
+    emcriptenReplayFileDialog(reinterpret_cast<intptr_t>(this));
+    return true;
 #else
     const bool resumeAfterDialog = m_emu.withExclusiveAccess([](auto& emu) {
         if(!emu.valid()) return false;
@@ -3435,7 +3436,18 @@ void GeraNESApp::processUploadedFile(const char* fileName, size_t fileSize, cons
             std::string("Uploaded file stored at: ") + targetPath.string(),
             Logger::Type::INFO
         );
-        openFile(targetPath.string().c_str());
+        const WebUploadTarget uploadTarget = m_webUploadTarget;
+        m_webUploadTarget = WebUploadTarget::OpenRom;
+
+        switch(uploadTarget) {
+            case WebUploadTarget::OpenReplay:
+                openReplayFile(targetPath);
+                break;
+            case WebUploadTarget::OpenRom:
+            default:
+                openFile(targetPath.string().c_str());
+                break;
+        }
     } else {
         Logger::instance().log("Failed to open file for writing in processUploadedFile call", Logger::Type::ERROR);
     }
@@ -3632,6 +3644,7 @@ void GeraNESApp::openRom()
         }
     });
 #else
+    m_webUploadTarget = WebUploadTarget::OpenRom;
     emcriptenFileDialog(reinterpret_cast<intptr_t>(this));
 #endif
 
