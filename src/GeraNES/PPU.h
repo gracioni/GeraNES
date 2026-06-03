@@ -1694,12 +1694,8 @@ yyy NN YYYYY XXXXX
         return *reinterpret_cast<const Sprite*>(&m_secondaryOam[spriteIndex << 2]);
     }
 
-    GERANES_INLINE_HOT void renderSpritesPixel()
+    GERANES_INLINE int getSpriteRenderLimit(bool& spriteLimitDisabledOut, int& maxSpritesOut) const
     {
-        if(!m_showSpritesLeftmost8Pixels && m_currentX < 8) return;
-
-        int paletteIndex = 0;
-        bool isPixelBehind = false;
         int indexedSpritesCount = (m_spritesInThisLine > 64) ? 64 : m_spritesInThisLine;
         if(m_spriteFetchCount > indexedSpritesCount) {
             indexedSpritesCount = m_spriteFetchCount;
@@ -1712,68 +1708,42 @@ yyy NN YYYYY XXXXX
             int i = 1;
             for(; i < 8; i++) {
                 const Sprite& other = primaryOamSprite(m_spritesIndexesInThisLine[i]);
-                if(first.y != other.y && first.indexInPatternTable != other.indexInPatternTable) break;
+                if(first.y != other.y && first.indexInPatternTable != other.indexInPatternTable) {
+                    break;
+                }
             }
             spritesAsMask = i == 8;
         }
 
         int maxSprites = indexedSpritesCount;
         if(!spriteLimitDisabled || spritesAsMask) {
-            if(maxSprites > 8) maxSprites = 8;
-        }
-
-        const int renderedSpriteCount = activeSpriteRenderCount();
-        const int renderedSpriteLimit = (maxSprites < renderedSpriteCount) ? maxSprites : renderedSpriteCount;
-        if(m_debugModRenderCaptureEnabled && !m_debugModSpritePixels.empty() &&
-           m_currentX >= 0 && m_currentX < SCREEN_WIDTH && m_currentY >= 0 && m_currentY < SCREEN_HEIGHT) {
-            DebugModSpritePixel& captured = m_debugModSpritePixels[static_cast<size_t>(m_currentY) * SCREEN_WIDTH + static_cast<size_t>(m_currentX)];
-            for(int i = 0; i < renderedSpriteLimit; i++) {
-                SpriteRenderEntry& sprite = m_spriteRenderEntries[i];
-                if(!sprite.active || sprite.xCounter != 0) {
-                    continue;
-                }
-
-                const int color = ((sprite.lowShift & 0x80) ? 0x01 : 0x00) |
-                                  ((sprite.highShift & 0x80) ? 0x02 : 0x00);
-                const int rawOffsetX = m_currentX - static_cast<int>(sprite.x);
-                if(!sprite.valid || rawOffsetX < 0 || rawOffsetX >= 8 || captured.count >= captured.candidates.size()) {
-                    continue;
-                }
-
-                DebugModSpriteCandidate& candidate = captured.candidates[captured.count++];
-                candidate.tileIndex = sprite.tileIndex;
-                candidate.tileHash = sprite.tileIndex <= 0x01FF ? debugHashChrTile(sprite.tileIndex) : 0;
-                candidate.palette[0] = static_cast<uint8_t>(m_palette[0x11 + ((sprite.attr & 0x03) << 2)] & 0x3F);
-                candidate.palette[1] = static_cast<uint8_t>(m_palette[0x12 + ((sprite.attr & 0x03) << 2)] & 0x3F);
-                candidate.palette[2] = static_cast<uint8_t>(m_palette[0x13 + ((sprite.attr & 0x03) << 2)] & 0x3F);
-                candidate.paletteSlot = static_cast<uint8_t>(sprite.attr & 0x03);
-                candidate.colorLowBits = static_cast<uint8_t>(color);
-                candidate.offsetX = static_cast<uint8_t>(rawOffsetX);
-                candidate.offsetY = sprite.row;
-                candidate.behindBackground = (sprite.attr & 0x20) != 0;
-                candidate.horizontalMirror = (sprite.attr & 0x40) != 0;
-                candidate.verticalMirror = (sprite.attr & 0x80) != 0;
-                candidate.valid = true;
-                if(!captured.valid) {
-                    captured.tileIndex = candidate.tileIndex;
-                    captured.tileHash = candidate.tileHash;
-                    captured.palette[0] = candidate.palette[0];
-                    captured.palette[1] = candidate.palette[1];
-                    captured.palette[2] = candidate.palette[2];
-                    captured.paletteSlot = candidate.paletteSlot;
-                    captured.colorLowBits = candidate.colorLowBits;
-                    captured.offsetX = candidate.offsetX;
-                    captured.offsetY = candidate.offsetY;
-                    captured.behindBackground = candidate.behindBackground;
-                    captured.horizontalMirror = candidate.horizontalMirror;
-                    captured.verticalMirror = candidate.verticalMirror;
-                    captured.valid = true;
-                }
+            if(maxSprites > 8) {
+                maxSprites = 8;
             }
         }
+
+        spriteLimitDisabledOut = spriteLimitDisabled;
+        maxSpritesOut = maxSprites;
+        return (maxSprites < m_spriteFetchCount) ? maxSprites : m_spriteFetchCount;
+    }
+
+    GERANES_INLINE void applySpritePixel(int paletteIndex, bool isPixelBehind)
+    {
+        if((paletteIndex & 0x03) != 0) {
+            if((m_currentPixelColorIndex & 0x03) == 0 || !isPixelBehind) {
+                m_currentPixelColorIndex = static_cast<uint8_t>(paletteIndex);
+            }
+        }
+    }
+
+    GERANES_INLINE_HOT void renderSpritesPixelFast(int renderedSpriteLimit, int maxSprites)
+    {
+        int paletteIndex = 0;
+        bool isPixelBehind = false;
+
         for(int i = 0; i < renderedSpriteLimit; i++) {
             SpriteRenderEntry& sprite = m_spriteRenderEntries[i];
-            if(!sprite.active || sprite.counting) {
+            if(sprite.counting) {
                 continue;
             }
 
@@ -1810,10 +1780,110 @@ yyy NN YYYYY XXXXX
             }
         }
 
-        if((paletteIndex & 0x03) != 0) {
-            if((m_currentPixelColorIndex & 0x03) == 0 || !isPixelBehind) {
-                m_currentPixelColorIndex = static_cast<uint8_t>(paletteIndex);
+        applySpritePixel(paletteIndex, isPixelBehind);
+    }
+
+    GERANES_INLINE_HOT void renderSpritesPixelDebug(int renderedSpriteLimit, int maxSprites)
+    {
+        int paletteIndex = 0;
+        bool isPixelBehind = false;
+        DebugModSpritePixel* capturedPixel = nullptr;
+        if(!m_debugModSpritePixels.empty() &&
+           m_currentX >= 0 && m_currentX < SCREEN_WIDTH && m_currentY >= 0 && m_currentY < SCREEN_HEIGHT) {
+            capturedPixel = &m_debugModSpritePixels[static_cast<size_t>(m_currentY) * SCREEN_WIDTH + static_cast<size_t>(m_currentX)];
+        }
+
+        for(int i = 0; i < renderedSpriteLimit; i++) {
+            SpriteRenderEntry& sprite = m_spriteRenderEntries[i];
+            if(sprite.counting) {
+                continue;
             }
+
+            const int color = ((sprite.lowShift & 0x80) ? 0x01 : 0x00) |
+                              ((sprite.highShift & 0x80) ? 0x02 : 0x00);
+
+            if(capturedPixel != nullptr) {
+                const int rawOffsetX = m_currentX - static_cast<int>(sprite.x);
+                if(sprite.valid && rawOffsetX >= 0 && rawOffsetX < 8 &&
+                   capturedPixel->count < capturedPixel->candidates.size()) {
+                    DebugModSpriteCandidate& candidate = capturedPixel->candidates[capturedPixel->count++];
+                    candidate.tileIndex = sprite.tileIndex;
+                    candidate.tileHash = sprite.tileIndex <= 0x01FF ? debugHashChrTile(sprite.tileIndex) : 0;
+                    candidate.palette[0] = static_cast<uint8_t>(m_palette[0x11 + ((sprite.attr & 0x03) << 2)] & 0x3F);
+                    candidate.palette[1] = static_cast<uint8_t>(m_palette[0x12 + ((sprite.attr & 0x03) << 2)] & 0x3F);
+                    candidate.palette[2] = static_cast<uint8_t>(m_palette[0x13 + ((sprite.attr & 0x03) << 2)] & 0x3F);
+                    candidate.paletteSlot = static_cast<uint8_t>(sprite.attr & 0x03);
+                    candidate.colorLowBits = static_cast<uint8_t>(color);
+                    candidate.offsetX = static_cast<uint8_t>(rawOffsetX);
+                    candidate.offsetY = sprite.row;
+                    candidate.behindBackground = (sprite.attr & 0x20) != 0;
+                    candidate.horizontalMirror = (sprite.attr & 0x40) != 0;
+                    candidate.verticalMirror = (sprite.attr & 0x80) != 0;
+                    candidate.valid = true;
+                    if(!capturedPixel->valid) {
+                        capturedPixel->tileIndex = candidate.tileIndex;
+                        capturedPixel->tileHash = candidate.tileHash;
+                        capturedPixel->palette[0] = candidate.palette[0];
+                        capturedPixel->palette[1] = candidate.palette[1];
+                        capturedPixel->palette[2] = candidate.palette[2];
+                        capturedPixel->paletteSlot = candidate.paletteSlot;
+                        capturedPixel->colorLowBits = candidate.colorLowBits;
+                        capturedPixel->offsetX = candidate.offsetX;
+                        capturedPixel->offsetY = candidate.offsetY;
+                        capturedPixel->behindBackground = candidate.behindBackground;
+                        capturedPixel->horizontalMirror = candidate.horizontalMirror;
+                        capturedPixel->verticalMirror = candidate.verticalMirror;
+                        capturedPixel->valid = true;
+                    }
+                }
+            }
+
+            if(color == 0) {
+                continue;
+            }
+
+            paletteIndex = color | ((sprite.attr & 0x03) << 2);
+
+            if(sprite.sprite0 && m_backgroundEnabled &&
+               (m_currentPixelColorIndex & 0x03) != 0 &&
+               m_currentX != 255) {
+                m_sprite0Hit = true;
+            }
+
+            paletteIndex = 0x10 + paletteIndex;
+            isPixelBehind = (sprite.attr & 0x20) != 0;
+            break;
+        }
+
+        if(paletteIndex == 0 && maxSprites > 8) {
+            for(int i = 8; i < maxSprites; i++) {
+                const Sprite& sprite = primaryOamSprite(m_spritesIndexesInThisLine[i]);
+                if(m_currentX < sprite.x || m_currentX >= sprite.x + 8) continue;
+
+                const uint8_t low = getSpritePixelFake(&sprite, m_currentX);
+                if((low & 0x03) == 0) continue;
+
+                paletteIndex = 0x10 + low;
+                isPixelBehind = (sprite.attrib & 0x20) != 0;
+                break;
+            }
+        }
+
+        applySpritePixel(paletteIndex, isPixelBehind);
+    }
+
+    GERANES_INLINE_HOT void renderSpritesPixel()
+    {
+        if(!m_showSpritesLeftmost8Pixels && m_currentX < 8) return;
+
+        bool spriteLimitDisabled = false;
+        int maxSprites = 0;
+        const int renderedSpriteLimit = getSpriteRenderLimit(spriteLimitDisabled, maxSprites);
+        if(m_debugModRenderCaptureEnabled) {
+            renderSpritesPixelDebug(renderedSpriteLimit, maxSprites);
+        }
+        else {
+            renderSpritesPixelFast(renderedSpriteLimit, maxSprites);
         }
     }
 
