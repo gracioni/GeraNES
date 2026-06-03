@@ -1842,23 +1842,12 @@ yyy NN YYYYY XXXXX
 
     GERANES_INLINE bool hasActiveSpriteRenderers() const
     {
-        for(int i = 0; i < 8; i++) {
-            if(m_spriteRenderEntries[i].active) {
-                return true;
-            }
-        }
-        return false;
+        return m_spriteFetchCount != 0;
     }
 
     GERANES_INLINE int activeSpriteRenderCount() const
     {
-        int count = 0;
-        for(int i = 0; i < 8; i++) {
-            if(m_spriteRenderEntries[i].active) {
-                ++count;
-            }
-        }
-        return count;
+        return m_spriteFetchCount;
     }
 
     GERANES_INLINE_HOT void onScanlineStart()
