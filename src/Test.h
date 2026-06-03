@@ -426,7 +426,9 @@ public:
             if(!emu.setPlaybackInputFrame(emu.createInputFrame(emu.frameCount()))) {
                 return false;
             }
-            (void)emu.updateUntilFrame(STEP_MS, false);
+            // Headless test completion can depend on APU-driven beeps, so keep
+            // audio rendering enabled for this harness.
+            (void)emu.updateUntilFrame(STEP_MS, true);
             const bool beepStepActive = beepAudio.onStep();
 
             const uint8_t status = emu.read(0x6000);
@@ -489,6 +491,26 @@ public:
                             }
                         }
                         else {
+                            const std::optional<bool> numericResult = parseNumericScreenResult(screenText);
+                            if(numericResult.has_value()) {
+                                if(*numericResult) {
+                                    ++passedScreenHits;
+                                    failedScreenHits = 0;
+                                    if(passedScreenHits >= 2) {
+                                        std::cout << screenText;
+                                        return RESULT_PASSED;
+                                    }
+                                } else {
+                                    ++failedScreenHits;
+                                    passedScreenHits = 0;
+                                    if(failedScreenHits >= 2) {
+                                        std::cout << screenText;
+                                        return RESULT_FAILED;
+                                    }
+                                }
+                                continue;
+                            }
+
                             const std::optional<bool> fdsTableResult = parseFdsTableResult(screenText);
                             if(fdsTableResult.has_value()) {
                                 if(*fdsTableResult) {
