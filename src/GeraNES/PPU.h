@@ -1091,84 +1091,37 @@ public:
 
     GERANES_INLINE_HOT void renderPixel()
     {
-        if(m_renderingEnabled) {
-            if(m_debugModRenderCaptureEnabled) {
-                renderPixelRenderedDebug();
-            }
-            else {
-                renderPixelRenderedFast();
-            }
-        }
-        else {
-            renderPixelForcedBlank();
-        }
-
-        advanceRenderPosition();
-    }
-
-    GERANES_INLINE_HOT void renderPixelRenderedFast()
-    {
         m_currentPixelColorIndex = 0;
+        const bool renderingEnabled = m_renderingEnabled;
 
-        if(m_backgroundEnabled) {
-            renderBackgroundPixel();
-        }
-        if(m_spritesEnabled) {
-            renderSpritesPixel();
-        }
-
-        const uint8_t paletteIndex = ((m_currentPixelColorIndex & 0x03) == 0)
-            ? 0
-            : m_currentPixelColorIndex;
-        *m_pFrameBuffer++ = NESToRGBAColor(static_cast<uint8_t>(m_palette[paletteIndex] & 0x3F));
-    }
-
-    GERANES_INLINE_HOT void renderPixelRenderedDebug()
-    {
-        m_currentPixelColorIndex = 0;
-
-        if(m_backgroundEnabled) {
-            renderBackgroundPixel();
-        }
-        captureModScanlineScroll();
-        captureModBackgroundPixel();
-        if(m_spritesEnabled) {
-            renderSpritesPixel();
-        }
-
-        const uint8_t paletteIndex = ((m_currentPixelColorIndex & 0x03) == 0)
-            ? 0
-            : m_currentPixelColorIndex;
-        *m_pFrameBuffer++ = NESToRGBAColor(static_cast<uint8_t>(m_palette[paletteIndex] & 0x3F));
-    }
-
-    GERANES_INLINE_HOT void renderPixelForcedBlank()
-    {
-        m_currentPixelColorIndex = 0;
-
+        if(m_backgroundEnabled) renderBackgroundPixel();
         if(m_debugModRenderCaptureEnabled) {
             captureModScanlineScroll();
             captureModBackgroundPixel();
         }
+        if(m_spritesEnabled) renderSpritesPixel();
 
-        uint8_t value = 0;
-        if(isOnPaletteAddr()) {
-            value = static_cast<uint8_t>(fakeReadPpuMemory(m_reg_v) & 0x3F);
+        uint8_t value;
+
+        //if reg v is pointing to the palette
+        if(!renderingEnabled && isOnPaletteAddr()) {
+            value  = static_cast<uint8_t>(fakeReadPpuMemory(m_reg_v)&0x3F);
         }
         else {
-            value = static_cast<uint8_t>(m_palette[0] & 0x3F);
+            if( (m_currentPixelColorIndex&0x03) == 0) m_currentPixelColorIndex = 0;
+            value  = static_cast<uint8_t>(m_palette[m_currentPixelColorIndex]&0x3F);
         }
-        *m_pFrameBuffer++ = NESToRGBAColor(value);
-    }
 
-    GERANES_INLINE void advanceRenderPosition()
-    {
-        if(++m_currentX == SCREEN_WIDTH) {
+        *m_pFrameBuffer = NESToRGBAColor(value);
+        m_pFrameBuffer++;
+
+        if(++m_currentX == SCREEN_WIDTH){
             m_currentX = 0;
 
             if(++m_currentY == SCREEN_HEIGHT) {
                 m_currentY = 0;
-                m_pFrameBuffer = &m_framebuffer[0];
+                m_currentX = 0;
+                m_pFrameBuffer = &m_framebuffer[0];          
             }
         }
     }
@@ -1771,7 +1724,8 @@ yyy NN YYYYY XXXXX
 
         spriteLimitDisabledOut = spriteLimitDisabled;
         maxSpritesOut = maxSprites;
-        return (maxSprites < m_spriteFetchCount) ? maxSprites : m_spriteFetchCount;
+        const int renderedSpriteCount = activeSpriteRenderCount();
+        return (maxSprites < renderedSpriteCount) ? maxSprites : renderedSpriteCount;
     }
 
     GERANES_INLINE void applySpritePixel(int paletteIndex, bool isPixelBehind)
@@ -1790,7 +1744,7 @@ yyy NN YYYYY XXXXX
 
         for(int i = 0; i < renderedSpriteLimit; i++) {
             SpriteRenderEntry& sprite = m_spriteRenderEntries[i];
-            if(sprite.counting) {
+            if(!sprite.active || sprite.counting) {
                 continue;
             }
 
@@ -1842,7 +1796,7 @@ yyy NN YYYYY XXXXX
 
         for(int i = 0; i < renderedSpriteLimit; i++) {
             SpriteRenderEntry& sprite = m_spriteRenderEntries[i];
-            if(sprite.counting) {
+            if(!sprite.active || sprite.counting) {
                 continue;
             }
 
@@ -1959,12 +1913,23 @@ yyy NN YYYYY XXXXX
 
     GERANES_INLINE bool hasActiveSpriteRenderers() const
     {
-        return m_spriteFetchCount != 0;
+        for(int i = 0; i < 8; i++) {
+            if(m_spriteRenderEntries[i].active) {
+                return true;
+            }
+        }
+        return false;
     }
 
     GERANES_INLINE int activeSpriteRenderCount() const
     {
-        return m_spriteFetchCount;
+        int count = 0;
+        for(int i = 0; i < 8; i++) {
+            if(m_spriteRenderEntries[i].active) {
+                ++count;
+            }
+        }
+        return count;
     }
 
     GERANES_INLINE_HOT void onScanlineStart()
