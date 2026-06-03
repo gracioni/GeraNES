@@ -174,6 +174,7 @@ private:
         uint16_t patternAddress;
         uint8_t row;
         bool sprite0;
+        bool counting;
         bool active;
         bool valid;
     };
@@ -304,8 +305,6 @@ private:
     bool m_prevCycleRenderingEnabled;
     bool m_spriteRenderClockingActiveThisLine;
     bool m_staleBgShiftActive;
-    bool m_forceSpriteXZeroThisLine;
-    bool m_forceSpriteXZeroNextLine;
     uint16_t m_firstSpriteFetchV;
 
     int m_update_reg_v_delay;
@@ -752,8 +751,6 @@ public:
         m_prevCycleRenderingEnabled = m_renderingEnabled;
         m_spriteRenderClockingActiveThisLine = m_prevCycleRenderingEnabled;
         m_staleBgShiftActive = false;
-        m_forceSpriteXZeroThisLine = false;
-        m_forceSpriteXZeroNextLine = false;
         m_firstSpriteFetchV = 0;
 
         //PPUSTATUS
@@ -1720,7 +1717,7 @@ yyy NN YYYYY XXXXX
             if(maxSprites > 8) maxSprites = 8;
         }
 
-        const int renderedSpriteCount = (m_spriteFetchCount < 8) ? m_spriteFetchCount : 8;
+        const int renderedSpriteCount = activeSpriteRenderCount();
         const int renderedSpriteLimit = (maxSprites < renderedSpriteCount) ? maxSprites : renderedSpriteCount;
         if(m_debugModRenderCaptureEnabled && !m_debugModSpritePixels.empty() &&
            m_currentX >= 0 && m_currentX < SCREEN_WIDTH && m_currentY >= 0 && m_currentY < SCREEN_HEIGHT) {
@@ -1771,7 +1768,7 @@ yyy NN YYYYY XXXXX
         }
         for(int i = 0; i < renderedSpriteLimit; i++) {
             SpriteRenderEntry& sprite = m_spriteRenderEntries[i];
-            if(!sprite.active || sprite.xCounter != 0) {
+            if(!sprite.active || sprite.counting) {
                 continue;
             }
 
@@ -1815,23 +1812,48 @@ yyy NN YYYYY XXXXX
         }
     }
 
-    GERANES_INLINE_HOT void clockSpriteRenderers()
+    GERANES_INLINE_HOT void clockSpriteRenderers(bool shiftRegisters)
     {
-        const int spriteCount = (m_spriteFetchCount < 8) ? m_spriteFetchCount : 8;
-        for(int i = 0; i < spriteCount; i++) {
+        for(int i = 0; i < 8; i++) {
             SpriteRenderEntry& sprite = m_spriteRenderEntries[i];
             if(!sprite.active) {
                 continue;
             }
 
-            if(sprite.xCounter > 0) {
-                sprite.xCounter--;
+            if(sprite.counting) {
+                if(sprite.xCounter > 0) {
+                    sprite.xCounter--;
+                }
+                if(sprite.xCounter == 0) {
+                    sprite.counting = false;
+                }
             }
-            else {
+            else if(shiftRegisters) {
                 sprite.lowShift <<= 1;
                 sprite.highShift <<= 1;
             }
         }
+    }
+
+    GERANES_INLINE bool hasActiveSpriteRenderers() const
+    {
+        for(int i = 0; i < 8; i++) {
+            if(m_spriteRenderEntries[i].active) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    GERANES_INLINE int activeSpriteRenderCount() const
+    {
+        int count = 0;
+        for(int i = 0; i < 8; i++) {
+            if(m_spriteRenderEntries[i].active) {
+                ++count;
+            }
+        }
+        return count;
     }
 
     GERANES_INLINE_HOT void onScanlineStart()
@@ -1849,31 +1871,7 @@ yyy NN YYYYY XXXXX
         m_preLine = (m_scanline == FRAME_VBLANK_END_LINE);
         m_visibleLine = m_scanline < 240;
         m_renderLine = m_preLine || m_visibleLine;
-        m_spriteRenderClockingActiveThisLine = m_prevCycleRenderingEnabled;
-        m_forceSpriteXZeroThisLine = m_forceSpriteXZeroNextLine;
-        m_forceSpriteXZeroNextLine = false;
-
-        const int activeSpriteCount = (m_spriteFetchCount < 8) ? m_spriteFetchCount : 8;
-        for(int i = 0; i < 8; i++) {
-            SpriteRenderEntry& entry = m_spriteRenderEntries[i];
-            const SpriteFetchEntry& fetched = m_spriteFetchEntries[i];
-            entry.x = fetched.x;
-            entry.xCounter = m_forceSpriteXZeroThisLine ? 0 : fetched.x;
-            entry.attr = fetched.attr;
-            entry.lowShift = fetched.lowByte;
-            entry.highShift = fetched.highByte;
-            entry.tileIndex = fetched.tileIndex;
-            entry.patternAddress = fetched.patternAddress;
-            entry.row = fetched.row;
-            entry.sprite0 = fetched.sprite0;
-            entry.active = i < activeSpriteCount;
-            entry.valid = fetched.valid;
-
-            if(entry.active && (entry.attr & 0x40) != 0) {
-                entry.lowShift = reverseByte(entry.lowShift);
-                entry.highShift = reverseByte(entry.highShift);
-            }
-        }
+        m_spriteRenderClockingActiveThisLine = m_prevCycleRenderingEnabled || hasActiveSpriteRenderers();
         if(m_preLine && renderingEnabled) {
             processOamCorruption();
         }
@@ -2009,10 +2007,12 @@ yyy NN YYYYY XXXXX
             }
 
             if(m_visibleLine && visibleCycle && (prevCycleRenderingEnabled || m_spriteRenderClockingActiveThisLine)) {
-                clockSpriteRenderers();
+                // During forced blanking, sprite X counters keep advancing but the stale pattern
+                // shift registers stop shifting until rendering is active again.
+                clockSpriteRenderers(prevCycleRenderingEnabled);
             }
 
-            if(renderingEnabled) {
+            if(prevCycleRenderingEnabled) {
                 //"OAMADDR is set to 0 during each of ticks 257-320 (the sprite tile loading interval) of the pre-render and visible scanlines." (When rendering)
 			    if(spriteFetchCycles) {
                     m_oamAddr = 0;
@@ -2020,8 +2020,13 @@ yyy NN YYYYY XXXXX
                 }
             }
 
-            if(m_cycle == 339 && !prevCycleRenderingEnabled) {
-                m_forceSpriteXZeroNextLine = true;
+            if(m_cycle == 339 && prevCycleRenderingEnabled) {
+                for(int i = 0; i < 8; i++) {
+                    SpriteRenderEntry& entry = m_spriteRenderEntries[i];
+                    if(entry.active) {
+                        entry.counting = entry.xCounter > 0;
+                    }
+                }
             }
 
             if(m_preLine) {
@@ -2226,8 +2231,31 @@ yyy NN YYYYY XXXXX
                 {
                     const uint8_t value = completePpuRead(getSpritePatternAddress(sprite, true));
                     entry.highByte = (hasSpriteData && sprite.y != 0xFF) ? value : 0;
+                    SpriteRenderEntry& renderEntry = m_spriteRenderEntries[spriteIndex];
                     if(hasSpriteData && sprite.y != 0xFF) {
                         m_spriteFetchCount = static_cast<uint8_t>(spriteIndex + 1);
+                        renderEntry.x = entry.x;
+                        renderEntry.xCounter = entry.x;
+                        renderEntry.attr = entry.attr;
+                        renderEntry.lowShift = entry.lowByte;
+                        renderEntry.highShift = entry.highByte;
+                        renderEntry.tileIndex = entry.tileIndex;
+                        renderEntry.patternAddress = entry.patternAddress;
+                        renderEntry.row = entry.row;
+                        renderEntry.sprite0 = entry.sprite0;
+                        renderEntry.counting = false;
+                        renderEntry.active = true;
+                        renderEntry.valid = entry.valid;
+
+                        if((renderEntry.attr & 0x40) != 0) {
+                            renderEntry.lowShift = reverseByte(renderEntry.lowShift);
+                            renderEntry.highShift = reverseByte(renderEntry.highShift);
+                        }
+                    }
+                    else {
+                        renderEntry.counting = false;
+                        renderEntry.active = false;
+                        renderEntry.valid = false;
                     }
                 }
                 break;
@@ -3019,8 +3047,6 @@ yyy NNYY YYYX XXXX
         SERIALIZEDATA(s, m_prevCycleRenderingEnabled);
         SERIALIZEDATA(s, m_spriteRenderClockingActiveThisLine);
         SERIALIZEDATA(s, m_staleBgShiftActive);
-        SERIALIZEDATA(s, m_forceSpriteXZeroThisLine);
-        SERIALIZEDATA(s, m_forceSpriteXZeroNextLine);
         SERIALIZEDATA(s, m_firstSpriteFetchV);
 
         SERIALIZEDATA(s, m_update_reg_v_delay);
