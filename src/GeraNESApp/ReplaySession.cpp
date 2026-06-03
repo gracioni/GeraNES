@@ -168,6 +168,16 @@ bool ReplaySession::saveToFile(const fs::path& path, std::string& error) const
     return ReplayFile::save(path, snapshotState.data, error);
 }
 
+bool ReplaySession::saveToBytes(std::vector<uint8_t>& bytes, std::string& error) const
+{
+    ReplayState snapshotState;
+    {
+        std::scoped_lock lock(m_mutex);
+        snapshotState = m_state;
+    }
+    return ReplayFile::saveToBytes(snapshotState.data, bytes, error);
+}
+
 bool ReplaySession::loadFromFile(const fs::path& path, std::string& error)
 {
     ReplayData data;

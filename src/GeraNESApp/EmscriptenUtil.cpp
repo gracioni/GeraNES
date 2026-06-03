@@ -879,6 +879,39 @@ void emcriptenExportSession() {
     });
 }
 
+void emcriptenDownloadBinaryFile(const uint8_t* data, size_t size, const char* fileName, const char* mimeType)
+{
+    EM_ASM({
+        const dataPtr = $0 >>> 0;
+        const size = $1 >>> 0;
+        const fileName = UTF8ToString($2);
+        const mimeType = UTF8ToString($3);
+
+        try {
+            const moduleObj = (typeof Module !== 'undefined') ? Module : null;
+            const heapU8 = (typeof HEAPU8 !== 'undefined' && HEAPU8) ? HEAPU8 : (moduleObj ? moduleObj.HEAPU8 : null);
+            if (!heapU8) {
+                console.error('HEAPU8 is unavailable for replay download');
+                return;
+            }
+
+            const bytes = heapU8.slice(dataPtr, dataPtr + size);
+            const blob = new Blob([bytes], { type: mimeType || 'application/octet-stream' });
+            const url = URL.createObjectURL(blob);
+            const anchor = document.createElement('a');
+            anchor.href = url;
+            anchor.download = fileName;
+            anchor.style.display = 'none';
+            document.body.appendChild(anchor);
+            anchor.click();
+            anchor.remove();
+            setTimeout(() => URL.revokeObjectURL(url), 1000);
+        } catch (e) {
+            console.error('emcriptenDownloadBinaryFile error:', e);
+        }
+    }, data, static_cast<int>(size), fileName, mimeType);
+}
+
 void emcriptenSyncImGuiTextInput(bool wantTextInput)
 {
     emcriptenSyncImGuiTextInputJs(wantTextInput ? 1 : 0);

@@ -1360,7 +1360,7 @@ bool GeraNESApp::openReplayDialog()
 bool GeraNESApp::saveReplayDialog(fs::path& path)
 {
 #ifdef __EMSCRIPTEN__
-    Logger::instance().log("Replay file saving to disk is not available in the web build.", Logger::Type::USER);
+    (void)path;
     return false;
 #else
     const bool resumeAfterDialog = m_emu.withExclusiveAccess([](auto& emu) {
@@ -1539,6 +1539,26 @@ void GeraNESApp::stopReplayRecording()
         Logger::Type::INFO
     );
 
+#ifdef __EMSCRIPTEN__
+    std::vector<uint8_t> replayBytes;
+    std::string error;
+    if(!m_replaySession.saveToBytes(replayBytes, error)) {
+        Logger::instance().log("Failed to save replay: " + error, Logger::Type::ERROR);
+        m_userToast.show("Failed to save replay file");
+        clearReplaySession(true);
+        return;
+    }
+
+    const std::string defaultName = m_loadedRomPath.stem().empty() ? "session.replay" : (m_loadedRomPath.stem().string() + ".replay");
+    emcriptenDownloadBinaryFile(
+        replayBytes.data(),
+        replayBytes.size(),
+        defaultName.c_str(),
+        "application/octet-stream");
+    Logger::instance().log("Replay download started: " + defaultName, Logger::Type::USER);
+    clearReplaySession(true);
+    return;
+#else
     fs::path savePath;
     if(!saveReplayDialog(savePath)) {
         Logger::instance().log("Replay recording stopped without saving", Logger::Type::USER);
@@ -1556,6 +1576,7 @@ void GeraNESApp::stopReplayRecording()
 
     Logger::instance().log("Replay saved: " + savePath.string(), Logger::Type::USER);
     clearReplaySession(true);
+#endif
 }
 
 bool GeraNESApp::openReplayFile(const fs::path& path)

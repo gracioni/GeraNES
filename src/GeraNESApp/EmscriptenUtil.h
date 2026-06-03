@@ -13,6 +13,7 @@ void emcriptenRegisterUnloadHandler(intptr_t handler);
 void emcriptenImportSession(intptr_t handler);
 
 void emcriptenExportSession();
+void emcriptenDownloadBinaryFile(const uint8_t* data, size_t size, const char* fileName, const char* mimeType);
 
 void emcriptenSyncImGuiTextInput(bool wantTextInput);
 

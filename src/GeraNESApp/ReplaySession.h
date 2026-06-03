@@ -57,6 +57,7 @@ public:
     void beginPlayback();
     bool syncRuntimeFrame(uint32_t emuFrame);
 
+    bool saveToBytes(std::vector<uint8_t>& bytes, std::string& error) const;
     bool saveToFile(const fs::path& path, std::string& error) const;
     bool loadFromFile(const fs::path& path, std::string& error);
 

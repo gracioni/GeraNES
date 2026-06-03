@@ -212,14 +212,14 @@ bool buildEncodedRuns(const std::vector<InputFrame>& frames,
 }
 }
 
-bool ReplayFile::save(const fs::path& path, const Data& data, std::string& error)
+bool ReplayFile::saveToBytes(const Data& data, std::vector<uint8_t>& bytes, std::string& error)
 {
     if(data.romCrc.empty()) {
         error = "Replay file is missing ROM CRC";
         return false;
     }
 
-    std::vector<uint8_t> bytes;
+    bytes.clear();
     bytes.reserve(sizeof(kReplayMagic) - 1u + 64u);
     bytes.insert(bytes.end(), kReplayMagic, kReplayMagic + (sizeof(kReplayMagic) - 1u));
     appendU32(bytes, kReplayBinaryVersion);
@@ -242,6 +242,16 @@ bool ReplayFile::save(const fs::path& path, const Data& data, std::string& error
         if(!appendBytes(bytes, run.payload, error)) {
             return false;
         }
+    }
+
+    return true;
+}
+
+bool ReplayFile::save(const fs::path& path, const Data& data, std::string& error)
+{
+    std::vector<uint8_t> bytes;
+    if(!saveToBytes(data, bytes, error)) {
+        return false;
     }
 
     std::ofstream file(path, std::ios::binary | std::ios::trunc);
