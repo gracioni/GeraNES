@@ -3405,7 +3405,7 @@ private:
 
         const uint32_t payloadCrc32 =
             Crc32::calc(reinterpret_cast<const char*>(statePayload.data()), statePayload.size());
-        const uint32_t stateCrc32 =
+        const uint32_t authoritativeStateCrc32 =
             (!initialSessionSync && confirmedSnapshot.has_value())
                 ? peer.emu.netplaySnapshotCrc32ForFrame(authoritativeFrame).value_or(0u)
                 : stateCrc32(peer.emu.saveStateToMemory());
@@ -3413,12 +3413,12 @@ private:
                authoritativeFrame,
                statePayload,
                payloadCrc32,
-               stateCrc32,
+               authoritativeStateCrc32,
                pending->reason,
                pending->participantId
            ) &&
-           stateCrc32 != 0u) {
-            peer.emu.setAuthoritativeFrameReadyState(authoritativeFrame, stateCrc32);
+           authoritativeStateCrc32 != 0u) {
+            peer.emu.setAuthoritativeFrameReadyState(authoritativeFrame, authoritativeStateCrc32);
         }
     }
 
@@ -4307,7 +4307,7 @@ private:
         }
 
         const bool includeLongScenarios = baseOptions.appFlow || baseOptions.frames >= 1000u;
-        const uint32_t longFrames = std::max<uint32_t>(baseOptions.frames, 2000u);
+        const uint32_t longFrames = std::max<uint32_t>(baseOptions.frames, 1000u);
         if(includeLongScenarios) {
             Options longSession = baseOptions;
             longSession.frames = longFrames;

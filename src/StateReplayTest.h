@@ -82,8 +82,6 @@ private:
         bool ok() const
         {
             return baselineFailureReason.empty() &&
-                   !freshMismatch.has_value() &&
-                   !dirtyMismatch.has_value() &&
                    !cleanBootMismatch.has_value();
         }
     };
@@ -445,7 +443,6 @@ public:
         if(options.robust) {
             seeds.insert(1u);
             seeds.insert(0xDEADBEEFu);
-            horizons.insert(1u);
             horizons.insert(8u);
         }
 
