@@ -78,6 +78,11 @@ private:
         I32 = 32
     };
 
+    enum class PatternTableAddress : uint16_t {
+        X0000 = 0x0000,
+        X1000 = 0x1000
+    };
+
     struct Sprite {
         uint8_t y;
         uint8_t indexInPatternTable;
@@ -99,8 +104,8 @@ private:
 
     //PPUCTRL
     VramAddressIncrement m_VRAMAddressIncrement;
-    bool m_sprite8x8PatternTableAddress; // 0x0000 or 0x1000, ignored in 8x16 mode
-    bool m_backgroundPatternTableAddress; // 0x0000 or 0x1000
+    PatternTableAddress m_spritePatternTableAddress;
+    PatternTableAddress m_backgroundPatternTableAddress;
     SpriteHeight m_spriteHeight;
     bool m_PPUSlave; // false = master true = slave
     bool m_NMIOnVBlank; //false = off on = true
@@ -1312,7 +1317,7 @@ yyy NN YYYYY XXXXX
 
     int debugBackgroundPatternTableAddress() const
     {
-        return m_backgroundPatternTableAddress ? 0x1000 : 0x0000;
+        return static_cast<int>(m_backgroundPatternTableAddress);
     }
 
     bool debugSpritesEnabled() const
@@ -1683,7 +1688,7 @@ yyy NN YYYYY XXXXX
         else spriteXToDraw = sprite->x - xOnScreen + 7;
 
         if(m_spriteHeight == SpriteHeight::H8) {
-            int index = sprite->indexInPatternTable + (m_sprite8x8PatternTableAddress ? 256 : 0);
+            int index = sprite->indexInPatternTable + (static_cast<int>(m_spritePatternTableAddress) >> 4);
             return (uint8_t)(getColorLowBitsInPatternTable(index, spriteXToDraw, spriteLineToDraw) | ((sprite->attrib & 0x03) << 2));
         }
 
@@ -2239,7 +2244,7 @@ yyy NN YYYYY XXXXX
             }
         }
         else {
-            base = m_sprite8x8PatternTableAddress ? 0x1000 : 0x0000;
+            base = static_cast<uint16_t>(m_spritePatternTableAddress);
         }
 
         SpritePatternInfo info;
@@ -2460,7 +2465,7 @@ yyy NN YYYYY XXXXX
 
         int tileIndexInPatternTable = getTileIndexInNameTables(tileX,tileY);
 
-        if(m_backgroundPatternTableAddress) tileIndexInPatternTable += 256; //0x1000
+        tileIndexInPatternTable += static_cast<int>(m_backgroundPatternTableAddress) >> 4;
 
         return getColorLowBitsInPatternTable(tileIndexInPatternTable,x%8, y%8);
     }
@@ -2556,8 +2561,8 @@ yyy NN YYYYY XXXXX
         calculateDebugCursor();
 
         m_VRAMAddressIncrement = (data&0x04) ? VramAddressIncrement::I32 : VramAddressIncrement::I1;
-        m_sprite8x8PatternTableAddress = (data&0x08) ? true : false;
-        m_backgroundPatternTableAddress = (data&0x10) ? true : false;
+        m_spritePatternTableAddress = (data&0x08) ? PatternTableAddress::X1000 : PatternTableAddress::X0000;
+        m_backgroundPatternTableAddress = (data&0x10) ? PatternTableAddress::X1000 : PatternTableAddress::X0000;
         m_spriteHeight = (data&0x20) ? SpriteHeight::H16 : SpriteHeight::H8;
         if(notifyMapper) {
             m_cartridge.setSpriteSize8x16(m_spriteHeight == SpriteHeight::H16);
@@ -3000,7 +3005,7 @@ yyy NNYY YYYX XXXX
         const uint8_t tileIndex = completePpuRead(address);
 
         const int fineY = (m_reg_v >> 12) & 7;
-        const int table = static_cast<int>(m_backgroundPatternTableAddress) << 12;
+        const int table = static_cast<int>(m_backgroundPatternTableAddress);
 
         m_tileAddr = table + (tileIndex << 4) + fineY;
     }
@@ -3112,7 +3117,7 @@ yyy NNYY YYYX XXXX
         SERIALIZEDATA(s, m_cycle);
 
         SERIALIZEDATA(s, m_VRAMAddressIncrement);
-        SERIALIZEDATA(s, m_sprite8x8PatternTableAddress);
+        SERIALIZEDATA(s, m_spritePatternTableAddress);
         SERIALIZEDATA(s, m_backgroundPatternTableAddress);
         SERIALIZEDATA(s, m_spriteHeight);
         SERIALIZEDATA(s, m_PPUSlave);
