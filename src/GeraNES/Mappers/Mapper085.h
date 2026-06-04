@@ -8,6 +8,8 @@
 #include "Audio/Vrc7Audio.h"
 #include "Helpers/VrcIrq.h"
 
+namespace GeraNES {
+
 class Mapper085 : public BaseMapper
 {
 private:
@@ -228,3 +230,5 @@ public:
         }
     }
 };
+
+} // namespace GeraNES

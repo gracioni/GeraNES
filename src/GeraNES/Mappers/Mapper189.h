@@ -2,6 +2,8 @@
 
 #include "Mapper004.h"
 
+namespace GeraNES {
+
 // iNES Mapper 189
 // MMC3-compatible CHR/IRQ/mirroring logic, with an outer PRG register at $4120-$7FFF
 // selecting a 32KB block:
@@ -57,3 +59,5 @@ public:
         SERIALIZEDATA(s, m_outerPrgReg);
     }
 };
+
+} // namespace GeraNES

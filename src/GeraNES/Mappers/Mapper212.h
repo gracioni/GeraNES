@@ -2,6 +2,8 @@
 
 #include "BaseMapper.h"
 
+namespace GeraNES {
+
 // iNES Mapper 212
 // Write $8000-$FFFF: A~[1o.. .... .... MBBb]
 // Read  $6000-$7FFF: returns bit 7 set on addresses matching mask $E010 == $6000.
@@ -76,3 +78,5 @@ public:
         SERIALIZEDATA(s, m_chrMask);
     }
 };
+
+} // namespace GeraNES

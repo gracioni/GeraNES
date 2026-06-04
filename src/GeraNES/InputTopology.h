@@ -2,6 +2,8 @@
 
 #include "GeraNES/Settings.h"
 
+namespace GeraNES {
+
 struct InputTopology
 {
     Settings::Device port1Device = Settings::Device::CONTROLLER;
@@ -13,3 +15,5 @@ struct InputTopology
     bool operator==(const InputTopology&) const = default;
     bool operator!=(const InputTopology&) const = default;
 };
+
+} // namespace GeraNES

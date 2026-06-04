@@ -9,6 +9,8 @@
 #include "Audio/Sunsoft5BAudio.h"
 #include "GeraNES/util/EscapedRle.h"
 
+namespace GeraNES {
+
 //Sunsoft FME-7 5A and 5B
 
 class Mapper069 : public BaseMapper
@@ -356,3 +358,5 @@ public:
     }
 
 };
+
+} // namespace GeraNES

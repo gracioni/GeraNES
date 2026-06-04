@@ -18,6 +18,7 @@
 #include "GeraNESApp/ReplayPlaybackController.h"
 #include "GeraNES/GeraNESEmu.h"
 #include "GeraNES/PPU.h"
+using namespace GeraNES;
 
 #if defined(__clang__)
 #pragma clang diagnostic push

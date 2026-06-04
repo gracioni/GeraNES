@@ -2,6 +2,8 @@
 
 #include "Mapper021.h"
 
+namespace GeraNES {
+
 //TODO: data eeprom
 
 //VRC2a
@@ -45,3 +47,5 @@ public:
     }
 
 };
+
+} // namespace GeraNES

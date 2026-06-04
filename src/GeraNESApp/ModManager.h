@@ -14,6 +14,7 @@
 
 #include "GeraNES/GeraNESEmu.h"
 #include "GeraNESApp/ModAudio.h"
+using namespace GeraNES;
 
 class ModManager {
 public:

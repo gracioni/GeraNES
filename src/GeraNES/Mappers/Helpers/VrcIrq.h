@@ -2,6 +2,8 @@
 
 #include "GeraNES/Serialization.h"
 
+namespace GeraNES {
+
 class VrcIrq
 {
 private:
@@ -84,3 +86,5 @@ public:
         SERIALIZEDATA(s, m_interruptFlag);
     }
 };
+
+} // namespace GeraNES

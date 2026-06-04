@@ -3,6 +3,8 @@
 #include "BaseMapper.h"
 #include "Helpers/TxcChip.h"
 
+namespace GeraNES {
+
 class Mapper220 : public BaseMapper
 {
 private:
@@ -80,3 +82,5 @@ public:
         SERIALIZEDATA(s, m_prgBank);
     }
 };
+
+} // namespace GeraNES

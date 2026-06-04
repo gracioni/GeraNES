@@ -2,6 +2,8 @@
 
 #include "Mapper004.h"
 
+namespace GeraNES {
+
 class Mapper219 : public Mapper004
 {
 private:
@@ -119,3 +121,5 @@ public:
         s.array(reinterpret_cast<uint8_t*>(m_chrPages), 2, 8);
     }
 };
+
+} // namespace GeraNES

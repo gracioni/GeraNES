@@ -2,6 +2,8 @@
 
 #include "BaseMapper.h"
 
+namespace GeraNES {
+
 class Mapper143 : public BaseMapper
 {
 public:
@@ -26,3 +28,5 @@ public:
         return cd().readChr<BankSize::B8K>(0, addr);
     }
 };
+
+} // namespace GeraNES

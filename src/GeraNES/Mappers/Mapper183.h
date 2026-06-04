@@ -2,6 +2,8 @@
 
 #include "BaseMapper.h"
 
+namespace GeraNES {
+
 class Mapper183 : public BaseMapper
 {
 private:
@@ -148,3 +150,5 @@ private:
     uint8_t m_prgLow[3] = {0, 1, 2};
     uint8_t m_mirroring = 0;
 };
+
+} // namespace GeraNES

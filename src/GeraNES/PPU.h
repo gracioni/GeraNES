@@ -11,6 +11,8 @@
 #include <algorithm>
 #include <vector>
 
+namespace GeraNES {
+
 const int VBLANK_CYCLE = 1;
 
 //0xAABBGGRR
@@ -3232,3 +3234,5 @@ yyy NNYY YYYX XXXX
     }
 
 };
+
+} // namespace GeraNES

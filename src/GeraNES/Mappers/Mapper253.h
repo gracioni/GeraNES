@@ -2,6 +2,8 @@
 
 #include "BaseMapper.h"
 
+namespace GeraNES {
+
 // iNES Mapper 253
 // Waixing board with mixed CHR-ROM / 2KB CHR-RAM windows and CPU-cycle IRQs.
 class Mapper253 : public BaseMapper
@@ -192,3 +194,5 @@ public:
         SERIALIZEDATA(s, m_mirroring);
     }
 };
+
+} // namespace GeraNES

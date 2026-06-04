@@ -2,6 +2,8 @@
 
 #include <string>
 
+namespace GeraNES {
+
 static std::string ltrim(const std::string& s) {
     size_t start = s.find_first_not_of(" \t\n\r\f\v");
     return (start == std::string::npos) ? "" : s.substr(start);
@@ -15,3 +17,5 @@ static std::string rtrim(const std::string& s) {
 static std::string trim(const std::string& s) {
     return rtrim(ltrim(s));
 }
+
+} // namespace GeraNES

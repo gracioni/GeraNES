@@ -2,6 +2,8 @@
 
 #include "BaseMapper.h"
 
+namespace GeraNES {
+
 // iNES Mapper 41 (Caltron 6-in-1)
 // - $6000-$67FF: outer register via address bits (data ignored)
 // - $8000-$FFFF: inner CHR register via data bits (bus conflicts), only when enabled
@@ -110,3 +112,5 @@ public:
         SERIALIZEDATA(s, m_chrCount8k);
     }
 };
+
+} // namespace GeraNES

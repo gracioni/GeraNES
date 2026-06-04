@@ -2,6 +2,8 @@
 
 #include "Mapper132.h"
 
+namespace GeraNES {
+
 class Mapper173 : public Mapper132
 {
 public:
@@ -26,3 +28,5 @@ public:
         return m_txc.yFlag() ? cd().readChr<BankSize::B8K>(0, addr) : 0;
     }
 };
+
+} // namespace GeraNES

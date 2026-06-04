@@ -7,6 +7,8 @@
 #include "GeraNES/IAudioOutput.h"
 #include "signal/signal.h"
 
+namespace GeraNES {
+
 class SampleChannel
 {
 private:
@@ -377,3 +379,5 @@ public:
         return sample;
     }
 };
+
+} // namespace GeraNES

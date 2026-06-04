@@ -18,6 +18,8 @@
 #include "logger/logger.h"
 #include "signal/signal.h"
 
+using namespace GeraNES;
+
 extern "C" {
     void* tdefl_write_image_to_png_file_in_memory(const void* pImage, int w, int h, int num_chans, size_t* pLen_out);
     void mz_free(void* p);

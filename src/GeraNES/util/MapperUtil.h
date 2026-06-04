@@ -2,6 +2,8 @@
 
 #include <string>
 
+namespace GeraNES {
+
 static std::string getMapperName(int num)
 {
     switch(num)
@@ -65,3 +67,5 @@ static std::string getMapperName(int num)
 
     return "Unknow";
 }
+
+} // namespace GeraNES

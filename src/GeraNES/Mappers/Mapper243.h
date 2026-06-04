@@ -2,6 +2,8 @@
 
 #include "Helpers/Sachen74LS374NBase.h"
 
+namespace GeraNES {
+
 class Mapper243 : public Sachen74LS374NBase
 {
 public:
@@ -9,3 +11,5 @@ public:
     {
     }
 };
+
+} // namespace GeraNES

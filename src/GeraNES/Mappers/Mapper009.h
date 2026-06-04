@@ -2,6 +2,8 @@
 
 #include "BaseMapper.h"
 
+namespace GeraNES {
+
 //MMC2 PxROM
 class Mapper009 : public BaseMapper
 {
@@ -130,3 +132,5 @@ public:
     }
 
 };
+
+} // namespace GeraNES

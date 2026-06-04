@@ -8,6 +8,7 @@
 #include <memory>
 #include <sstream>
 #include <vector>
+using namespace GeraNES;
 
 class AudioOutputBase : public IAudioOutput
 {

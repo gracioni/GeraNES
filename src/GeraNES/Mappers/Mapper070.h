@@ -2,6 +2,8 @@
 
 #include "BaseMapper.h"
 
+namespace GeraNES {
+
 // Mapper 70 (Bandai 74161/32)
 // $8000-$FFFF: [PPPP CCCC] with bus conflicts
 class Mapper070 : public BaseMapper
@@ -59,3 +61,4 @@ public:
     }
 };
 
+} // namespace GeraNES

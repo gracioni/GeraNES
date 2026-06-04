@@ -3,6 +3,8 @@
 #include "BaseMapper.h"
 #include <array>
 
+namespace GeraNES {
+
 //bandai
 
 class Mapper016 : public BaseMapper
@@ -575,3 +577,5 @@ public:
     }
 
 };
+
+} // namespace GeraNES

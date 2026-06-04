@@ -2,6 +2,8 @@
 
 #include "BaseMapper.h"
 
+namespace GeraNES {
+
 // Sunsoft-3 (iNES Mapper 67)
 class Mapper067 : public BaseMapper
 {
@@ -169,3 +171,5 @@ public:
         SERIALIZEDATA(s, m_interruptFlag);
     }
 };
+
+} // namespace GeraNES

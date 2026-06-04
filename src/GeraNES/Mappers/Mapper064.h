@@ -2,6 +2,8 @@
 
 #include "BaseMapper.h"
 
+namespace GeraNES {
+
 //Tengen RAMBO-1
 //games: Klax, Skull and Crossbones, Shinobi, Hard Drivin, Rolling Thunder
 
@@ -417,3 +419,5 @@ public:
     }
 
 };
+
+} // namespace GeraNES

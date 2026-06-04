@@ -5,6 +5,7 @@
 #include "GeraNESNetplay/GeraNESInputState.h"
 #include "ConsoleNetplay/NetplayInputFrame.h"
 #include "ConsoleNetplay/NetSession.h"
+using namespace GeraNES;
 
 namespace GeraNESNetplay
 {

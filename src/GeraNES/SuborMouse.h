@@ -6,6 +6,8 @@
 
 #include "IControllerPortDevice.h"
 
+namespace GeraNES {
+
 class SuborMouse : public IControllerPortDevice
 {
 private:
@@ -100,3 +102,5 @@ public:
         SERIALIZEDATA(s, m_bitsRemaining);
     }
 };
+
+} // namespace GeraNES

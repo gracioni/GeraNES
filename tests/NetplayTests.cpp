@@ -37,6 +37,7 @@
 #include "NetplayTest.h"
 #include "TestSupport.h"
 #include "logger/logger.h"
+using namespace GeraNES;
 
 namespace
 {

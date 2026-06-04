@@ -2,6 +2,8 @@
 
 #include "BaseMapper.h"
 
+namespace GeraNES {
+
 // Jaleco JF-17 / JF-19 style latch-on-rising-edge mapper.
 class Mapper072 : public BaseMapper
 {
@@ -97,3 +99,5 @@ public:
         SERIALIZEDATA(s, m_prevChrLatch);
     }
 };
+
+} // namespace GeraNES

@@ -2,6 +2,8 @@
 
 #include "Helpers/Mmc3ChrRamBase.h"
 
+namespace GeraNES {
+
 class Mapper195 : public Mmc3ChrRamBase
 {
 public:
@@ -9,3 +11,5 @@ public:
     {
     }
 };
+
+} // namespace GeraNES

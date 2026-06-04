@@ -5,6 +5,8 @@
 #include <string>
 #include <vector>
 
+namespace GeraNES {
+
 class IAudioOutput
 {
     public:
@@ -87,3 +89,5 @@ public:
         return ret;
     }
 };
+
+} // namespace GeraNES

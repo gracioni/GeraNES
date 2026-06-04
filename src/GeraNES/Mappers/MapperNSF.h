@@ -12,6 +12,8 @@
 #include "GeraNES/NesCartridgeData/_NsfFormat.h"
 #include "GeraNES/util/NesAssembler.h"
 
+namespace GeraNES {
+
 class MapperNSF : public BaseMapper
 {
 private:
@@ -412,3 +414,5 @@ public:
 };
 
 #endif
+
+} // namespace GeraNES

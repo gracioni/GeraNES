@@ -5,6 +5,8 @@
 
 #include "IExpansionDevice.h"
 
+namespace GeraNES {
+
 class ArkanoidControllerFamicom : public IExpansionDevice
 {
 private:
@@ -62,3 +64,5 @@ public:
         SERIALIZEDATA(s, m_stateBuffer);
     }
 };
+
+} // namespace GeraNES

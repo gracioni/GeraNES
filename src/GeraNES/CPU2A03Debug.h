@@ -10,6 +10,8 @@
 
 #include "CPU2A03.h"
 
+namespace GeraNES {
+
 struct CPU2A03DebugLine
 {
     uint16_t address = 0;
@@ -308,3 +310,5 @@ private:
         return path;
     }
 };
+
+} // namespace GeraNES

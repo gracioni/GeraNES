@@ -7,6 +7,8 @@
 #include <string>
 #include <vector>
 
+namespace GeraNES {
+
 class _FdsFormat : public ICartridgeData
 {
 public:
@@ -109,3 +111,5 @@ public:
         return m_sides[static_cast<size_t>(index)];
     }
 };
+
+} // namespace GeraNES

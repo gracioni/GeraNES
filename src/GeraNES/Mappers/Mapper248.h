@@ -2,6 +2,8 @@
 
 #include "Mapper115.h"
 
+namespace GeraNES {
+
 // Duplicate assignment of mapper 115 on some dumps.
 class Mapper248 : public Mapper115
 {
@@ -10,3 +12,5 @@ public:
     {
     }
 };
+
+} // namespace GeraNES

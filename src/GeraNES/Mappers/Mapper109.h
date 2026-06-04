@@ -2,6 +2,8 @@
 
 #include "Mapper137.h"
 
+namespace GeraNES {
+
 // Historical duplicate assignment for Sachen 8259D / The Great Wall.
 class Mapper109 : public Mapper137
 {
@@ -10,3 +12,5 @@ public:
     {
     }
 };
+
+} // namespace GeraNES

@@ -7,6 +7,8 @@
 
 #include "../../Serialization.h"
 
+namespace GeraNES {
+
 class Namco163Audio
 {
 public:
@@ -223,3 +225,5 @@ public:
         s.array(reinterpret_cast<uint8_t*>(m_audioChannelVol), sizeof(float), 8);
     }
 };
+
+} // namespace GeraNES

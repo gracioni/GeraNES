@@ -2,6 +2,8 @@
 
 #include "BaseMapper.h"
 
+namespace GeraNES {
+
 // NINA-03/NINA-06 multicart variant (iNES Mapper 113)
 class Mapper113 : public BaseMapper
 {
@@ -78,3 +80,5 @@ public:
         SERIALIZEDATA(s, m_verticalMirroring);
     }
 };
+
+} // namespace GeraNES

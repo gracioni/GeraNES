@@ -7,6 +7,8 @@
 #include "Serialization.h"
 #include "IExpansionDevice.h"
 
+namespace GeraNES {
+
 // Bandai Hyper Shot (Famicom expansion port)
 // - $4016 read: serial buttons on bit1
 // - $4017 read: light sensor (bit3) + fire (bit4)
@@ -111,3 +113,4 @@ public:
     }
 };
 
+} // namespace GeraNES

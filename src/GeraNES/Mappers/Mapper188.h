@@ -2,6 +2,8 @@
 
 #include "BaseMapper.h"
 
+namespace GeraNES {
+
 class Mapper188 : public BaseMapper
 {
 private:
@@ -88,3 +90,5 @@ public:
         SERIALIZEDATA(s, m_externalBankMask);
     }
 };
+
+} // namespace GeraNES

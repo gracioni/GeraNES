@@ -2,6 +2,8 @@
 
 #include "BaseMapper.h"
 
+namespace GeraNES {
+
 // iNES Mapper 252
 // Waixing board with 8 x 1KB CHR banks, 2 switchable 8KB PRG banks, and VRC-style IRQs.
 class Mapper252 : public BaseMapper
@@ -166,3 +168,5 @@ public:
         SERIALIZEDATA(s, m_prescaler);
     }
 };
+
+} // namespace GeraNES

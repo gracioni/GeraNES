@@ -2,6 +2,8 @@
 
 #include "BaseMapper.h"
 
+namespace GeraNES {
+
 // iNES Mapper 240
 // CPU $4020-$5FFF: DDDP PPPP
 //   PRG = bits 4-7, CHR = bits 0-3
@@ -52,3 +54,5 @@ public:
         SERIALIZEDATA(s, m_chrMask);
     }
 };
+
+} // namespace GeraNES

@@ -21,6 +21,7 @@
 #include "GeraNESApp/AudioOutputBase.h"
 #include "GeraNESApp/PendingInputFrames.h"
 #include "logger/logger.h"
+using namespace GeraNES;
 
 #if defined(GERANES_LIBRETRO_USE_CMRC_DB)
 CMRC_DECLARE(libretro_db_assets);

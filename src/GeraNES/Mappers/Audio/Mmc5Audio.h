@@ -6,6 +6,8 @@
 #include "../../Serialization.h"
 #include "../../APU/APUCommon.h"
 
+namespace GeraNES {
+
 class Mmc5Audio
 {
 private:
@@ -334,3 +336,5 @@ public:
         SERIALIZEDATA(s, m_sample);
     }
 };
+
+} // namespace GeraNES

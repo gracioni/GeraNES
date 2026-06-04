@@ -5,6 +5,8 @@
 
 #include "NesStandardController.h"
 
+namespace GeraNES {
+
 class HoriAdapterFamicom
 {
 private:
@@ -94,3 +96,5 @@ public:
 };
 
 using HoriAdapter = HoriAdapterFamicom;
+
+} // namespace GeraNES

@@ -5,6 +5,8 @@
 
 #include "IExpansionDevice.h"
 
+namespace GeraNES {
+
 class FamilyTrainer : public IExpansionDevice
 {
 private:
@@ -71,3 +73,5 @@ public:
         SERIALIZEDATA(s, m_rowMask);
     }
 };
+
+} // namespace GeraNES

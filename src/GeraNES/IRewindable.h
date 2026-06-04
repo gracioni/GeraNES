@@ -3,6 +3,8 @@
 #include <cstdint>
 #include "Serialization.h"
 
+namespace GeraNES {
+
 class IRewindable {
 
 public:
@@ -12,3 +14,5 @@ public:
     virtual int getFPS() = 0;
 
 };
+
+} // namespace GeraNES

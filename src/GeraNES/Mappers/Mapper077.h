@@ -4,6 +4,8 @@
 
 #include "BaseMapper.h"
 
+namespace GeraNES {
+
 // iNES Mapper 77 (Napoleon Senki)
 // - CPU $8000-$FFFF: [CCCC PPPP] with bus conflicts
 //   - PPPP selects the 32KB PRG bank
@@ -91,3 +93,5 @@ public:
         SERIALIZEDATA(s, m_chrMask);
     }
 };
+
+} // namespace GeraNES

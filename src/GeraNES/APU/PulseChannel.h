@@ -3,6 +3,8 @@
 #include "GeraNES/Serialization.h"
 #include "APUCommon.h"
 
+namespace GeraNES {
+
 class PulseChannel
 {
 private:
@@ -241,3 +243,5 @@ public:
     }
 
 };
+
+} // namespace GeraNES

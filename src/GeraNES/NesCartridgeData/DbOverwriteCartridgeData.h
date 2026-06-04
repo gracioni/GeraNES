@@ -3,6 +3,8 @@
 #include "ICartridgeData.h"
 #include "GeraNES/GameDatabase.h"
 
+namespace GeraNES {
+
 class DbOverwriteCartridgeData : public ICartridgeData {
 
 private:
@@ -188,3 +190,5 @@ public:
     }
 
 };
+
+} // namespace GeraNES

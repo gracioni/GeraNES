@@ -3,6 +3,8 @@
 #include "BaseMapper.h"
 #include <array>
 
+namespace GeraNES {
+
 // Taito X1-005 (iNES Mapper 80)
 class Mapper080 : public BaseMapper
 {
@@ -189,3 +191,4 @@ public:
     }
 };
 
+} // namespace GeraNES

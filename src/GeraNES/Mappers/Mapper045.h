@@ -2,6 +2,8 @@
 
 #include "Mapper004.h"
 
+namespace GeraNES {
+
 // iNES Mapper 45 (GA23C multicart, MMC3 clone + 4 outer bank registers)
 class Mapper045 : public Mapper004
 {
@@ -283,3 +285,4 @@ public:
     }
 };
 
+} // namespace GeraNES

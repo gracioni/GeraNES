@@ -2,6 +2,8 @@
 
 #include "Mapper015.h"
 
+namespace GeraNES {
+
 // Historical GoodNES assignment; NESdev notes the known dump behaves like mapper 15.
 class Mapper169 : public Mapper015
 {
@@ -10,3 +12,5 @@ public:
     {
     }
 };
+
+} // namespace GeraNES

@@ -15,6 +15,8 @@
 #include "util/StringTrim.h"
 #include "util/Crc32.h"
 
+namespace GeraNES {
+
 class GameDatabase {
 
 public:
@@ -630,3 +632,5 @@ public:
     }
 
 };
+
+} // namespace GeraNES

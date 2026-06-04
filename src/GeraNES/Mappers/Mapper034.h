@@ -2,6 +2,8 @@
 
 #include "BaseMapper.h"
 
+namespace GeraNES {
+
 //BxROM or NINA-001, 2 incompatible mappers
 class Mapper034 : public BaseMapper
 {
@@ -84,3 +86,5 @@ public:
     }
 
 };
+
+} // namespace GeraNES

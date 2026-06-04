@@ -3,6 +3,8 @@
 #include <cstdlib>
 #include <vector>
 
+namespace GeraNES {
+
 template<typename T>
 class CircularBuffer
 {
@@ -159,5 +161,6 @@ public:
         m_currentSize = 0;
     }
 
-
 };
+
+} // namespace GeraNES

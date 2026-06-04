@@ -2,6 +2,8 @@
 
 #include "NesStandardController.h"
 
+namespace GeraNES {
+
 class FamicomController : public NesStandardController
 {
 private:
@@ -60,3 +62,5 @@ public:
         SERIALIZEDATA(s, m_microphoneEnabled);
     }
 };
+
+} // namespace GeraNES

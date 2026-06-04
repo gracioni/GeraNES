@@ -7,6 +7,8 @@
 #include "Console.h"
 #include "Serialization.h"
 
+namespace GeraNES {
+
 class DMA
 {
 private:
@@ -230,3 +232,5 @@ public:
     {
     }
 };
+
+} // namespace GeraNES

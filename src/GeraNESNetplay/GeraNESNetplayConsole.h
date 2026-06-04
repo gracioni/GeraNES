@@ -7,6 +7,7 @@
 #include "ConsoleNetplay/NetplayAppRuntime.h"
 #include "GeraNES/GeraNESEmu.h"
 #include "GeraNESApp/IEmulationHost.h"
+using namespace GeraNES;
 
 namespace GeraNESNetplay {
 

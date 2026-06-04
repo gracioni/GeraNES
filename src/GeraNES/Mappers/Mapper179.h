@@ -2,6 +2,8 @@
 
 #include "BaseMapper.h"
 
+namespace GeraNES {
+
 class Mapper179 : public BaseMapper
 {
 private:
@@ -54,3 +56,5 @@ public:
         SERIALIZEDATA(s, m_horizontalMirroring);
     }
 };
+
+} // namespace GeraNES

@@ -5,6 +5,8 @@
 #include "IControllerPortDevice.h"
 #include "Serialization.h"
 
+namespace GeraNES {
+
 class VirtualBoyController : public IControllerPortDevice
 {
 private:
@@ -69,3 +71,5 @@ public:
         SERIALIZEDATA(s, m_strobe);
     }
 };
+
+} // namespace GeraNES

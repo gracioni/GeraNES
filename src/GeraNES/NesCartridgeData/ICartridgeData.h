@@ -13,6 +13,8 @@
 
 #include "GeraNES/util/bank.h"
 
+namespace GeraNES {
+
 class ICartridgeData
 {
 protected:
@@ -139,3 +141,5 @@ public:
     }
 
 };
+
+} // namespace GeraNES

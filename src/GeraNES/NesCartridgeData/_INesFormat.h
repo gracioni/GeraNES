@@ -14,6 +14,8 @@
 
 #include "logger/logger.h"
 
+namespace GeraNES {
+
 class _INesFormat : public ICartridgeData
 {
 private:
@@ -229,3 +231,5 @@ public:
     }
 
 };
+
+} // namespace GeraNES

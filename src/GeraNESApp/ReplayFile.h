@@ -7,6 +7,7 @@
 
 #include "GeraNES/InputFrame.h"
 #include "GeraNES/InputTopology.h"
+using namespace GeraNES;
 
 namespace fs = std::filesystem;
 

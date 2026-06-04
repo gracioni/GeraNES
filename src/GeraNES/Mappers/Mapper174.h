@@ -2,6 +2,8 @@
 
 #include "BaseMapper.h"
 
+namespace GeraNES {
+
 // iNES Mapper 174
 // Functionally identical to mapper 58, but the register bits are arranged as:
 //   A~[.... .... OPPP CCCM]
@@ -70,3 +72,5 @@ public:
         SERIALIZEDATA(s, m_horizontalMirroring);
     }
 };
+
+} // namespace GeraNES

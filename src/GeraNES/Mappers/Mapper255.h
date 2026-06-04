@@ -2,6 +2,8 @@
 
 #include "BaseMapper.h"
 
+namespace GeraNES {
+
 // iNES Mapper 255
 // BMC 110-in-1 style address-latched banking.
 class Mapper255 : public BaseMapper
@@ -64,3 +66,5 @@ public:
         SERIALIZEDATA(s, m_horizontalMirroring);
     }
 };
+
+} // namespace GeraNES

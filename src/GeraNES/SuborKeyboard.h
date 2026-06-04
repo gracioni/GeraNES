@@ -5,6 +5,8 @@
 
 #include "IExpansionDevice.h"
 
+namespace GeraNES {
+
 class SuborKeyboard : public IExpansionDevice
 {
 public:
@@ -125,3 +127,5 @@ public:
         }
     }
 };
+
+} // namespace GeraNES

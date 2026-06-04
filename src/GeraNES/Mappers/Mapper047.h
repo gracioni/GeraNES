@@ -2,6 +2,8 @@
 
 #include "Mapper004.h"
 
+namespace GeraNES {
+
 class Mapper047 : public Mapper004
 {
 private:
@@ -106,3 +108,5 @@ public:
         SERIALIZEDATA(s, m_block);
     }
 };
+
+} // namespace GeraNES

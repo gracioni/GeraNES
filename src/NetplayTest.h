@@ -25,6 +25,7 @@
 #include "GeraNESNetplay/GeraNESNetplayRuntimeDriver.h"
 #include "ConsoleNetplay/NetplayAutoTune.h"
 #include "ConsoleNetplay/NetplayCoordinator.h"
+using namespace GeraNES;
 
 class NetplayTest
 {

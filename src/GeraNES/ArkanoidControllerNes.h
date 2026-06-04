@@ -5,6 +5,8 @@
 
 #include "IControllerPortDevice.h"
 
+namespace GeraNES {
+
 class ArkanoidControllerNes : public IControllerPortDevice
 {
 private:
@@ -64,3 +66,5 @@ public:
         SERIALIZEDATA(s, m_stateBuffer);
     }
 };
+
+} // namespace GeraNES

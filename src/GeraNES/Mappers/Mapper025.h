@@ -2,6 +2,8 @@
 
 #include "Mapper025.h"
 
+namespace GeraNES {
+
 class Mapper025 : public Mapper021
 {
 private:
@@ -26,3 +28,5 @@ public:
 
     }
 };
+
+} // namespace GeraNES

@@ -2,6 +2,8 @@
 
 #include "Mapper004.h"
 
+namespace GeraNES {
+
 // Waixing SH2
 // iNES Mapper 245
 class Mapper245 : public Mapper004 {
@@ -113,3 +115,5 @@ public:
         SERIALIZEDATA(s, m_innerPrgMask);
     }
 };
+
+} // namespace GeraNES

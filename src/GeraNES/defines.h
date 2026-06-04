@@ -19,6 +19,8 @@
 #include <cstdint>
 #include <string>
 
+namespace GeraNES {
+
 static constexpr const char* GERANES_NAME = "GeraNES";
 static constexpr const char* GERANES_VERSION = "2.1.2";
 
@@ -32,3 +34,5 @@ static constexpr const char* SRAM_FOLDER = "sram/";
 enum class MirroringType {
     HORIZONTAL=0, VERTICAL=1, SINGLE_SCREEN_A=2, SINGLE_SCREEN_B=3, FOUR_SCREEN=4, CUSTOM=5
 };
+
+} // namespace GeraNES

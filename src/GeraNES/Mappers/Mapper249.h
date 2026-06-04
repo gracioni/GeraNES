@@ -2,6 +2,8 @@
 
 #include "Mapper004.h"
 
+namespace GeraNES {
+
 // iNES Mapper 249
 // MMC3 variant with an extra register at CPU $5000 that scrambles PRG/CHR bits.
 class Mapper249 : public Mapper004
@@ -149,3 +151,5 @@ public:
         SERIALIZEDATA(s, m_exReg);
     }
 };
+
+} // namespace GeraNES

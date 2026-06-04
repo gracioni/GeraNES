@@ -6,6 +6,8 @@
 #include "Serialization.h"
 #include "logger/logger.h"
 
+namespace GeraNES {
+
 class HardwareActions
 {
 private:
@@ -112,3 +114,5 @@ public:
         SERIALIZEDATA(s, m_fdsPendingActions);
     }
 };
+
+} // namespace GeraNES

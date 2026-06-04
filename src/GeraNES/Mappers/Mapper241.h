@@ -2,6 +2,8 @@
 
 #include "BaseMapper.h"
 
+namespace GeraNES {
+
 // iNES Mapper 241
 // NOTE: This implements the documented base PRG banking behavior.
 class Mapper241 : public BaseMapper
@@ -41,3 +43,5 @@ public:
         SERIALIZEDATA(s, m_prgBank);
     }
 };
+
+} // namespace GeraNES

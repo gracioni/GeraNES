@@ -4,6 +4,8 @@
 
 #include "BaseMapper.h"
 
+namespace GeraNES {
+
 // iNES Mapper 55 (BTL-MARIO1-MALEE2)
 // - CPU $6000-$6FFF: 2KB PRG-ROM, mirrored once
 // - CPU $7000-$7FFF: 2KB PRG-RAM, mirrored once
@@ -55,3 +57,5 @@ public:
         SERIALIZEDATA(s, m_prgRam);
     }
 };
+
+} // namespace GeraNES

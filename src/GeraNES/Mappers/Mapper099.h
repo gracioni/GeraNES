@@ -2,6 +2,8 @@
 
 #include "BaseMapper.h"
 
+namespace GeraNES {
+
 // Nintendo Vs. System (iNES Mapper 99)
 class Mapper099 : public BaseMapper
 {
@@ -65,3 +67,5 @@ public:
         SERIALIZEDATA(s, m_bankSelect);
     }
 };
+
+} // namespace GeraNES

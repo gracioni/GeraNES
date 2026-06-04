@@ -1,5 +1,7 @@
 #pragma once
 
+namespace GeraNES {
+
 class CPU2A03;
 class PPU;
 class APU;
@@ -31,3 +33,5 @@ class Console {
         const Cartridge& cartridge() const { return m_cartridge; }
 
 };
+
+} // namespace GeraNES

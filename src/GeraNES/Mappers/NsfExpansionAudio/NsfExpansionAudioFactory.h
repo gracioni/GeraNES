@@ -10,6 +10,8 @@
 #include "Sunsoft5BNsfExpansionAudio.h"
 #include "logger/logger.h"
 
+namespace GeraNES {
+
 class NsfExpansionAudioFactory
 {
 public:
@@ -68,3 +70,5 @@ public:
         return audio;
     }
 };
+
+} // namespace GeraNES

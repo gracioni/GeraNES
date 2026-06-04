@@ -2,6 +2,8 @@
 
 #include "Mapper064.h"
 
+namespace GeraNES {
+
 // iNES Mapper 158 (Tengen 800037 / Alien Syndrome)
 // RAMBO-1 with TLSROM-style CIRAM A10 wiring, using the live CHR slot layout.
 class Mapper158 : public Mapper064
@@ -21,3 +23,5 @@ public:
         return static_cast<uint8_t>((currentChrBank1k(index) >> 7) & 0x01);
     }
 };
+
+} // namespace GeraNES

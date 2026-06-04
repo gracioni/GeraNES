@@ -2,6 +2,8 @@
 
 #include "Mapper004.h"
 
+namespace GeraNES {
+
 class Mapper198 : public Mapper004
 {
 private:
@@ -80,3 +82,5 @@ public:
         BaseMapper::writeChr(addr, data);
     }
 };
+
+} // namespace GeraNES

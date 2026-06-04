@@ -2,6 +2,8 @@
 
 #include "BaseMapper.h"
 
+namespace GeraNES {
+
 // Konami VRC1 (iNES Mapper 75)
 class Mapper075 : public BaseMapper
 {
@@ -143,3 +145,5 @@ public:
         SERIALIZEDATA(s, m_mirroring);
     }
 };
+
+} // namespace GeraNES

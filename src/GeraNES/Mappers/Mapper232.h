@@ -2,6 +2,8 @@
 
 #include "BaseMapper.h"
 
+namespace GeraNES {
+
 // iNES Mapper 232 (Camerica BF9096)
 // $8000-$BFFF: select 64KB PRG block (...BB...)
 // $C000-$FFFF: select 16KB page within that block (......PP)
@@ -73,3 +75,5 @@ public:
         SERIALIZEDATA(s, m_prgMask16k);
     }
 };
+
+} // namespace GeraNES

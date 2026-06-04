@@ -2,6 +2,8 @@
 
 #include "Mapper006.h"
 
+namespace GeraNES {
+
 // FFE F3xxx (Mapper 8)
 // iNES mapper 8 is equivalent to mapper 6 submapper 4
 // (GNROM latch mode with CHR write-protected behavior).
@@ -12,3 +14,5 @@ public:
     {
     }
 };
+
+} // namespace GeraNES

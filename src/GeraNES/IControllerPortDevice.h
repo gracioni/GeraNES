@@ -6,6 +6,8 @@
 
 #include "Serialization.h"
 
+namespace GeraNES {
+
 class IControllerPortDevice
 {
 public:
@@ -96,3 +98,5 @@ public:
         (void)func;
     }
 };
+
+} // namespace GeraNES

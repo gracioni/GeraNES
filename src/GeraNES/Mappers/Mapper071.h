@@ -2,6 +2,8 @@
 
 #include "BaseMapper.h"
 
+namespace GeraNES {
+
 //alguns jogos nao funcionam com o overclock ativado
 
 class Mapper071 : public BaseMapper
@@ -70,3 +72,5 @@ public:
 
     }
 };
+
+} // namespace GeraNES

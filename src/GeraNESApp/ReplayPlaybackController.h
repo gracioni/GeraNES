@@ -8,6 +8,7 @@
 #include <vector>
 
 #include "GeraNES/InputFrame.h"
+using namespace GeraNES;
 
 class ReplayPlaybackController
 {

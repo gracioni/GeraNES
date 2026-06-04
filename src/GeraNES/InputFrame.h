@@ -6,6 +6,8 @@
 #include "InputState.h"
 #include "Serialization.h"
 
+namespace GeraNES {
+
 struct InputFrame
 {
     uint32_t frame = 0;
@@ -50,3 +52,5 @@ struct InputFrame
         state.serialization(s);
     }
 };
+
+} // namespace GeraNES

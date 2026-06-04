@@ -2,6 +2,8 @@
 
 #include "Mapper004.h"
 
+namespace GeraNES {
+
 // MMC3 variant (iNES Mapper 12)
 // Reference: https://www.nesdev.org/wiki/INES_Mapper_012
 class Mapper012 : public Mapper004
@@ -159,3 +161,5 @@ public:
         SERIALIZEDATA(s, m_chrMaskExt);
     }
 };
+
+} // namespace GeraNES

@@ -2,6 +2,8 @@
 
 #include "../Mapper004.h"
 
+namespace GeraNES {
+
 class Mmc3ChrRamBase : public Mapper004
 {
 private:
@@ -81,3 +83,5 @@ public:
         SERIALIZEDATA(s, m_chrRamBanks);
     }
 };
+
+} // namespace GeraNES

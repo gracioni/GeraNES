@@ -3,6 +3,8 @@
 #include "BaseMapper.h"
 #include "Mapper004.h"
 
+namespace GeraNES {
+
 //modified mmc3
 class Mapper118 : public Mapper004
 {
@@ -45,3 +47,5 @@ public:
     }
 
 };
+
+} // namespace GeraNES

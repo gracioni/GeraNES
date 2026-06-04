@@ -2,6 +2,8 @@
 
 #include "Mapper004.h"
 
+namespace GeraNES {
+
 class Mapper123 : public Mapper004
 {
 private:
@@ -79,3 +81,5 @@ public:
         s.array(m_exReg, 1, 2);
     }
 };
+
+} // namespace GeraNES

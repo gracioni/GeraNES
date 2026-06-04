@@ -4,6 +4,8 @@
 #include <cstring>
 #include <vector>
 
+namespace GeraNES {
+
 // FFE F8xxx (Mapper 17)
 class Mapper017 : public BaseMapper
 {
@@ -312,3 +314,5 @@ public:
         }
     }
 };
+
+} // namespace GeraNES

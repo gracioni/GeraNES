@@ -5,6 +5,8 @@
 #include "IRewindable.h"
 #include "util/CircularBuffer.h"
 
+namespace GeraNES {
+
 class Rewind
 {
 private:
@@ -137,3 +139,5 @@ public:
     }
 
 };
+
+} // namespace GeraNES

@@ -2,6 +2,8 @@
 
 #include "Mapper088.h"
 
+namespace GeraNES {
+
 // iNES Mapper 154 (NAMCOT-3453)
 // Same as mapper 88, plus mapper-controlled one-screen mirroring:
 // any write in $8000-$FFFF uses bit 6:
@@ -38,3 +40,5 @@ public:
         SERIALIZEDATA(s, m_mirroring);
     }
 };
+
+} // namespace GeraNES

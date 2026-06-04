@@ -2,6 +2,8 @@
 
 #include "BaseMapper.h"
 
+namespace GeraNES {
+
 // iNES Mapper 242
 // Address-latch multicart with 8KB unbanked CHR-RAM and 32KB PRG bank selection.
 class Mapper242 : public BaseMapper
@@ -59,3 +61,5 @@ public:
         SERIALIZEDATA(s, m_horizontalMirroring);
     }
 };
+
+} // namespace GeraNES

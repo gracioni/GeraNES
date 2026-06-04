@@ -20,6 +20,7 @@
 #include "logger/logger.h"
 #include "stb_image.h"
 #include "zip/zip.h"
+using namespace GeraNES;
 
 #define GERANES_MODMANAGER_PROFILE 0
 

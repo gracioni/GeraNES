@@ -2,6 +2,8 @@
 
 #include "BaseMapper.h"
 
+namespace GeraNES {
+
 //MMC4
 
 class Mapper010 : public BaseMapper
@@ -130,3 +132,5 @@ public:
 
 
 };
+
+} // namespace GeraNES

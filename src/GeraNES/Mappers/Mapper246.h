@@ -2,6 +2,8 @@
 
 #include "BaseMapper.h"
 
+namespace GeraNES {
+
 // iNES Mapper 246 (G0151-1)
 // $6000-$6003: 8KB PRG bank regs
 // $6004-$6007: 2KB CHR bank regs
@@ -86,3 +88,5 @@ public:
         SERIALIZEDATA(s, m_chrMask);
     }
 };
+
+} // namespace GeraNES

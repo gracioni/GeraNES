@@ -5,6 +5,8 @@
 
 #include "NesStandardController.h"
 
+namespace GeraNES {
+
 class FourScore
 {
 private:
@@ -82,3 +84,5 @@ public:
         SERIALIZEDATA(s, m_strobe);
     }
 };
+
+} // namespace GeraNES

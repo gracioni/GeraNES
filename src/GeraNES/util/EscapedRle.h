@@ -5,6 +5,8 @@
 #include <cstring>
 #include <vector>
 
+namespace GeraNES {
+
 namespace EscapedRle
 {
     static constexpr uint8_t ESCAPE = 0xFF;
@@ -73,3 +75,5 @@ namespace EscapedRle
         return destIndex == outputSize;
     }
 }
+
+} // namespace GeraNES

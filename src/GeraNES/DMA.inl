@@ -119,3 +119,4 @@ inline void DMA::processPending(
         }
     }
 }
+

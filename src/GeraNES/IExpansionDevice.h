@@ -6,6 +6,8 @@
 
 #include "Serialization.h"
 
+namespace GeraNES {
+
 class IExpansionDevice
 {
 public:
@@ -94,3 +96,5 @@ public:
         (void)func;
     }
 };
+
+} // namespace GeraNES

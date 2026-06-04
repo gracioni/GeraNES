@@ -3,6 +3,8 @@
 #include "GeraNES/Serialization.h"
 #include "APUCommon.h"
 
+namespace GeraNES {
+
 class TriangleChannel
 {
 
@@ -125,3 +127,5 @@ public:
 
 
 };
+
+} // namespace GeraNES

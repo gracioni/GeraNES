@@ -2,6 +2,8 @@
 
 #include "BaseMapper.h"
 
+namespace GeraNES {
+
 // J.Y. Company ASIC (iNES Mapper 90)
 class Mapper090 : public BaseMapper
 {
@@ -588,3 +590,5 @@ public:
         updateState();
     }
 };
+
+} // namespace GeraNES

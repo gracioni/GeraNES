@@ -5,6 +5,8 @@
 
 #include "../../Serialization.h"
 
+namespace GeraNES {
+
 class NsfExpansionAudioBase
 {
 public:
@@ -22,3 +24,5 @@ public:
     virtual bool setAudioChannelVolumeById(const std::string& id, float volume) = 0;
     virtual void serialization(SerializationBase& s) = 0;
 };
+
+} // namespace GeraNES

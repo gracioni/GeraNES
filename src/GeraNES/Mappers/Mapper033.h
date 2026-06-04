@@ -2,6 +2,8 @@
 
 #include "BaseMapper.h"
 
+namespace GeraNES {
+
 // Taito TC0190 / subset of TC0350 (iNES Mapper 33)
 class Mapper033 : public BaseMapper
 {
@@ -145,3 +147,5 @@ public:
         SERIALIZEDATA(s, m_mirroring);
     }
 };
+
+} // namespace GeraNES

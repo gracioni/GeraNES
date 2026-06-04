@@ -2,6 +2,8 @@
 
 #include "Mapper004.h"
 
+namespace GeraNES {
+
 //McAcc
 //game: Mickey Letterland
 //Based on krikzz's research: https://forums.nesdev.com/viewtopic.php?p=242427#p242427
@@ -62,3 +64,5 @@ public:
 	}
 
 };
+
+} // namespace GeraNES

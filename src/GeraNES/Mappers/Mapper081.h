@@ -2,6 +2,8 @@
 
 #include "BaseMapper.h"
 
+namespace GeraNES {
+
 // iNES Mapper 81 (NTDEC N715021)
 // The board latches the low 4 address bits on CPU writes at $8000-$FFFF:
 //   PPCC -> PRG 16KB bank @ $8000, CHR 8KB bank @ $0000
@@ -54,3 +56,5 @@ public:
         SERIALIZEDATA(s, m_chrMask);
     }
 };
+
+} // namespace GeraNES

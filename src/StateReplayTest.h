@@ -15,6 +15,7 @@
 #include <nlohmann/json.hpp>
 
 #include "GeraNES/GeraNESEmu.h"
+using namespace GeraNES;
 
 class StateReplayTest
 {

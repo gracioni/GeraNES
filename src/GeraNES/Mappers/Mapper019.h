@@ -10,6 +10,8 @@
 #define GERANES_M019_SUBMAPPER5_GAIN 6.0f
 #endif
 
+namespace GeraNES {
+
 class Mapper019 : public BaseMapper
 {
 public:
@@ -292,3 +294,5 @@ public:
     }
 
 };
+
+} // namespace GeraNES

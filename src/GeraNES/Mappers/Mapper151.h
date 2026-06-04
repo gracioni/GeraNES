@@ -2,6 +2,8 @@
 
 #include "Mapper075.h"
 
+namespace GeraNES {
+
 // iNES mapper 151 is the historical "Vs. System VRC1" assignment.
 // Per NESdev, this is effectively mapper 75 with the normal Vs./4-screen
 // nametable wiring still taking precedence over the VRC1 mirroring bit.
@@ -14,3 +16,5 @@ public:
     {
     }
 };
+
+} // namespace GeraNES

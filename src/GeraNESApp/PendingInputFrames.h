@@ -7,6 +7,7 @@
 #include <optional>
 
 #include "GeraNES/InputFrame.h"
+using namespace GeraNES;
 
 class PendingInputFrames
 {

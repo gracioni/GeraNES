@@ -280,6 +280,8 @@
 
 #include "GameDatabase.h"
 
+namespace GeraNES {
+
 class Cartridge
 {
 private:
@@ -1429,5 +1431,4 @@ public:
 
 };
 
-
-
+} // namespace GeraNES

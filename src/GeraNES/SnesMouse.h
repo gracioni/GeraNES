@@ -6,6 +6,8 @@
 
 #include "IControllerPortDevice.h"
 
+namespace GeraNES {
+
 class SnesMouse : public IControllerPortDevice
 {
 private:
@@ -142,3 +144,5 @@ public:
         SERIALIZEDATA(s, m_shiftRegister);
     }
 };
+
+} // namespace GeraNES

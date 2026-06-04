@@ -2,6 +2,8 @@
 
 #include "Mapper243.h"
 
+namespace GeraNES {
+
 // Historical duplicate assignment for Sachen SA-020A / Honey Peach.
 class Mapper110 : public Mapper243
 {
@@ -10,3 +12,5 @@ public:
     {
     }
 };
+
+} // namespace GeraNES

@@ -2,6 +2,8 @@
 
 #include "Mapper023.h"
 
+namespace GeraNES {
+
 // Mapper 027 behaves like the VRC4 wiring variant already covered by Mapper 023.
 class Mapper027 : public Mapper023
 {
@@ -10,3 +12,5 @@ public:
     {
     }
 };
+
+} // namespace GeraNES

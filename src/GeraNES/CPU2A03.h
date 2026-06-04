@@ -14,6 +14,8 @@
 
 #include "signal/signal.h"
 
+namespace GeraNES {
+
 const uint8_t DO_NOT_POOL_INTS = 0xFF;
 
 // BRK (NO_POOL)
@@ -1591,3 +1593,5 @@ GERANES_INLINE_HOT void CPU2A03::emulateOpcode() {
 }
 
 #include "DMA.inl"
+
+} // namespace GeraNES

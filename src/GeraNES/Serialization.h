@@ -10,6 +10,8 @@
 #include "util/map_util.h"
 
 #include <filesystem>
+namespace GeraNES {
+
 namespace fs = std::filesystem;
 
 class SerializationBase
@@ -282,3 +284,5 @@ void serialize_map(SerializationBase& s, Map& m) {
 
     array_to_map(array, m);
 }
+
+} // namespace GeraNES

@@ -2,6 +2,8 @@
 
 #include "BaseMapper.h"
 
+namespace GeraNES {
+
 class Mapper040 : public BaseMapper
 {
 private:
@@ -89,3 +91,5 @@ public:
         SERIALIZEDATA(s, m_irqFlag);
     }
 };
+
+} // namespace GeraNES

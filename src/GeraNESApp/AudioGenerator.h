@@ -6,6 +6,7 @@
 
 #include "GeraNES/defines.h"
 #include "GeraNES/util/CircularBuffer.h"
+using namespace GeraNES;
 
 static GERANES_INLINE float linearInterpolation(float v0, float v1, float t)
 {

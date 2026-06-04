@@ -18,6 +18,8 @@
 #include "util/FileUtil.h"
 
 #include <filesystem>
+namespace GeraNES {
+
 namespace fs = std::filesystem;
 
 #include "libips.h"
@@ -336,3 +338,5 @@ public:
     }
 
 };
+
+} // namespace GeraNES

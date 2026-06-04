@@ -8,6 +8,8 @@
 #include "Serialization.h"
 #include "IControllerPortDevice.h"
 
+namespace GeraNES {
+
 class Zapper : public IControllerPortDevice
 {
 private:
@@ -107,3 +109,5 @@ public:
         if(m_lightHoldCounter > 0) --m_lightHoldCounter;
     }
 };
+
+} // namespace GeraNES

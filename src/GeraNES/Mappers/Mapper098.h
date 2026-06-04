@@ -2,6 +2,8 @@
 
 #include "Helpers/DeadEndMapper.h"
 
+namespace GeraNES {
+
 class Mapper098 : public DeadEndMapper
 {
 public:
@@ -10,3 +12,5 @@ public:
     {
     }
 };
+
+} // namespace GeraNES

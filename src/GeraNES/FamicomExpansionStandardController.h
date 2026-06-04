@@ -3,6 +3,8 @@
 #include "IExpansionDevice.h"
 #include "NesStandardController.h"
 
+namespace GeraNES {
+
 class FamicomExpansionStandardController : public IExpansionDevice
 {
 private:
@@ -35,3 +37,5 @@ public:
         m_controller.serialization(s);
     }
 };
+
+} // namespace GeraNES

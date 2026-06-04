@@ -2,6 +2,8 @@
 
 #include "BaseMapper.h"
 
+namespace GeraNES {
+
 // iNES Mapper 36 (TXC 01-22000-400)
 // Single register in $4100-$5FFF (A8 decode)
 // - PRG: 32KB bank select (high nibble)
@@ -68,3 +70,5 @@ public:
         SERIALIZEDATA(s, m_chrMask);
     }
 };
+
+} // namespace GeraNES

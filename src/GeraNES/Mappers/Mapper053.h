@@ -3,6 +3,8 @@
 #include "BaseMapper.h"
 #include "GeraNES/util/Crc32.h"
 
+namespace GeraNES {
+
 class Mapper053 : public BaseMapper
 {
 private:
@@ -107,3 +109,5 @@ public:
         SERIALIZEDATA(s, m_prgMask);
     }
 };
+
+} // namespace GeraNES

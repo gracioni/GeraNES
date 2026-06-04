@@ -11,6 +11,8 @@
 #include "../APU/APUCommon.h"
 #define GERANES_M005_AUDIO_DEBUG 0
 
+namespace GeraNES {
+
 // MMC5
 // Implemented features in this mapper:
 // - PRG banking modes ($5100, $5113-$5117)
@@ -1438,3 +1440,5 @@ public:
         return false;
     }
 };
+
+} // namespace GeraNES

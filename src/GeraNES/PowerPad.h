@@ -5,6 +5,8 @@
 
 #include "IControllerPortDevice.h"
 
+namespace GeraNES {
+
 class PowerPad : public IControllerPortDevice
 {
 private:
@@ -91,3 +93,5 @@ public:
         SERIALIZEDATA(s, m_sideB);
     }
 };
+
+} // namespace GeraNES

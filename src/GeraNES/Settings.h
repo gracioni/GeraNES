@@ -5,6 +5,8 @@
 #include "util/map_util.h"
 #include <optional>
 
+namespace GeraNES {
+
 class Settings {
 
 public:
@@ -182,3 +184,5 @@ public:
         m_famicomMultitapDevice = device;
     }
 };
+
+} // namespace GeraNES

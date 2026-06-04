@@ -7,6 +7,8 @@
 #include "../Audio/Mmc5Audio.h"
 #include "NsfExpansionAudioBase.h"
 
+namespace GeraNES {
+
 class Mmc5NsfExpansionAudio : public NsfExpansionAudioBase
 {
 private:
@@ -122,3 +124,5 @@ public:
         m_audio.serialization(s);
     }
 };
+
+} // namespace GeraNES

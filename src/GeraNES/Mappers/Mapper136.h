@@ -3,6 +3,8 @@
 #include "BaseMapper.h"
 #include "Helpers/TxcChip.h"
 
+namespace GeraNES {
+
 class Mapper136 : public BaseMapper
 {
 private:
@@ -58,3 +60,5 @@ public:
         m_txc.serialization(s);
     }
 };
+
+} // namespace GeraNES

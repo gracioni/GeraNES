@@ -5,6 +5,8 @@
 #include <functional>
 #include <utility>
 
+namespace GeraNES {
+
 class NesAssembler
 {
 private:
@@ -372,3 +374,5 @@ public:
 #undef NES_ASM_ACC
 #undef NES_ASM_IMP
 };
+
+} // namespace GeraNES

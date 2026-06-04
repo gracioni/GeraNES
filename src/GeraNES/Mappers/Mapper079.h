@@ -2,6 +2,8 @@
 
 #include "BaseMapper.h"
 
+namespace GeraNES {
+
 // NINA-003 / NINA-006 (iNES Mapper 79)
 class Mapper079 : public BaseMapper
 {
@@ -66,3 +68,5 @@ public:
         SERIALIZEDATA(s, m_chrMask);
     }
 };
+
+} // namespace GeraNES

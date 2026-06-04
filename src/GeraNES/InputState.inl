@@ -835,3 +835,4 @@ inline void InputState::setFamilyBasicKeyboardKeys(const IExpansionDevice::Famil
     ensureCanonicalSerializedInputData(*this);
     writeBoolArrayAt(serializedInputData, location.offset, keys);
 }
+

@@ -5,6 +5,8 @@
 #include "Serialization.h"
 #include "IExpansionDevice.h"
 
+namespace GeraNES {
+
 // Konami Hyper Shot (Famicom expansion port)
 // - $4016 write: bit1 enables Player 1 buttons when cleared, bit2 enables Player 2 buttons when cleared
 // - $4017 read: bit1=P1 Run, bit2=P1 Jump, bit3=P2 Run, bit4=P2 Jump
@@ -59,3 +61,5 @@ public:
         SERIALIZEDATA(s, m_player2Enabled);
     }
 };
+
+} // namespace GeraNES

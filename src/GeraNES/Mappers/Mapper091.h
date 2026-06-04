@@ -2,6 +2,8 @@
 
 #include "BaseMapper.h"
 
+namespace GeraNES {
+
 // iNES Mapper 91
 // Submapper 0: JY830623C/YY840238C (A12 IRQ, hard-wired mirroring, outer bank)
 // Submapper 1: EJ-006-1 (M2 IRQ, selectable mirroring)
@@ -250,3 +252,5 @@ public:
         SERIALIZEDATA(s, m_m2Div4);
     }
 };
+
+} // namespace GeraNES

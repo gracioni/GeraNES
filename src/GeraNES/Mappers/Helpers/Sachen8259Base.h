@@ -2,6 +2,8 @@
 
 #include "../BaseMapper.h"
 
+namespace GeraNES {
+
 enum class Sachen8259Variant : uint8_t
 {
     Sachen8259A,
@@ -164,3 +166,5 @@ public:
         SERIALIZEDATA(s, m_singleScreen);
     }
 };
+
+} // namespace GeraNES

@@ -2,6 +2,8 @@
 
 #include "BaseMapper.h"
 
+namespace GeraNES {
+
 class Mapper164 : public BaseMapper
 {
 private:
@@ -48,3 +50,5 @@ public:
         SERIALIZEDATA(s, m_prgBank);
     }
 };
+
+} // namespace GeraNES

@@ -2,6 +2,8 @@
 
 #include "BaseMapper.h"
 
+namespace GeraNES {
+
 //NROM
 class Mapper000 : public BaseMapper
 {
@@ -35,3 +37,5 @@ public:
     }
 
 };
+
+} // namespace GeraNES

@@ -2,6 +2,8 @@
 
 #include "BaseMapper.h"
 
+namespace GeraNES {
+
 class Mapper178 : public BaseMapper
 {
 private:
@@ -90,3 +92,5 @@ public:
         s.array(m_workRam, 1, sizeof(m_workRam));
     }
 };
+
+} // namespace GeraNES

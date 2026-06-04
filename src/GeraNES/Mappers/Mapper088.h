@@ -2,6 +2,8 @@
 
 #include "BaseMapper.h"
 
+namespace GeraNES {
+
 // iNES Mapper 88 (Namcot 3433 / Namco 108 variant)
 // Similar to mapper 206, but CHR A16 is effectively tied:
 // - $0000-$0FFF uses lower CHR half
@@ -152,3 +154,5 @@ public:
         SERIALIZEDATA(s, m_chrMask);
     }
 };
+
+} // namespace GeraNES

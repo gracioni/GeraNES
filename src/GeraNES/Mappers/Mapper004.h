@@ -3,6 +3,8 @@
 #include "BaseMapper.h"
 #include "GeraNES/util/StringTrim.h"
 
+namespace GeraNES {
+
 //MMC3
 //TxROM
 //(MMC6)
@@ -432,3 +434,5 @@ public:
     }
 
 };
+
+} // namespace GeraNES

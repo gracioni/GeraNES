@@ -3,6 +3,8 @@
 #include "../Audio/Namco163Audio.h"
 #include "NsfExpansionAudioBase.h"
 
+namespace GeraNES {
+
 class Namco163NsfExpansionAudio : public NsfExpansionAudioBase
 {
 private:
@@ -77,3 +79,5 @@ public:
         m_audio.serialization(s);
     }
 };
+
+} // namespace GeraNES

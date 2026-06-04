@@ -2,6 +2,8 @@
 
 #include "BaseMapper.h"
 
+namespace GeraNES {
+
 // iNES Mapper 87 (Jaleco JF-xx)
 // - PRG is fixed
 // - CHR 8KB bank selected by writes in $6000-$7FFF
@@ -57,3 +59,5 @@ public:
         SERIALIZEDATA(s, m_chrMask);
     }
 };
+
+} // namespace GeraNES

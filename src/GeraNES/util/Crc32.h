@@ -6,6 +6,8 @@
 #include <sstream>
 #include <string>
 
+namespace GeraNES {
+
 class Crc32 {
 
 private:
@@ -56,3 +58,5 @@ public:
     }
     
 };
+
+} // namespace GeraNES

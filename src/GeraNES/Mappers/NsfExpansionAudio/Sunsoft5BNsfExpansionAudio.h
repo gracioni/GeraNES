@@ -3,6 +3,8 @@
 #include "../Audio/Sunsoft5BAudio.h"
 #include "NsfExpansionAudioBase.h"
 
+namespace GeraNES {
+
 class Sunsoft5BNsfExpansionAudio : public NsfExpansionAudioBase
 {
 private:
@@ -69,3 +71,5 @@ public:
         m_audio.serialization(s);
     }
 };
+
+} // namespace GeraNES

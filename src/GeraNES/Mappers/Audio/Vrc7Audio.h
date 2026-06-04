@@ -9,6 +9,8 @@
 #include "../../Serialization.h"
 #include "../../ThirdParty/emu2413.h"
 
+namespace GeraNES {
+
 class Vrc7Audio
 {
 private:
@@ -142,3 +144,5 @@ public:
         }
     }
 };
+
+} // namespace GeraNES

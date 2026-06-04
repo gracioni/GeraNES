@@ -2,6 +2,8 @@
 
 #include "BaseMapper.h"
 
+namespace GeraNES {
+
 // iNES Mapper 206 (DxROM / Namco 108 family)
 // MMC3-like bank registers on $8000/$8001, but:
 // - no IRQ
@@ -168,3 +170,5 @@ public:
         SERIALIZEDATA(s, m_submapper1NoPrgBanking);
     }
 };
+
+} // namespace GeraNES

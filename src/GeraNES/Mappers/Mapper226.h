@@ -2,6 +2,8 @@
 
 #include "BaseMapper.h"
 
+namespace GeraNES {
+
 // iNES Mapper 226
 class Mapper226 : public BaseMapper
 {
@@ -87,3 +89,5 @@ public:
         SERIALIZEDATA(s, m_prgBankHi);
     }
 };
+
+} // namespace GeraNES

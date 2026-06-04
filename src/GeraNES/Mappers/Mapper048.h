@@ -2,6 +2,8 @@
 
 #include "BaseMapper.h"
 
+namespace GeraNES {
+
 class Mapper048 : public BaseMapper
 {
 public:
@@ -243,3 +245,5 @@ public:
         SERIALIZEDATA(s, m_irqDelay);
     }
 };
+
+} // namespace GeraNES

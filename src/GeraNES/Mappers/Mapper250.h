@@ -2,6 +2,8 @@
 
 #include "Mapper004.h"
 
+namespace GeraNES {
+
 // iNES Mapper 250
 // MMC3 variant where address bit A10 becomes MMC3 register select A0,
 // and the written value comes from the CPU address low byte.
@@ -18,3 +20,5 @@ public:
         Mapper004::writePrg(translatedAddr, static_cast<uint8_t>(addr & 0x00FF));
     }
 };
+
+} // namespace GeraNES

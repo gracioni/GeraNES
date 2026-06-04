@@ -2,6 +2,8 @@
 
 #include "BaseMapper.h"
 
+namespace GeraNES {
+
 // CNROM with CHR-ROM disable protection
 class Mapper185 : public BaseMapper
 {
@@ -96,3 +98,5 @@ public:
         SERIALIZEDATA(s, m_blockNextChrRead);
     }
 };
+
+} // namespace GeraNES

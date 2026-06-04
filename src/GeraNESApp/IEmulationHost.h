@@ -17,10 +17,11 @@
 #include "GeraNES/InputState.h"
 #include "GeraNES/InputTopology.h"
 #include "signal/signal.h"
+using namespace GeraNES;
 
 struct EmulationHostTypes
 {
-    using InputState = ::InputState;
+    using InputState = GeraNES::InputState;
 
     struct ReplayFrameInput
     {
@@ -50,8 +51,8 @@ struct EmulationHostTypes
     struct ModRenderSnapshot;
     using ModFrameCaptureHook = std::function<bool(GeraNESEmu&, ModRenderSnapshot&, std::vector<uint32_t>&)>;
 
-    using InputTopology = ::InputTopology;
-    using InputTopologySnapshot = ::InputTopology;
+    using InputTopology = GeraNES::InputTopology;
+    using InputTopologySnapshot = GeraNES::InputTopology;
 
     struct PpuViewerSnapshot
     {

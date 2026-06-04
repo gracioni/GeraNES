@@ -2,6 +2,8 @@
 
 #include "Mapper004.h"
 
+namespace GeraNES {
+
 // iNES Mapper 114
 class Mapper114 : public Mapper004
 {
@@ -109,3 +111,5 @@ public:
         SERIALIZEDATA(s, m_exReg1);
     }
 };
+
+} // namespace GeraNES

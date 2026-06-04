@@ -10,6 +10,8 @@
 #include "HealthCheck.h"
 #include "Test.h"
 
+using namespace GeraNES;
+
 namespace
 {
     std::filesystem::path resolveInputPath(const std::filesystem::path& originalCwd, const char* rawPath)

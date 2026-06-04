@@ -7,6 +7,8 @@
 
 #include "../../Serialization.h"
 
+namespace GeraNES {
+
 class Sunsoft5BAudio
 {
 private:
@@ -240,3 +242,5 @@ public:
         SERIALIZEDATA(s, m_volC);
     }
 };
+
+} // namespace GeraNES

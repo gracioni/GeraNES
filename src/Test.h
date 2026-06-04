@@ -11,6 +11,7 @@
 #include "GeraNES/GeraNESEmu.h"
 #include "logger/logger.h"
 #include "signal/signal.h"
+using namespace GeraNES;
 
 class Test
 {

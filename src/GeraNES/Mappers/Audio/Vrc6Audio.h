@@ -6,6 +6,8 @@
 
 #include "../../Serialization.h"
 
+namespace GeraNES {
+
 class Vrc6Audio
 {
 private:
@@ -201,3 +203,5 @@ public:
         SERIALIZEDATA(s, m_volSaw);
     }
 };
+
+} // namespace GeraNES

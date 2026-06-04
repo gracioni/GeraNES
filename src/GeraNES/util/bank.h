@@ -1,5 +1,7 @@
 #pragma once
 
+namespace GeraNES {
+
 enum class BankSize : int {
     B1K  = 0x400,
     B2K  = 0x800,
@@ -15,3 +17,5 @@ constexpr int log2(BankSize bs) {
     while (v > 1) { v >>= 1; ++s; }
     return s;
 }
+
+} // namespace GeraNES

@@ -86,6 +86,8 @@ CMRC_DECLARE(resources);
 #include "UserToastNotifier.h"
 #ifdef ENABLE_NSF_PLAYER
 #include "NsfVisualizerUI.h"
+
+using namespace GeraNES;
 #endif
 
 const std::string LOG_FILE = "log.txt";

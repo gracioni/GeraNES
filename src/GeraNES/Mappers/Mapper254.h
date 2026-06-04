@@ -2,6 +2,8 @@
 
 #include "Mapper004.h"
 
+namespace GeraNES {
+
 // iNES Mapper 254
 // MMC3 variant with a simple $6000-$7FFF read XOR gate controlled by MMC3 writes.
 class Mapper254 : public Mapper004
@@ -46,3 +48,5 @@ public:
         SERIALIZEDATA(s, m_exReg1);
     }
 };
+
+} // namespace GeraNES

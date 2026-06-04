@@ -3,6 +3,8 @@
 #include "BaseMapper.h"
 #include <array>
 
+namespace GeraNES {
+
 class Mapper207 : public BaseMapper
 {
 private:
@@ -180,3 +182,5 @@ public:
         SERIALIZEDATA(s, m_ntPair[1]);
     }
 };
+
+} // namespace GeraNES

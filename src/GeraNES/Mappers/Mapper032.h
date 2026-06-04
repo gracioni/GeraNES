@@ -2,6 +2,8 @@
 
 #include "BaseMapper.h"
 
+namespace GeraNES {
+
 // Irem G-101 (iNES Mapper 32)
 class Mapper032 : public BaseMapper
 {
@@ -136,3 +138,5 @@ public:
         SERIALIZEDATA(s, m_chrMask);
     }
 };
+
+} // namespace GeraNES

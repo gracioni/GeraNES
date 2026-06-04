@@ -4,6 +4,8 @@
 #include "GeraNES/NesCartridgeData/ICartridgeData.h"
 #include "GeraNES/NesCartridgeData/DummyCartridgeData.h"
 
+namespace GeraNES {
+
 class DummyMapper : public BaseMapper
 {
 
@@ -14,3 +16,5 @@ public:
     }
 
 };
+
+} // namespace GeraNES

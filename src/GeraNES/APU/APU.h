@@ -13,6 +13,8 @@
 
 #include <string>
 
+namespace GeraNES {
+
 class APU
 {
     IAudioOutput& m_audioOutput;
@@ -569,3 +571,5 @@ public:
     }
 
 };
+
+} // namespace GeraNES

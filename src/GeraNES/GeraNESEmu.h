@@ -46,6 +46,8 @@
 #include <string>
 #include <utility>
 
+namespace GeraNES {
+
 enum class AccessType
 {
     Read,
@@ -2617,19 +2619,4 @@ public:
 
 };
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+} // namespace GeraNES

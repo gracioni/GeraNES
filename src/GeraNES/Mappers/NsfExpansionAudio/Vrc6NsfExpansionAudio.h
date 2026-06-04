@@ -3,6 +3,8 @@
 #include "../Audio/Vrc6Audio.h"
 #include "NsfExpansionAudioBase.h"
 
+namespace GeraNES {
+
 class Vrc6NsfExpansionAudio : public NsfExpansionAudioBase
 {
 private:
@@ -78,3 +80,5 @@ public:
         m_audio.serialization(s);
     }
 };
+
+} // namespace GeraNES

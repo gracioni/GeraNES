@@ -4,6 +4,8 @@
 
 #include "BaseMapper.h"
 
+namespace GeraNES {
+
 class Mapper111 : public BaseMapper
 {
 public:
@@ -104,3 +106,5 @@ public:
         SERIALIZEDATA(s, m_ntBank);
     }
 };
+
+} // namespace GeraNES

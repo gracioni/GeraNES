@@ -10,6 +10,8 @@
 #include "../Serialization.h"
 
 #include <filesystem>
+namespace GeraNES {
+
 namespace fs = std::filesystem;
 
 #include "GeraNES/util/bank.h"
@@ -353,3 +355,5 @@ public:
 
 
 };
+
+} // namespace GeraNES

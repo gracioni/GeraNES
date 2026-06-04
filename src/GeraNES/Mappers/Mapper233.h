@@ -2,6 +2,8 @@
 
 #include "Mapper226.h"
 
+namespace GeraNES {
+
 class Mapper233 : public Mapper226
 {
 private:
@@ -33,3 +35,5 @@ public:
         SERIALIZEDATA(s, m_resetBit);
     }
 };
+
+} // namespace GeraNES

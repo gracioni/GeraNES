@@ -4,6 +4,8 @@
 #include <cstring>
 #include "Audio/Vrc6Audio.h"
 
+namespace GeraNES {
+
 //VRC6a
 class Mapper024 : public BaseMapper
 {
@@ -276,3 +278,5 @@ public:
     }
 
 };
+
+} // namespace GeraNES

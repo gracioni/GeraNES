@@ -3,6 +3,8 @@
 #include "BaseMapper.h"
 #include <vector>
 
+namespace GeraNES {
+
 class Mapper103 : public BaseMapper
 {
 private:
@@ -98,3 +100,5 @@ public:
         }
     }
 };
+
+} // namespace GeraNES

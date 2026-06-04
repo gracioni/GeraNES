@@ -2,6 +2,8 @@
 
 #include "BaseMapper.h"
 
+namespace GeraNES {
+
 // iNES Mapper 120 (LH15)
 // - CPU $6000-$7FFF: switchable 8KB PRG-ROM bank
 // - CPU $8000-$FFFF: fixed to PRG-ROM banks 2-5
@@ -59,3 +61,5 @@ public:
         SERIALIZEDATA(s, m_prg8kMask);
     }
 };
+
+} // namespace GeraNES

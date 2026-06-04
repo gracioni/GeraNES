@@ -2,6 +2,8 @@
 
 #include "../../Serialization.h"
 
+namespace GeraNES {
+
 class TxcChip
 {
 private:
@@ -104,3 +106,5 @@ public:
         SERIALIZEDATA(s, m_isJv001);
     }
 };
+
+} // namespace GeraNES

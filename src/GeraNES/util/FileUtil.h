@@ -6,6 +6,8 @@
 #include <cstdint>
 #include <fstream>
 
+namespace GeraNES {
+
 inline std::vector<std::filesystem::path>& extraBinarySearchPaths()
 {
     static std::vector<std::filesystem::path> paths;
@@ -107,3 +109,5 @@ static std::string basename(const std::string& filename)
 
     return filename.substr(index + 1, len - index);
 }
+
+} // namespace GeraNES

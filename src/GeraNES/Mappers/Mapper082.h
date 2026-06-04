@@ -3,6 +3,8 @@
 #include "BaseMapper.h"
 #include <array>
 
+namespace GeraNES {
+
 // Taito X1-017 (iNES Mapper 82)
 class Mapper082 : public BaseMapper
 {
@@ -209,3 +211,5 @@ public:
         SERIALIZEDATA(s, m_irqControl);
     }
 };
+
+} // namespace GeraNES

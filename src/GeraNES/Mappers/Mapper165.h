@@ -2,6 +2,8 @@
 
 #include "Mapper004.h"
 
+namespace GeraNES {
+
 class Mapper165 : public Mapper004
 {
 public:
@@ -99,3 +101,5 @@ public:
 private:
     uint8_t m_chrPage[2] = {0, 0};
 };
+
+} // namespace GeraNES

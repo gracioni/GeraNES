@@ -2,6 +2,8 @@
 
 #include "BaseMapper.h"
 
+namespace GeraNES {
+
 //VRC4a VRC4c
 class Mapper021 : public BaseMapper
 {
@@ -247,3 +249,5 @@ public:
     }
 
 };
+
+} // namespace GeraNES

@@ -9,6 +9,8 @@
 #include "InputTopology.h"
 #include "Serialization.h"
 
+namespace GeraNES {
+
 struct InputState
 {
     struct PadButtons {
@@ -127,3 +129,5 @@ struct InputState
 };
 
 #include "InputState.inl"
+
+} // namespace GeraNES

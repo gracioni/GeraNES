@@ -2,6 +2,8 @@
 
 #include "ICartridgeData.h"
 
+namespace GeraNES {
+
 class DummyCartridgeData : public ICartridgeData
 {
 private:
@@ -106,3 +108,5 @@ public:
     }
 
 };
+
+} // namespace GeraNES

@@ -12,6 +12,8 @@
 #include "IAudioOutput.h"
 #include "logger/logger.h"
 
+namespace GeraNES {
+
 class NsfPlayer
 {
 public:
@@ -263,3 +265,5 @@ public:
 };
 
 #endif
+
+} // namespace GeraNES

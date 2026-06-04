@@ -3,6 +3,8 @@
 #include "GeraNES/Serialization.h"
 #include "APUCommon.h"
 
+namespace GeraNES {
+
 class NoiseChannel
 {
 private:
@@ -172,3 +174,5 @@ public:
     }
 
 };
+
+} // namespace GeraNES

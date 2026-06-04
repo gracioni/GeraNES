@@ -2,6 +2,8 @@
 
 #include "defines.h"
 
+namespace GeraNES {
+
 class Ibus
 {
 public:
@@ -14,3 +16,5 @@ public:
     virtual void onCpuGetToPutTransition() = 0;
     virtual ~Ibus(){}
 };
+
+} // namespace GeraNES

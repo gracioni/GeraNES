@@ -9,6 +9,8 @@
 #include "GeraNES/NesCartridgeData/_FdsFormat.h"
 #include "GeraNES/util/FileUtil.h"
 
+namespace GeraNES {
+
 class Mapper020 : public BaseMapper
 {
 private:
@@ -565,3 +567,5 @@ public:
         applyFdsActions(pending);
     }
 };
+
+} // namespace GeraNES

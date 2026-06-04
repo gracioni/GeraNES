@@ -2,6 +2,8 @@
 
 #include "BaseMapper.h"
 
+namespace GeraNES {
+
 //game: 100-in-1 Contra Function 16
 
 class Mapper015 : public BaseMapper
@@ -85,3 +87,5 @@ public:
     }
 
 };
+
+} // namespace GeraNES

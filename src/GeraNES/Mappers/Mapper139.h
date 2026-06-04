@@ -2,6 +2,8 @@
 
 #include "Helpers/Sachen8259Base.h"
 
+namespace GeraNES {
+
 class Mapper139 : public Sachen8259Base
 {
 public:
@@ -9,3 +11,5 @@ public:
     {
     }
 };
+
+} // namespace GeraNES

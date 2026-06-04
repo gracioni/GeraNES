@@ -13,6 +13,7 @@
 #include "ConsoleNetplay/NetProtocol.h"
 #include "ConsoleNetplay/NetSession.h"
 #include "ConsoleNetplay/NetplayTopology.h"
+using namespace GeraNES;
 
 namespace GeraNESNetplay {
 

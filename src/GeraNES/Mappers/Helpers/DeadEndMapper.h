@@ -3,6 +3,8 @@
 #include "../BaseMapper.h"
 #include "logger/logger.h"
 
+namespace GeraNES {
+
 class DeadEndMapper : public BaseMapper
 {
 private:
@@ -38,3 +40,5 @@ public:
         SERIALIZEDATA(s, m_logged);
     }
 };
+
+} // namespace GeraNES

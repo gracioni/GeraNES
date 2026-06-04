@@ -7,6 +7,8 @@
 #include "GeraNES/defines.h"
 #include "ICartridgeData.h"
 
+namespace GeraNES {
+
 class _NsfFormat : public ICartridgeData
 {
 public:
@@ -138,3 +140,5 @@ public:
         return m_bankInit[static_cast<size_t>(slot & 0x07)];
     }
 };
+
+} // namespace GeraNES

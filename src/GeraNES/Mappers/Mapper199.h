@@ -2,6 +2,8 @@
 
 #include "Mapper004.h"
 
+namespace GeraNES {
+
 // iNES Mapper 199 (Waixing FS309)
 // MMC3-like board with fixed 8KB CHR-RAM and 12KB of mapped PRG-RAM at $5000-$7FFF.
 class Mapper199 : public Mapper004
@@ -63,3 +65,5 @@ public:
         BaseMapper::writeChr(addr, data);
     }
 };
+
+} // namespace GeraNES

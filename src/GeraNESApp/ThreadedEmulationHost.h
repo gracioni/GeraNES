@@ -23,6 +23,7 @@
 #include "GeraNESApp/ReplayPlaybackController.h"
 #include "GeraNES/GeraNESEmu.h"
 #include "GeraNES/PPU.h"
+using namespace GeraNES;
 
 
 class ThreadedEmulationHost : public IEmulationHost
