@@ -179,6 +179,7 @@ private:
     DebugBreakpointHit m_debugBreakpointHit;
     bool m_debugBreakpointsArmed = false;
     bool m_ppuEventTraceEnabled = false;
+    bool m_busInstrumentationEnabled = false;
     std::vector<PpuRegisterAccessEvent> m_ppuRegisterAccessEvents;
     static constexpr size_t MAX_PPU_REGISTER_ACCESS_EVENTS = 4096;
     std::function<bool(uint16_t, uint8_t)> m_externalCpuWriteHandler;
@@ -757,20 +758,31 @@ private:
         m_applyingPendingNsfActions = false;
     }
 
+    void refreshBusInstrumentationEnabled()
+    {
+        m_busInstrumentationEnabled =
+            m_ppuEventTraceEnabled ||
+            (m_debugBreakpointsArmed && m_debugBreakpointConfig.enabled) ||
+            static_cast<bool>(m_externalCpuWriteHandler) ||
+            static_cast<bool>(m_externalCpuReadHandler);
+    }
+
     template<AccessType accessType>
     auto accessBus(int addr, uint8_t data = 0) -> std::conditional_t<accessType == AccessType::Write, void, uint8_t>
     {
         if constexpr(accessType == AccessType::Read) data = m_openBus;
 
-        if constexpr(accessType == AccessType::Write) {
-            if(m_externalCpuWriteHandler && m_externalCpuWriteHandler(static_cast<uint16_t>(addr), data)) {
-                return;
-            }
-        } else {
-            if(m_externalCpuReadHandler) {
-                if(const std::optional<uint8_t> customValue = m_externalCpuReadHandler(static_cast<uint16_t>(addr)); customValue.has_value()) {
-                    m_openBus = *customValue;
-                    return *customValue;
+        if(m_busInstrumentationEnabled) {
+            if constexpr(accessType == AccessType::Write) {
+                if(m_externalCpuWriteHandler && m_externalCpuWriteHandler(static_cast<uint16_t>(addr), data)) {
+                    return;
+                }
+            } else {
+                if(m_externalCpuReadHandler) {
+                    if(const std::optional<uint8_t> customValue = m_externalCpuReadHandler(static_cast<uint16_t>(addr)); customValue.has_value()) {
+                        m_openBus = *customValue;
+                        return *customValue;
+                    }
                 }
             }
         }
@@ -1002,7 +1014,9 @@ private:
             ? static_cast<uint16_t>(addr)
             : 0xFFFF;
 
-        processDebugBusAccess<accessType>(static_cast<uint16_t>(addr), data);
+        if(m_busInstrumentationEnabled) {
+            processDebugBusAccess<accessType>(static_cast<uint16_t>(addr), data);
+        }
 
         if constexpr(accessType == AccessType::Read)
             return data;
@@ -2206,6 +2220,7 @@ public:
             return;
         }
         m_debugBreakpointsArmed = armed;
+        refreshBusInstrumentationEnabled();
         if(!armed) {
             clearDebugBreakpointHit();
         }
@@ -2214,6 +2229,7 @@ public:
     void setDebugBreakpointConfig(const DebugBreakpointConfig& config)
     {
         m_debugBreakpointConfig = config;
+        refreshBusInstrumentationEnabled();
         if(!m_debugBreakpointConfig.enabled) {
             clearDebugBreakpointHit();
         }
@@ -2232,6 +2248,7 @@ public:
     void enablePpuEventTrace(bool enabled)
     {
         m_ppuEventTraceEnabled = enabled;
+        refreshBusInstrumentationEnabled();
         if(!enabled) {
             m_ppuRegisterAccessEvents.clear();
         }
@@ -2296,12 +2313,14 @@ public:
     {
         m_externalCpuWriteHandler = std::move(writeHandler);
         m_externalCpuReadHandler = std::move(readHandler);
+        refreshBusInstrumentationEnabled();
     }
 
     void clearExternalCpuIoHandlers()
     {
         m_externalCpuWriteHandler = {};
         m_externalCpuReadHandler = {};
+        refreshBusInstrumentationEnabled();
     }
 
     void togglePaused()

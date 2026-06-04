@@ -2,13 +2,17 @@
 
 #include "util/const_util.h"
 
-#if defined( __GNUC__ )
+#if defined(_MSC_VER)
+    #define GERANES_INLINE __forceinline
+#elif defined(__GNUC__)
     #define GERANES_INLINE __attribute__((always_inline)) inline
 #else
     #define GERANES_INLINE inline
 #endif
 
-#if defined( __GNUC__ )
+#if defined(_MSC_VER)
+    #define GERANES_HOT
+#elif defined(__GNUC__)
     #define GERANES_HOT __attribute__ ((hot))
 #else
     #define GERANES_HOT
