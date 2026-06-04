@@ -68,6 +68,16 @@ public:
 
 private:
 
+    enum class SpriteHeight : uint8_t {
+        H8 = 8,
+        H16 = 16
+    };
+
+    enum class VramAddressIncrement : uint8_t {
+        I1 = 1,
+        I32 = 32
+    };
+
     struct Sprite {
         uint8_t y;
         uint8_t indexInPatternTable;
@@ -88,10 +98,10 @@ private:
     int m_cycle;
 
     //PPUCTRL
-    int m_VRAMAddressIncrement; // 1 or 32
+    VramAddressIncrement m_VRAMAddressIncrement;
     bool m_sprite8x8PatternTableAddress; // 0x0000 or 0x1000, ignored in 8x16 mode
     bool m_backgroundPatternTableAddress; // 0x0000 or 0x1000
-    bool m_spriteSize8x16; //false = 8x8 true = 8x16
+    SpriteHeight m_spriteHeight;
     bool m_PPUSlave; // false = master true = slave
     bool m_NMIOnVBlank; //false = off on = true
 
@@ -1491,8 +1501,6 @@ yyy NN YYYYY XXXXX
 
     GERANES_INLINE_HOT void evaluateSprites()
     {       
-        const int spriteHeight = m_spriteSize8x16 ? 16 : 8;
-
         if(m_cycle < 65) {
             m_oamCopyBuffer = 0xFF;
             m_secondaryOam[(m_cycle-1) >> 1] = 0xFF;
@@ -1541,7 +1549,8 @@ yyy NN YYYYY XXXXX
                 }
                 else {
 
-                    if(!m_spriteInRange && m_scanline >= m_oamCopyBuffer && m_scanline < m_oamCopyBuffer + spriteHeight) {
+                    if(!m_spriteInRange && m_scanline >= m_oamCopyBuffer &&
+                       m_scanline < m_oamCopyBuffer + static_cast<int>(m_spriteHeight)) {
                         m_spriteInRange = true;
                     }                    
 
@@ -1576,7 +1585,7 @@ yyy NN YYYYY XXXXX
 
                                 if(m_oamAddrM != 0) {
                                     bool inRange = m_scanline >= m_oamCopyBuffer &&
-                                                   m_scanline < m_oamCopyBuffer + spriteHeight;
+                                                   m_scanline < m_oamCopyBuffer + static_cast<int>(m_spriteHeight);
                                     if(!inRange) {
                                         m_oamAddrM = 0;
                                     }
@@ -1668,12 +1677,12 @@ yyy NN YYYYY XXXXX
         int spriteXToDraw;
 
         if((sprite->attrib & 0x80) == 0) spriteLineToDraw = m_currentY - spriteY;
-        else spriteLineToDraw = (m_spriteSize8x16 ? 15 : 7) - (m_currentY - spriteY);
+        else spriteLineToDraw = (static_cast<int>(m_spriteHeight) - 1) - (m_currentY - spriteY);
 
         if((sprite->attrib & 0x40) == 0) spriteXToDraw = xOnScreen - sprite->x;
         else spriteXToDraw = sprite->x - xOnScreen + 7;
 
-        if(!m_spriteSize8x16) {
+        if(m_spriteHeight == SpriteHeight::H8) {
             int index = sprite->indexInPatternTable + (m_sprite8x8PatternTableAddress ? 256 : 0);
             return (uint8_t)(getColorLowBitsInPatternTable(index, spriteXToDraw, spriteLineToDraw) | ((sprite->attrib & 0x03) << 2));
         }
@@ -2208,21 +2217,20 @@ yyy NN YYYYY XXXXX
 
     GERANES_INLINE SpritePatternInfo getSpritePatternInfo(const Sprite& sprite, bool highPlane)
     {
-        const int spriteHeight = m_spriteSize8x16 ? 16 : 8;
         const uint8_t spriteScanline = static_cast<uint8_t>(m_preLine ? 6 : (m_scanline + 1));
         uint8_t row = static_cast<uint8_t>(spriteScanline - static_cast<uint8_t>(sprite.y + 1));
         const uint8_t localRow = static_cast<uint8_t>(row & 0x07);
 
         if(sprite.attrib & 0x80) {
-            row = static_cast<uint8_t>((spriteHeight - 1) - (row & (spriteHeight - 1)));
+            row = static_cast<uint8_t>((static_cast<uint8_t>(m_spriteHeight) - 1) - (row & (static_cast<uint8_t>(m_spriteHeight) - 1)));
         }
         else {
-            row = static_cast<uint8_t>(row & (spriteHeight - 1));
+            row = static_cast<uint8_t>(row & (static_cast<uint8_t>(m_spriteHeight) - 1));
         }
 
         uint16_t base = 0;
         uint16_t tileIndex = sprite.indexInPatternTable;
-        if(m_spriteSize8x16) {
+        if(m_spriteHeight == SpriteHeight::H16) {
             base = (sprite.indexInPatternTable & 0x01) ? 0x1000 : 0x0000;
             tileIndex = static_cast<uint16_t>(sprite.indexInPatternTable & 0xFE);
             if(row >= 8) {
@@ -2256,9 +2264,8 @@ yyy NN YYYYY XXXXX
 
     GERANES_INLINE bool isSpriteInRangeForScanline(const Sprite& sprite, int scanline) const
     {
-        const int spriteHeight = m_spriteSize8x16 ? 16 : 8;
         const int spriteY = static_cast<int>(sprite.y) + 1;
-        return scanline >= spriteY && scanline < spriteY + spriteHeight;
+        return scanline >= spriteY && scanline < spriteY + static_cast<int>(m_spriteHeight);
     }
 
     GERANES_INLINE void cacheSpritesInNextScanline()
@@ -2548,12 +2555,12 @@ yyy NN YYYYY XXXXX
         m_reg_t |= ((static_cast<uint16_t>(data & 0x03)) << 10);
         calculateDebugCursor();
 
-        m_VRAMAddressIncrement = (data&0x04) ? 32 : 1;
+        m_VRAMAddressIncrement = (data&0x04) ? VramAddressIncrement::I32 : VramAddressIncrement::I1;
         m_sprite8x8PatternTableAddress = (data&0x08) ? true : false;
         m_backgroundPatternTableAddress = (data&0x10) ? true : false;
-        m_spriteSize8x16 = (data&0x20) ? true : false;
+        m_spriteHeight = (data&0x20) ? SpriteHeight::H16 : SpriteHeight::H8;
         if(notifyMapper) {
-            m_cartridge.setSpriteSize8x16(m_spriteSize8x16);
+            m_cartridge.setSpriteSize8x16(m_spriteHeight == SpriteHeight::H16);
         }
         m_PPUSlave = (data&0x40) ? true : false;
         m_NMIOnVBlank = (data&0x80) ? true : false;
@@ -2827,7 +2834,7 @@ yyy NNYY YYYX XXXX
     void incVideoRamAddr() {
         if(!isActivelyRendering()) {
 
-            m_reg_v+=m_VRAMAddressIncrement;
+            m_reg_v += static_cast<uint16_t>(m_VRAMAddressIncrement);
             m_reg_v &= 0x7FFF;
 
             //Trigger memory read when setting the vram address - needed by MMC3 IRQ counter
@@ -3107,7 +3114,7 @@ yyy NNYY YYYX XXXX
         SERIALIZEDATA(s, m_VRAMAddressIncrement);
         SERIALIZEDATA(s, m_sprite8x8PatternTableAddress);
         SERIALIZEDATA(s, m_backgroundPatternTableAddress);
-        SERIALIZEDATA(s, m_spriteSize8x16);
+        SERIALIZEDATA(s, m_spriteHeight);
         SERIALIZEDATA(s, m_PPUSlave);
         SERIALIZEDATA(s, m_NMIOnVBlank);
 
