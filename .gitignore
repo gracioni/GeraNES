@@ -7,5 +7,6 @@ dist*/
 *.so
 
 docs/user-guide/site/
+android/build-config.jsonc
 
 __pycache__/

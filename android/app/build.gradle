@@ -1,0 +1,143 @@
+apply plugin: 'com.android.application'
+
+def geranesProp = { String key, String fallback = null ->
+    def value = project.findProperty(key)
+    if (value == null || value.toString().trim().isEmpty()) {
+        value = fallback
+    }
+    return value
+}
+
+def geranesRequiredProp = { String key ->
+    def value = geranesProp(key, null)
+    if (value == null || value.toString().trim().isEmpty()) {
+        throw new GradleException("Missing required Gradle property: ${key}")
+    }
+    return value.toString()
+}
+
+def splitCsv = { String value ->
+    if (value == null || value.trim().isEmpty()) {
+        return []
+    }
+    return value.split(',').collect { it.trim() }.findAll { !it.isEmpty() }
+}
+
+def hasReleaseSigning = !geranesProp('GERANES_ANDROID_KEYSTORE_PATH', '').trim().isEmpty()
+if (hasReleaseSigning) {
+    ['GERANES_ANDROID_KEYSTORE_PASSWORD', 'GERANES_ANDROID_KEY_ALIAS', 'GERANES_ANDROID_KEY_PASSWORD'].each { key ->
+        if (geranesProp(key, '').trim().isEmpty()) {
+            throw new GradleException("Missing required signing property: ${key}")
+        }
+    }
+}
+
+android {
+    namespace geranesProp('GERANES_ANDROID_NAMESPACE', 'com.racionisoft.geranes')
+    compileSdk Integer.parseInt(geranesProp('GERANES_ANDROID_COMPILE_SDK', '34'))
+    ndkPath geranesRequiredProp('GERANES_ANDROID_NDK_PATH')
+
+    defaultConfig {
+        applicationId geranesProp('GERANES_ANDROID_APPLICATION_ID', 'com.racionisoft.geranes')
+        minSdk Integer.parseInt(geranesProp('GERANES_ANDROID_API', '24'))
+        targetSdk Integer.parseInt(geranesProp('GERANES_ANDROID_TARGET_SDK', '34'))
+        versionCode Integer.parseInt(geranesProp('GERANES_ANDROID_VERSION_CODE', '1'))
+        versionName geranesProp('GERANES_ANDROID_VERSION_NAME', '1.0')
+        manifestPlaceholders = [
+            geranesAppName: geranesProp('GERANES_ANDROID_APP_NAME', 'GeraNES'),
+            geranesAppIcon: geranesProp('GERANES_ANDROID_APP_ICON', '@android:drawable/sym_def_app_icon')
+        ]
+
+        ndk {
+            abiFilters.clear()
+            abiFilters.addAll(splitCsv(geranesProp('GERANES_ANDROID_ABIS', 'arm64-v8a')))
+        }
+
+        externalNativeBuild {
+            cmake {
+                arguments "-DANDROID_STL=${geranesProp('GERANES_ANDROID_STL', 'c++_shared')}",
+                          "-DGERANES_ANDROID_MIN_SDK=${geranesProp('GERANES_ANDROID_API', '24')}"
+                targets "main"
+            }
+        }
+    }
+
+    signingConfigs {
+        if (hasReleaseSigning) {
+            release {
+                storeFile file(geranesRequiredProp('GERANES_ANDROID_KEYSTORE_PATH'))
+                storePassword geranesRequiredProp('GERANES_ANDROID_KEYSTORE_PASSWORD')
+                keyAlias geranesRequiredProp('GERANES_ANDROID_KEY_ALIAS')
+                keyPassword geranesRequiredProp('GERANES_ANDROID_KEY_PASSWORD')
+                enableV1Signing true
+                enableV2Signing true
+            }
+        }
+    }
+
+    buildTypes {
+        debug {
+            signingConfig signingConfigs.debug
+        }
+        release {
+            minifyEnabled false
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+            if (hasReleaseSigning) {
+                signingConfig signingConfigs.release
+            }
+        }
+    }
+
+    externalNativeBuild {
+        cmake {
+            path file("${geranesRequiredProp('GERANES_REPO_ROOT')}/CMakeLists.txt")
+        }
+    }
+
+    sourceSets {
+        main {
+            manifest.srcFile 'src/main/AndroidManifest.xml'
+            java.srcDirs = ['src/main/java']
+            res.srcDirs = ['src/main/res']
+            assets.srcDirs = [
+                file(geranesRequiredProp('GERANES_ANDROID_ASSETS_DIR'))
+            ]
+        }
+    }
+
+    dependenciesInfo {
+        includeInApk = false
+        includeInBundle = false
+    }
+
+    lint {
+        abortOnError false
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+
+    packagingOptions {
+        jniLibs {
+            useLegacyPackaging true
+        }
+    }
+
+    bundle {
+        language {
+            enableSplit = false
+        }
+        density {
+            enableSplit = false
+        }
+        abi {
+            enableSplit = true
+        }
+    }
+}
+
+dependencies {
+    implementation fileTree(dir: 'libs', include: ['*.jar'])
+}

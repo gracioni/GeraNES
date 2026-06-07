@@ -20,7 +20,7 @@ namespace fs = std::filesystem;
 
 #ifdef __EMSCRIPTEN__
     #include "EmscriptenUtil.h"
-#else
+#elif !defined(__ANDROID__)
     #include <nfd.h>
 #endif
 

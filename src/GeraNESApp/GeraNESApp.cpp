@@ -1,4 +1,5 @@
 #include "GeraNESApp/GeraNESApp.h"
+#include "GeraNESApp/AndroidFileDialog.h"
 #include "GeraNESApp/FontAwesomeIcons.h"
 
 #include "ConsoleNetplay/NetplayLog.h"
@@ -745,6 +746,13 @@ bool loadTextCpuSymbols(const std::string& text, std::unordered_map<uint16_t, Cp
 
     return found;
 }
+
+#ifdef __ANDROID__
+std::vector<std::string> anyFileMimeTypes()
+{
+    return {"*/*"};
+}
+#endif
 }
 
 void GeraNESApp::updateMVP()
@@ -755,7 +763,7 @@ void GeraNESApp::updateMVP()
 
 bool GeraNESApp::useCustomWindowChrome()
 {
-#ifdef __EMSCRIPTEN__
+#if defined(__EMSCRIPTEN__) || defined(__ANDROID__)
     return false;
 #else
     return m_customWindowChromeEnabled && !isFullScreen();
@@ -1301,6 +1309,16 @@ bool GeraNESApp::openReplayDialog()
     m_webUploadTarget = WebUploadTarget::OpenReplay;
     emcriptenReplayFileDialog(reinterpret_cast<intptr_t>(this));
     return true;
+#elif defined(__ANDROID__)
+    std::string replayPath;
+    std::string error;
+    if(!AndroidFileDialog::pickFileToCache(anyFileMimeTypes(), replayPath, &error)) {
+        if(!error.empty()) {
+            Logger::instance().log("Replay picker failed: " + error, Logger::Type::ERROR);
+        }
+        return false;
+    }
+    return openReplayFile(fs::path(replayPath));
 #else
     const bool resumeAfterDialog = m_emu.withExclusiveAccess([](auto& emu) {
         if(!emu.valid()) return false;
@@ -1361,6 +1379,10 @@ bool GeraNESApp::saveReplayDialog(fs::path& path)
 {
 #ifdef __EMSCRIPTEN__
     (void)path;
+    return false;
+#elif defined(__ANDROID__)
+    (void)path;
+    Logger::instance().log("Replay saving on Android is handled when the recording stops.", Logger::Type::INFO);
     return false;
 #else
     const bool resumeAfterDialog = m_emu.withExclusiveAccess([](auto& emu) {
@@ -1539,7 +1561,31 @@ void GeraNESApp::stopReplayRecording()
         Logger::Type::INFO
     );
 
-#ifdef __EMSCRIPTEN__
+#ifdef __ANDROID__
+    std::vector<uint8_t> replayBytes;
+    std::string error;
+    if(!m_replaySession.saveToBytes(replayBytes, error)) {
+        Logger::instance().log("Failed to save replay: " + error, Logger::Type::ERROR);
+        m_userToast.show("Failed to save replay file");
+        clearReplaySession(true);
+        return;
+    }
+
+    const std::string defaultName = m_loadedRomPath.stem().empty() ? "session.replay" : (m_loadedRomPath.stem().string() + ".replay");
+    if(!AndroidFileDialog::saveBytesWithDocumentPicker(defaultName, "application/octet-stream", replayBytes, &error)) {
+        if(!error.empty()) {
+            Logger::instance().log("Failed to save replay: " + error, Logger::Type::ERROR);
+        } else {
+            Logger::instance().log("Replay recording stopped without saving", Logger::Type::USER);
+        }
+        clearReplaySession(true);
+        return;
+    }
+
+    Logger::instance().log("Replay saved: " + defaultName, Logger::Type::USER);
+    clearReplaySession(true);
+    return;
+#elif defined(__EMSCRIPTEN__)
     std::vector<uint8_t> replayBytes;
     std::string error;
     if(!m_replaySession.saveToBytes(replayBytes, error)) {
@@ -2362,6 +2408,11 @@ void GeraNESApp::openFile(const char* path)
         notifyReplaySessionInteractionLocked("Open ROM");
         return;
     }
+    if(path == nullptr || path[0] == '\0') {
+        Logger::instance().log("Open ROM request did not include a valid file path.", Logger::Type::ERROR);
+        return;
+    }
+    Logger::instance().log(std::string("Opening ROM path: ") + path, Logger::Type::INFO);
     clearReplaySession(true);
     openRomPath(fs::path(path), true);
 }
@@ -2474,6 +2525,10 @@ void GeraNESApp::resetShowOriginalGraphicsInsteadOfModFramebuffer()
 
 bool GeraNESApp::finishOpenRomPath(const fs::path& requestedPath, const std::string& effectivePath, const ModManager::LoadRequest& modLoad, bool modDefinitionLoaded)
 {
+    Logger::instance().log(
+        "Finalizing ROM load. requestedPath=" + requestedPath.string() + " effectivePath=" + effectivePath,
+        Logger::Type::INFO
+    );
     if(modDefinitionLoaded && m_emu.open(effectivePath, AppSettings::instance().data.input.automaticOnRomLoad)) {
         const int effectiveMaxRewindTime = shouldSuppressRewindForNetplay()
             ? 0
@@ -2520,7 +2575,7 @@ bool GeraNESApp::finishOpenRomPath(const fs::path& requestedPath, const std::str
     updateBuffers();
     m_loadedRomPath.clear();
     if(modDefinitionLoaded) {
-        Logger::instance().log("Failed to load ROM", Logger::Type::USER);
+        Logger::instance().log("Failed to load ROM: " + effectivePath, Logger::Type::ERROR);
     }
     m_emu.discardQueuedAudio();
     if(const auto mixer = m_audioOutput.getExternalAudioMixer()) {
@@ -2560,6 +2615,25 @@ bool GeraNESApp::openRomPath(const fs::path& path, bool updateRecentFiles, bool 
         notifyNetplayRomChangeRestrictedAction("Open ROM");
         return false;
     }
+
+    std::error_code pathError;
+    const bool pathExists = fs::exists(path, pathError);
+    if(pathError) {
+        Logger::instance().log(
+            "Could not inspect ROM path '" + path.string() + "': " + pathError.message(),
+            Logger::Type::ERROR
+        );
+        return false;
+    }
+    if(!pathExists) {
+        Logger::instance().log("ROM path does not exist: " + path.string(), Logger::Type::ERROR);
+        return false;
+    }
+    if(fs::is_directory(path, pathError)) {
+        Logger::instance().log("ROM path is a directory, expected a file: " + path.string(), Logger::Type::ERROR);
+        return false;
+    }
+    Logger::instance().log("Preparing ROM load from: " + path.string(), Logger::Type::INFO);
 
     m_pendingRomLoad = {};
     m_emu.setSimulationSuspended(true);
@@ -3239,6 +3313,27 @@ void GeraNESApp::exportPpuViewerChrPng(const std::vector<uint32_t>& pixels, int 
 {
 #ifdef __EMSCRIPTEN__
     Logger::instance().log("PPU CHR PNG export is not available in the web build.", Logger::Type::USER);
+#elif defined(__ANDROID__)
+    if(width <= 0 || height <= 0 || pixels.size() != static_cast<size_t>(width * height)) {
+        Logger::instance().log("Could not export PPU CHR PNG: invalid image buffer.", Logger::Type::ERROR);
+        return;
+    }
+
+    std::vector<uint8_t> pngData;
+    if(!encodeIndexedChrPng(pixels, width, height, pngData)) {
+        Logger::instance().log("Could not encode PPU CHR PNG.", Logger::Type::ERROR);
+        return;
+    }
+
+    std::string error;
+    if(!AndroidFileDialog::saveBytesWithDocumentPicker("ppu_chr.png", "image/png", pngData, &error)) {
+        if(!error.empty()) {
+            Logger::instance().log("Could not export PPU CHR PNG: " + error, Logger::Type::ERROR);
+        }
+        return;
+    }
+
+    Logger::instance().log("PPU CHR PNG export completed.", Logger::Type::USER);
 #else
     if(width <= 0 || height <= 0 || pixels.size() != static_cast<size_t>(width * height)) {
         Logger::instance().log("Could not export PPU CHR PNG: invalid image buffer.", Logger::Type::ERROR);
@@ -3600,7 +3695,18 @@ void GeraNESApp::openRom()
         return;
     }
 
-#ifndef __EMSCRIPTEN__
+#ifdef __ANDROID__
+    std::string romPath;
+    std::string error;
+    if(!AndroidFileDialog::pickFileToCache(anyFileMimeTypes(), romPath, &error)) {
+        if(!error.empty()) {
+            Logger::instance().log("ROM picker failed: " + error, Logger::Type::ERROR);
+        }
+        return;
+    }
+    Logger::instance().log("Android ROM picker selected: " + romPath, Logger::Type::INFO);
+    openFile(romPath.c_str());
+#elif !defined(__EMSCRIPTEN__)
     const bool resumeAfterDialog = m_emu.withExclusiveAccess([](auto& emu) {
         if(!emu.valid()) return false;
 
@@ -3669,7 +3775,7 @@ void GeraNESApp::openRom()
     emcriptenFileDialog(reinterpret_cast<intptr_t>(this));
 #endif
 
-#ifndef __EMSCRIPTEN__
+#if !defined(__EMSCRIPTEN__) && !defined(__ANDROID__)
     if(restoreAfterDialog) this->restoreWindow();
 #endif
 }
@@ -3686,6 +3792,25 @@ void GeraNESApp::loadModArchive()
     }
 #ifdef __EMSCRIPTEN__
     Logger::instance().log("Mod loading from disk is not available in the web build.", Logger::Type::USER);
+#elif defined(__ANDROID__)
+    std::string archivePath;
+    std::string error;
+    if(!AndroidFileDialog::pickFileToCache({"application/zip", "*/*"}, archivePath, &error)) {
+        if(!error.empty()) {
+            Logger::instance().log("Mod archive picker failed: " + error, Logger::Type::ERROR);
+        }
+        return;
+    }
+
+    if(m_modManager.selectModSource(fs::path(archivePath), error)) {
+        resetShowOriginalGraphicsInsteadOfModFramebuffer();
+        Logger::instance().log("Mod selected: " + archivePath, Logger::Type::USER);
+        if(!m_loadedRomPath.empty() && m_emu.valid()) {
+            openRomPath(m_loadedRomPath, false, false);
+        }
+    } else {
+        Logger::instance().log(error, Logger::Type::ERROR);
+    }
 #else
     const bool resumeAfterDialog = m_emu.withExclusiveAccess([](auto& emu) {
         if(!emu.valid()) return false;
@@ -3761,6 +3886,25 @@ void GeraNESApp::loadModFolder()
     }
 #ifdef __EMSCRIPTEN__
     Logger::instance().log("Mod loading from disk is not available in the web build.", Logger::Type::USER);
+#elif defined(__ANDROID__)
+    std::string folderPath;
+    std::string error;
+    if(!AndroidFileDialog::pickFolderToCache(folderPath, &error)) {
+        if(!error.empty()) {
+            Logger::instance().log("Mod folder picker failed: " + error, Logger::Type::ERROR);
+        }
+        return;
+    }
+
+    if(m_modManager.selectModSource(fs::path(folderPath), error)) {
+        resetShowOriginalGraphicsInsteadOfModFramebuffer();
+        Logger::instance().log("Mod selected: " + folderPath, Logger::Type::USER);
+        if(!m_loadedRomPath.empty() && m_emu.valid()) {
+            openRomPath(m_loadedRomPath, false, false);
+        }
+    } else {
+        Logger::instance().log(error, Logger::Type::ERROR);
+    }
 #else
     const bool resumeAfterDialog = m_emu.withExclusiveAccess([](auto& emu) {
         if(!emu.valid()) return false;
@@ -3848,6 +3992,17 @@ void GeraNESApp::loadCpuDebuggerSymbols()
 #ifdef __EMSCRIPTEN__
     m_cpuDebugSymbolsStatus = "Symbol loading from disk is not available in the web build.";
     Logger::instance().log(m_cpuDebugSymbolsStatus, Logger::Type::USER);
+#elif defined(__ANDROID__)
+    std::string symbolPath;
+    std::string error;
+    if(!AndroidFileDialog::pickFileToCache(anyFileMimeTypes(), symbolPath, &error)) {
+        if(!error.empty()) {
+            m_cpuDebugSymbolsStatus = "Symbol picker failed.";
+            Logger::instance().log(m_cpuDebugSymbolsStatus + " " + error, Logger::Type::ERROR);
+        }
+        return;
+    }
+    loadCpuDebuggerSymbolsFromFile(symbolPath);
 #else
     const bool resumeAfterDialog = m_emu.withExclusiveAccess([](auto& emu) {
         if(!emu.valid()) return false;
@@ -4313,7 +4468,7 @@ bool GeraNESApp::initGL()
         return false;
     }
 
-#ifndef __EMSCRIPTEN__
+#if !defined(__EMSCRIPTEN__) && !defined(__ANDROID__)
     GLenum err = glewInit();
     if(GLEW_OK != err) {
         Logger::instance().log((const char*)(glewGetErrorString(err)), Logger::Type::ERROR);
@@ -4329,7 +4484,20 @@ bool GeraNESApp::initGL()
     ImGuiIO& io = ImGui::GetIO();
     io.IniFilename = nullptr;
     io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
-#ifndef __EMSCRIPTEN__
+
+    float uiScale = 1.0f;
+#ifdef __ANDROID__
+    const glm::vec2 windowDpi = GetWindowDPI();
+    const float androidDensityDpi = std::max(windowDpi.x, windowDpi.y);
+    uiScale = std::clamp(androidDensityDpi / 160.0f, 1.0f, 3.0f);
+    Logger::instance().log(
+        std::string("Android UI scale set to ") + std::to_string(uiScale) + " from DPI " +
+            std::to_string(windowDpi.x) + "x" + std::to_string(windowDpi.y),
+        Logger::Type::INFO
+    );
+#endif
+
+#if !defined(__EMSCRIPTEN__) && !defined(__ANDROID__)
     io.ConfigFlags |= ImGuiConfigFlags_ViewportsEnable;
     setBordered(!m_customWindowChromeEnabled);
 #endif
@@ -4344,7 +4512,9 @@ bool GeraNESApp::initGL()
         else if(fs.exists("fonts/fa-solid-900.ttf")) iconFontPath = "fonts/fa-solid-900.ttf";
 
         io.Fonts->Clear();
-        io.FontDefault = io.Fonts->AddFontDefault();
+        ImFontConfig defaultFontCfg{};
+        defaultFontCfg.SizePixels = 13.0f * uiScale;
+        io.FontDefault = io.Fonts->AddFontDefault(&defaultFontCfg);
         m_fontAwesomeIconsLoaded = false;
 
         if(iconFontPath != nullptr) {
@@ -4353,18 +4523,18 @@ bool GeraNESApp::initGL()
 
             // Font Awesome solids sit slightly high when merged into the default ImGui font.
             // Nudge the merged glyphs down so mixed icon/text labels align in menus and buttons.
-            constexpr float kFontAwesomeGlyphOffsetY = 2.0f;
+            const float kFontAwesomeGlyphOffsetY = 2.0f * uiScale;
             ImFontConfig iconCfg{};
             iconCfg.FontDataOwnedByAtlas = false;
             iconCfg.MergeMode = true;
             iconCfg.PixelSnapH = true;
-            iconCfg.GlyphMinAdvanceX = 13.0f;
+            iconCfg.GlyphMinAdvanceX = 13.0f * uiScale;
             iconCfg.GlyphOffset.y = kFontAwesomeGlyphOffsetY;
 
             m_fontAwesomeIconsLoaded = io.Fonts->AddFontFromMemoryTTF(
                 m_embeddedIconFontData.data(),
                 static_cast<int>(m_embeddedIconFontData.size()),
-                13.0f,
+                13.0f * uiScale,
                 &iconCfg,
                 FontAwesomeIcons::glyphRanges()
             ) != nullptr;
@@ -4389,11 +4559,11 @@ bool GeraNESApp::initGL()
             cfg.PixelSnapH = false;
 
 #ifdef ENABLE_NSF_PLAYER
-            m_fontNsfTitle = io.Fonts->AddFontFromMemoryTTF(m_embeddedUiFontData.data(), static_cast<int>(m_embeddedUiFontData.size()), 34.0f, &cfg);
-            m_fontNsfSubtitle = io.Fonts->AddFontFromMemoryTTF(m_embeddedUiFontData.data(), static_cast<int>(m_embeddedUiFontData.size()), 20.0f, &cfg);
+            m_fontNsfTitle = io.Fonts->AddFontFromMemoryTTF(m_embeddedUiFontData.data(), static_cast<int>(m_embeddedUiFontData.size()), 34.0f * uiScale, &cfg);
+            m_fontNsfSubtitle = io.Fonts->AddFontFromMemoryTTF(m_embeddedUiFontData.data(), static_cast<int>(m_embeddedUiFontData.size()), 20.0f * uiScale, &cfg);
 #endif
-            m_fontToast = io.Fonts->AddFontFromMemoryTTF(m_embeddedUiFontData.data(), static_cast<int>(m_embeddedUiFontData.size()), 24.0f, &cfg);
-            m_fontFps = io.Fonts->AddFontFromMemoryTTF(m_embeddedUiFontData.data(), static_cast<int>(m_embeddedUiFontData.size()), 32.0f, &cfg);
+            m_fontToast = io.Fonts->AddFontFromMemoryTTF(m_embeddedUiFontData.data(), static_cast<int>(m_embeddedUiFontData.size()), 24.0f * uiScale, &cfg);
+            m_fontFps = io.Fonts->AddFontFromMemoryTTF(m_embeddedUiFontData.data(), static_cast<int>(m_embeddedUiFontData.size()), 32.0f * uiScale, &cfg);
 
             if(
 #ifdef ENABLE_NSF_PLAYER
@@ -4410,8 +4580,14 @@ bool GeraNESApp::initGL()
     }
 
     ApplyImGuiTheme();
+#ifdef __ANDROID__
+    ImGui::GetStyle().ScaleAllSizes(uiScale);
+#endif
 
     const char* glsl_version = "#version 100";
+#ifdef __ANDROID__
+    glsl_version = "#version 300 es";
+#endif
     ImGui_ImplSDL2_InitForOpenGL(this->sdlWindow(), this->glContext());
     ImGui_ImplOpenGL3_Init(glsl_version);
 #ifdef __EMSCRIPTEN__

@@ -4,6 +4,10 @@
 #include <limits>
 #include <string>
 
+#ifdef __ANDROID__
+#include <SDL_system.h>
+#endif
+
 #include "GeraNES/defines.h"
 #include "CrashHandler.h"
 #include "GeraNESApp/GeraNESApp.h"
@@ -103,6 +107,17 @@ int main(int argc, char* argv[])
     } cwdRestoreGuard{originalCwd};
 
     try {
+#ifdef __ANDROID__
+        const char* androidInternalStorage = SDL_AndroidGetInternalStoragePath();
+        if(androidInternalStorage != nullptr && androidInternalStorage[0] != '\0') {
+            const std::filesystem::path storageRoot(androidInternalStorage);
+            const std::filesystem::path runtimeDataDir = storageRoot / "runtime_data";
+            std::filesystem::create_directories(runtimeDataDir);
+            std::filesystem::current_path(runtimeDataDir);
+            AppSettings::setStorageDirectory(storageRoot);
+        }
+        else
+#endif
         if(argc > 0 && argv[0] && argv[0][0] != '\0') {
             const std::filesystem::path exePath = std::filesystem::absolute(argv[0]);
             const std::filesystem::path exeDir = exePath.parent_path();
@@ -185,7 +200,18 @@ int main(int argc, char* argv[])
     }
 
     GeraNESApp app;
+#ifdef __ANDROID__
+    app.create(
+        GERANES_NAME,
+        SDL_WINDOWPOS_UNDEFINED,
+        SDL_WINDOWPOS_UNDEFINED,
+        0,
+        0,
+        SDL_WINDOW_FULLSCREEN_DESKTOP
+    );
+#else
     app.create(GERANES_NAME, SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, 800, 600, SDL_WINDOW_RESIZABLE);
+#endif
     app.run();
     return EXIT_SUCCESS;
 }

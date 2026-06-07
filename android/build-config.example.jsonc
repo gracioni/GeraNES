@@ -1,0 +1,70 @@
+{
+  // Android SDK root directory.
+  "sdkRoot": "C:/Users/your-user/AppData/Local/Android/Sdk",
+
+  // Android NDK root directory. If omitted, build.sh will try the newest SDK ndk/* folder.
+  "ndkRoot": "C:/Users/your-user/AppData/Local/Android/Sdk/ndk/29.0.13846066",
+
+  // JDK 17 home directory used by Gradle/AGP.
+  "javaHome": "C:/Program Files/Java/jdk-17",
+
+  // Optional explicit CMake installation directory if you do not want the default one from the SDK.
+  "cmakeDir": "",
+
+  // Optional explicit Gradle executable path. Leave empty to use PATH or the auto-downloaded Gradle.
+  "gradleBin": "",
+
+  // Optional Gradle version for the auto-downloaded distribution when gradleBin is not set.
+  "gradleVersion": "8.0.2",
+
+  // Package output format: "apk" for direct install/testing, "aab" for Google Play publishing.
+  "packageFormat": "apk",
+
+  // One ABI string or an array of ABIs. The build script converts arrays to the Gradle CSV format.
+  "abis": ["arm64-v8a"],
+
+  // Android min SDK / native API level.
+  "api": 24,
+
+  // Android STL used by the NDK build.
+  "stl": "c++_shared",
+
+  // App label shown on the device launcher.
+  "appName": "GeraNES",
+
+  // Optional path to a custom launcher icon image. Leave empty to use the default Android app icon.
+  "iconPath": "",
+
+  // Final Android applicationId / package name.
+  "applicationId": "com.racionisoft.geranes",
+
+  // Android namespace for the Gradle app module.
+  "namespace": "com.racionisoft.geranes",
+
+  // Monotonic integer required for store updates.
+  "versionCode": 1,
+
+  // Human-readable app version.
+  "versionName": "1.0",
+
+  // Android compile SDK version for the Gradle project.
+  "compileSdk": 34,
+
+  // Android target SDK version declared in the manifest/package.
+  "targetSdk": 34,
+
+  // Release signing settings. Leave keystorePath empty for unsigned local builds.
+  "signing": {
+    // Path to the .jks or .keystore file.
+    "keystorePath": "",
+
+    // Keystore password.
+    "keystorePassword": "",
+
+    // Alias name inside the keystore.
+    "keyAlias": "",
+
+    // Password for the alias key.
+    "keyPassword": ""
+  }
+}

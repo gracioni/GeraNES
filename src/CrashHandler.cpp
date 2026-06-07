@@ -16,7 +16,7 @@
         #define NOMINMAX
     #endif
     #include <windows.h>
-#elif defined(__has_include)
+#elif defined(__has_include) && !defined(__ANDROID__)
     #if __has_include(<execinfo.h>)
         #include <execinfo.h>
         #define GERANES_HAS_EXECINFO 1

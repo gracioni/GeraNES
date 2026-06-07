@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.26)
+cmake_minimum_required(VERSION 3.22)
 # CMake 4 removed implicit compatibility with very old policy versions used by
 # some vendored dependencies (e.g. glew-cmake, plog).
 set(CMAKE_POLICY_VERSION_MINIMUM 3.5)
@@ -10,8 +10,21 @@ set(CMAKE_POLICY_VERSION_MINIMUM 3.5)
 
 project(GeraNES)
 
+set(CMAKE_CXX_STANDARD 20)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_EXTENSIONS OFF)
+
 include(CTest)
 enable_testing()
+
+if(ANDROID AND WIN32)
+    if(DEFINED ENV{TEMP} AND NOT "$ENV{TEMP}" STREQUAL "")
+        file(TO_CMAKE_PATH "$ENV{TEMP}" GERANES_TEMP_DIR)
+        set(FETCHCONTENT_BASE_DIR "${GERANES_TEMP_DIR}/geranes-fetchcontent" CACHE PATH "FetchContent base directory" FORCE)
+    else()
+        set(FETCHCONTENT_BASE_DIR "C:/geranes-fetchcontent" CACHE PATH "FetchContent base directory" FORCE)
+    endif()
+endif()
 
 if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
     set(CMAKE_BUILD_TYPE Release CACHE STRING "Build type" FORCE)
@@ -30,6 +43,15 @@ add_compile_options(
 option(GERANES_ENABLE_WARNINGS_ALL "Enable broad compiler warnings for all targets" ON)
 option(GERANES_WEB_PTHREADS "Use Emscripten pthreads and the threaded emulation host in web builds" OFF)
 set(GERANES_WEB_PTHREADS_INITIAL_MEMORY_MB "512" CACHE STRING "Initial shared wasm memory for Emscripten pthread builds, in MiB")
+set(GERANES_ANDROID_MIN_SDK "24" CACHE STRING "Android minSdkVersion/API level used for Android native builds")
+
+if(ANDROID)
+    add_compile_definitions(_LIBCPP_ENABLE_EXPERIMENTAL)
+    string(APPEND CMAKE_SHARED_LINKER_FLAGS " -Wl,-z,max-page-size=16384")
+    string(APPEND CMAKE_MODULE_LINKER_FLAGS " -Wl,-z,max-page-size=16384")
+    string(APPEND CMAKE_EXE_LINKER_FLAGS " -Wl,-z,max-page-size=16384")
+endif()
+
 add_library(geranes_warnings INTERFACE)
 if(GERANES_ENABLE_WARNINGS_ALL)
     if(MSVC)
@@ -88,8 +110,13 @@ if(NOT EMSCRIPTEN)
 
     set(SDL_VULKAN OFF)
     set(SDL_TEST OFF)
-    set(SDL_STATIC ON)
-    set(SDL_SHARED OFF)
+    if(ANDROID)
+        set(SDL_STATIC OFF)
+        set(SDL_SHARED ON)
+    else()
+        set(SDL_STATIC ON)
+        set(SDL_SHARED OFF)
+    endif()
     set(SDL_RENDER_D3D OFF)
 
     FetchContent_MakeAvailable(SDL2)
@@ -160,7 +187,7 @@ add_library("imgui" STATIC ${IMGUI_GLOB})
 target_include_directories("imgui" PUBLIC ${IMGUI_PATH})
 target_include_directories("imgui" PUBLIC ${IMGUI_PATH}/backends)
 
-if (${CMAKE_SYSTEM_NAME} MATCHES "Emscripten")
+if (${CMAKE_SYSTEM_NAME} MATCHES "Emscripten" OR ANDROID)
     message(STATUS "Compiling for Emscripten: Ignoring nfd libraries")
     # Defina uma variável ou faça ajustes conforme necessário para Emscripten
 else()
@@ -179,7 +206,7 @@ else()
 
 endif()
 
-if (${CMAKE_SYSTEM_NAME} MATCHES "Emscripten")
+if (${CMAKE_SYSTEM_NAME} MATCHES "Emscripten" OR ANDROID)
     message(STATUS "Compiling for Emscripten: Ignoring glew libraries")
     # Defina uma variável ou faça ajustes conforme necessário para Emscripten
 else()
@@ -460,19 +487,21 @@ cmrc_add_resource_library(libretro_db_assets "${CMAKE_CURRENT_SOURCE_DIR}/data/d
 set_target_properties(resources PROPERTIES POSITION_INDEPENDENT_CODE ON)
 set_target_properties(libretro_db_assets PROPERTIES POSITION_INDEPENDENT_CODE ON)
 
-find_package(Python3 REQUIRED COMPONENTS Interpreter)
-
 set(GERANES_DOCS_CONFIG_FILE "${CMAKE_CURRENT_SOURCE_DIR}/docs/user-guide/mkdocs.yml")
 set(GERANES_DOCS_SITE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/docs/user-guide/site")
 
-add_custom_target(generate_user_docs
-    COMMAND ${CMAKE_COMMAND} -E rm -rf "${GERANES_DOCS_SITE_DIR}"
-    COMMAND ${Python3_EXECUTABLE} -m mkdocs build --clean
-            --config-file "${GERANES_DOCS_CONFIG_FILE}"
-    WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
-    COMMENT "Generating user documentation"
-    VERBATIM
-)
+if(NOT ANDROID)
+    find_package(Python3 REQUIRED COMPONENTS Interpreter)
+
+    add_custom_target(generate_user_docs
+        COMMAND ${CMAKE_COMMAND} -E rm -rf "${GERANES_DOCS_SITE_DIR}"
+        COMMAND ${Python3_EXECUTABLE} -m mkdocs build --clean
+                --config-file "${GERANES_DOCS_CONFIG_FILE}"
+        WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
+        COMMENT "Generating user documentation"
+        VERBATIM
+    )
+endif()
 
 # Copy data folder to build
 if(EMSCRIPTEN)
@@ -489,7 +518,9 @@ if(EMSCRIPTEN)
         VERBATIM
     )
 
-    add_dependencies(copy_web_docs generate_user_docs)
+    if(TARGET generate_user_docs)
+        add_dependencies(copy_web_docs generate_user_docs)
+    endif()
 else()
     set(GERANES_RUNTIME_DATA_STAGE_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated/runtime_data")
     set(GERANES_RUNTIME_DATA_MANIFEST "${CMAKE_CURRENT_BINARY_DIR}/generated/runtime_data_manifest.txt")
@@ -514,7 +545,9 @@ else()
         VERBATIM
     )
 
-    add_dependencies(copy_runtime_data generate_user_docs)
+    if(TARGET generate_user_docs)
+        add_dependencies(copy_runtime_data generate_user_docs)
+    endif()
 
     if(FALSE)
     file(GLOB source_files_and_dirs ${CMAKE_CURRENT_SOURCE_DIR}/data/*)
@@ -528,7 +561,9 @@ else()
 endif()
 
 
-if(WIN32)
+if(ANDROID)
+    set(OPENGL_LIBRARY "GLESv3")
+elseif(WIN32)
     set(OPENGL_LIBRARY "opengl32")
 else()
     set(OPENGL_LIBRARY "GL")
@@ -545,6 +580,8 @@ list(FILTER CPP_FILES EXCLUDE REGEX ".*/src/libretro/.*")
 if(NOT EMSCRIPTEN)
     list(FILTER CPP_FILES EXCLUDE REGEX ".*/src/GeraNESApp/EmscriptenBindings\\.cpp$")
     list(FILTER CPP_FILES EXCLUDE REGEX ".*/src/GeraNESApp/EmscriptenUtil\\.cpp$")
+endif()
+if(ANDROID)
     list(FILTER CPP_FILES EXCLUDE REGEX ".*/src/GeraNESApp/OpenALAudioOutput\\.cpp$")
 endif()
 
@@ -578,12 +615,17 @@ if(EMSCRIPTEN)
     )
 endif()
 
-set(LIBS -static-libgcc -static-libstdc++ imgui flips PFFFT::PFFFT glm nlohmann_json::nlohmann_json yogacore resources ${OPENGL_LIBRARY})
+set(LIBS imgui flips PFFFT::PFFFT glm nlohmann_json::nlohmann_json yogacore resources ${OPENGL_LIBRARY})
 set(CONSOLE_NETPLAY_LIBS nlohmann_json::nlohmann_json)
 
 if (NOT ${CMAKE_SYSTEM_NAME} MATCHES "Emscripten")
-    set(LIBS ${LIBS} SDL2::SDL2-static libglew_static nfd stdc++fs enet LibDataChannel::LibDataChannelStatic ixwebsocket::ixwebsocket)
-    set(CONSOLE_NETPLAY_LIBS ${CONSOLE_NETPLAY_LIBS} stdc++fs enet LibDataChannel::LibDataChannelStatic ixwebsocket::ixwebsocket)
+    if(ANDROID)
+        set(LIBS ${LIBS} SDL2::SDL2 enet LibDataChannel::LibDataChannelStatic ixwebsocket::ixwebsocket)
+        set(CONSOLE_NETPLAY_LIBS ${CONSOLE_NETPLAY_LIBS} enet LibDataChannel::LibDataChannelStatic ixwebsocket::ixwebsocket)
+    else()
+        set(LIBS -static-libgcc -static-libstdc++ ${LIBS} SDL2::SDL2-static libglew_static nfd stdc++fs enet LibDataChannel::LibDataChannelStatic ixwebsocket::ixwebsocket)
+        set(CONSOLE_NETPLAY_LIBS ${CONSOLE_NETPLAY_LIBS} stdc++fs enet LibDataChannel::LibDataChannelStatic ixwebsocket::ixwebsocket)
+    endif()
 else()
 set(LIBS ${LIBS} -lopenal)
 endif()
@@ -595,9 +637,6 @@ if(WIN32)
     set(LIBS ${LIBS} -ldwmapi -lmswsock -lwinhttp)
     set(CONSOLE_NETPLAY_LIBS ${CONSOLE_NETPLAY_LIBS} -lmswsock -lwinhttp)
 endif()
-
-set(CMAKE_CXX_STANDARD 20)
-set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 add_library(GeraNESLib STATIC ${GERANES_CORE_LIBRARY_SOURCES})
 target_compile_features(GeraNESLib PUBLIC cxx_std_20)
@@ -663,24 +702,32 @@ if(MINGW)
     target_link_options(GeraNESAppLib PRIVATE -static-libgcc -static-libstdc++)
 endif()
 
-add_executable(${CMAKE_PROJECT_NAME} ${GERANES_EXE_SOURCES})
-target_compile_features(${CMAKE_PROJECT_NAME} PUBLIC cxx_std_20)
-if(NOT EMSCRIPTEN)
-    add_dependencies(${CMAKE_PROJECT_NAME} copy_runtime_data)
+if(ANDROID)
+    add_library(main SHARED ${GERANES_EXE_SOURCES})
+    set(GERANES_APP_TARGET main)
+    set_target_properties(main PROPERTIES OUTPUT_NAME "main")
+else()
+    add_executable(${CMAKE_PROJECT_NAME} ${GERANES_EXE_SOURCES})
+    set(GERANES_APP_TARGET ${CMAKE_PROJECT_NAME})
+endif()
+
+target_compile_features(${GERANES_APP_TARGET} PUBLIC cxx_std_20)
+if(NOT EMSCRIPTEN AND NOT ANDROID)
+    add_dependencies(${GERANES_APP_TARGET} copy_runtime_data)
 endif()
 if(MINGW)
-    target_compile_options(${CMAKE_PROJECT_NAME} PRIVATE -Wa,-mbig-obj)
+    target_compile_options(${GERANES_APP_TARGET} PRIVATE -Wa,-mbig-obj)
 endif()
 if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
-    target_compile_options(${CMAKE_PROJECT_NAME} PRIVATE -Wno-template-body)
+    target_compile_options(${GERANES_APP_TARGET} PRIVATE -Wno-template-body)
 endif()
-target_link_libraries(${CMAKE_PROJECT_NAME} PRIVATE GeraNESAppLib ConsoleNetplay GeraNESLib)
-target_link_libraries(${CMAKE_PROJECT_NAME} PRIVATE geranes_warnings)
+target_link_libraries(${GERANES_APP_TARGET} PRIVATE GeraNESAppLib ConsoleNetplay GeraNESLib)
+target_link_libraries(${GERANES_APP_TARGET} PRIVATE geranes_warnings)
 if(NOT EMSCRIPTEN)
-    target_link_libraries(${CMAKE_PROJECT_NAME} PRIVATE SDL2::SDL2main)
+    target_link_libraries(${GERANES_APP_TARGET} PRIVATE SDL2::SDL2main)
 endif()
 if(WIN32)
-    set_target_properties(${CMAKE_PROJECT_NAME} PROPERTIES
+    set_target_properties(${GERANES_APP_TARGET} PROPERTIES
         WIN32_EXECUTABLE $<NOT:$<CONFIG:Debug>>
     )
 endif()
@@ -688,10 +735,10 @@ if(MINGW)
     get_filename_component(MINGW_BIN_DIR "${CMAKE_CXX_COMPILER}" DIRECTORY)
     set(MINGW_WINPTHREAD_DLL "${MINGW_BIN_DIR}/libwinpthread-1.dll")
     if(EXISTS "${MINGW_WINPTHREAD_DLL}")
-        add_custom_command(TARGET ${CMAKE_PROJECT_NAME} POST_BUILD
+        add_custom_command(TARGET ${GERANES_APP_TARGET} POST_BUILD
             COMMAND ${CMAKE_COMMAND} -E copy_if_different
                 "${MINGW_WINPTHREAD_DLL}"
-                "$<TARGET_FILE_DIR:${CMAKE_PROJECT_NAME}>/libwinpthread-1.dll"
+                "$<TARGET_FILE_DIR:${GERANES_APP_TARGET}>/libwinpthread-1.dll"
         )
     endif()
 endif()
@@ -703,94 +750,96 @@ configure_file(
     @ONLY
 )
 
-add_executable(GeraNESTests
-    tests/StateReplayTests.cpp
-    tests/NetplayTests.cpp
-)
-target_compile_features(GeraNESTests PUBLIC cxx_std_20)
-target_include_directories(GeraNESTests PRIVATE
-    "${CMAKE_CURRENT_BINARY_DIR}/generated"
-    "${CMAKE_CURRENT_SOURCE_DIR}/tests"
-    "${CMAKE_CURRENT_SOURCE_DIR}/src"
-)
-target_precompile_headers(GeraNESTests PRIVATE
-    <catch2/catch_test_macros.hpp>
-    <algorithm>
-    <chrono>
-    <cstdint>
-    <optional>
-    <random>
-    <string>
-    <thread>
-    <vector>
-)
-if(MINGW)
-    target_compile_options(GeraNESTests PRIVATE -Wa,-mbig-obj)
-endif()
-if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
-    target_compile_options(GeraNESTests PRIVATE -Wno-template-body)
-endif()
-if(NOT EMSCRIPTEN)
-    target_compile_definitions(GeraNESTests PRIVATE ASIO_STANDALONE _WEBSOCKETPP_CPP11_STL_ _WEBSOCKETPP_CPP11_THREAD_ RTC_STATIC)
-endif()
-target_link_libraries(GeraNESTests PRIVATE GeraNESAppLib ConsoleNetplay GeraNESLib Catch2::Catch2WithMain)
-target_link_libraries(GeraNESTests PRIVATE geranes_warnings)
-if(NOT EMSCRIPTEN)
-    target_link_libraries(GeraNESTests PRIVATE asio_headers)
-endif()
-if(WIN32)
-    target_link_libraries(GeraNESTests PRIVATE mswsock)
-endif()
+if(NOT ANDROID)
+    add_executable(GeraNESTests
+        tests/StateReplayTests.cpp
+        tests/NetplayTests.cpp
+    )
+    target_compile_features(GeraNESTests PUBLIC cxx_std_20)
+    target_include_directories(GeraNESTests PRIVATE
+        "${CMAKE_CURRENT_BINARY_DIR}/generated"
+        "${CMAKE_CURRENT_SOURCE_DIR}/tests"
+        "${CMAKE_CURRENT_SOURCE_DIR}/src"
+    )
+    target_precompile_headers(GeraNESTests PRIVATE
+        <catch2/catch_test_macros.hpp>
+        <algorithm>
+        <chrono>
+        <cstdint>
+        <optional>
+        <random>
+        <string>
+        <thread>
+        <vector>
+    )
+    if(MINGW)
+        target_compile_options(GeraNESTests PRIVATE -Wa,-mbig-obj)
+    endif()
+    if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+        target_compile_options(GeraNESTests PRIVATE -Wno-template-body)
+    endif()
+    if(NOT EMSCRIPTEN)
+        target_compile_definitions(GeraNESTests PRIVATE ASIO_STANDALONE _WEBSOCKETPP_CPP11_STL_ _WEBSOCKETPP_CPP11_THREAD_ RTC_STATIC)
+    endif()
+    target_link_libraries(GeraNESTests PRIVATE GeraNESAppLib ConsoleNetplay GeraNESLib Catch2::Catch2WithMain)
+    target_link_libraries(GeraNESTests PRIVATE geranes_warnings)
+    if(NOT EMSCRIPTEN)
+        target_link_libraries(GeraNESTests PRIVATE asio_headers)
+    endif()
+    if(WIN32)
+        target_link_libraries(GeraNESTests PRIVATE mswsock)
+    endif()
 
-list(APPEND CMAKE_MODULE_PATH ${catch2_SOURCE_DIR}/extras)
-include(Catch)
-catch_discover_tests(GeraNESTests
-    PROPERTIES
-        RUN_SERIAL TRUE
-)
+    list(APPEND CMAKE_MODULE_PATH ${catch2_SOURCE_DIR}/extras)
+    include(Catch)
+    catch_discover_tests(GeraNESTests
+        PROPERTIES
+            RUN_SERIAL TRUE
+    )
 
-add_executable(GeraNESStateReplayTests
-    tests/StateReplayTests.cpp
-)
-target_compile_features(GeraNESStateReplayTests PUBLIC cxx_std_20)
-target_include_directories(GeraNESStateReplayTests PRIVATE
-    "${CMAKE_CURRENT_BINARY_DIR}/generated"
-    "${CMAKE_CURRENT_SOURCE_DIR}/tests"
-    "${CMAKE_CURRENT_SOURCE_DIR}/src"
-)
-target_precompile_headers(GeraNESStateReplayTests PRIVATE
-    <catch2/catch_test_macros.hpp>
-    <algorithm>
-    <chrono>
-    <cstdint>
-    <optional>
-    <random>
-    <string>
-    <thread>
-    <vector>
-)
-if(MINGW)
-    target_compile_options(GeraNESStateReplayTests PRIVATE -Wa,-mbig-obj)
-endif()
-if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
-    target_compile_options(GeraNESStateReplayTests PRIVATE -Wno-template-body)
-endif()
-if(NOT EMSCRIPTEN)
-    target_compile_definitions(GeraNESStateReplayTests PRIVATE ASIO_STANDALONE _WEBSOCKETPP_CPP11_STL_ _WEBSOCKETPP_CPP11_THREAD_ RTC_STATIC)
-endif()
-target_link_libraries(GeraNESStateReplayTests PRIVATE GeraNESAppLib ConsoleNetplay GeraNESLib Catch2::Catch2WithMain)
-target_link_libraries(GeraNESStateReplayTests PRIVATE geranes_warnings)
-if(NOT EMSCRIPTEN)
-    target_link_libraries(GeraNESStateReplayTests PRIVATE asio_headers)
-endif()
-if(WIN32)
-    target_link_libraries(GeraNESStateReplayTests PRIVATE mswsock)
-endif()
+    add_executable(GeraNESStateReplayTests
+        tests/StateReplayTests.cpp
+    )
+    target_compile_features(GeraNESStateReplayTests PUBLIC cxx_std_20)
+    target_include_directories(GeraNESStateReplayTests PRIVATE
+        "${CMAKE_CURRENT_BINARY_DIR}/generated"
+        "${CMAKE_CURRENT_SOURCE_DIR}/tests"
+        "${CMAKE_CURRENT_SOURCE_DIR}/src"
+    )
+    target_precompile_headers(GeraNESStateReplayTests PRIVATE
+        <catch2/catch_test_macros.hpp>
+        <algorithm>
+        <chrono>
+        <cstdint>
+        <optional>
+        <random>
+        <string>
+        <thread>
+        <vector>
+    )
+    if(MINGW)
+        target_compile_options(GeraNESStateReplayTests PRIVATE -Wa,-mbig-obj)
+    endif()
+    if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+        target_compile_options(GeraNESStateReplayTests PRIVATE -Wno-template-body)
+    endif()
+    if(NOT EMSCRIPTEN)
+        target_compile_definitions(GeraNESStateReplayTests PRIVATE ASIO_STANDALONE _WEBSOCKETPP_CPP11_STL_ _WEBSOCKETPP_CPP11_THREAD_ RTC_STATIC)
+    endif()
+    target_link_libraries(GeraNESStateReplayTests PRIVATE GeraNESAppLib ConsoleNetplay GeraNESLib Catch2::Catch2WithMain)
+    target_link_libraries(GeraNESStateReplayTests PRIVATE geranes_warnings)
+    if(NOT EMSCRIPTEN)
+        target_link_libraries(GeraNESStateReplayTests PRIVATE asio_headers)
+    endif()
+    if(WIN32)
+        target_link_libraries(GeraNESStateReplayTests PRIVATE mswsock)
+    endif()
 
-catch_discover_tests(GeraNESStateReplayTests
-    PROPERTIES
-        RUN_SERIAL TRUE
-)
+    catch_discover_tests(GeraNESStateReplayTests
+        PROPERTIES
+            RUN_SERIAL TRUE
+    )
+endif()
 
 set(LIBRETRO_CORE_NAME "geranes_libretro")
 

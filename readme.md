@@ -19,7 +19,7 @@ If your goal is accuracy first, GeraNES is designed around that philosophy.
 - Loads ROMs from .zip archives and supports .ips, .ups, and .bps patch files with automatic same-name ROM patching
 - Flexible input support with keyboard, gamepads, and touch-friendly layouts on supported builds
 - Emulates NES/Famicom peripherals beyond standard controllers, including Zapper, Power Pad, mice, multitaps, and more
-- Built with cross-platform libraries and CMake for Windows, Linux, macOS, and web builds (Emscripten)
+- Built with cross-platform libraries and CMake for Windows, Linux, macOS, web builds (Emscripten), and Android native builds
 - Also available as a libretro core
 - Web version available for quick testing and sharing
 
@@ -33,3 +33,55 @@ Generated reports are available here:
 - [Test report](https://gracioni.github.io/GeraNES/tools/generated/geranes_test_report.html)
 
 You can refresh both reports with `tools/update_reports.sh`.
+
+## Android builds
+
+`build.sh android` now drives the full Android packaging flow:
+
+- requires Android settings in `android/build-config.jsonc`
+- generates an Android Gradle project from the repo template
+- builds the native SDL `main` shared library through Gradle/CMake
+- packages either an `.apk` or an `.aab`
+- applies release signing when a keystore is provided
+
+Required config file flow:
+
+- copy `android/build-config.example.jsonc` to `android/build-config.jsonc`
+- fill in the SDK, NDK, JDK, package, and optional signing fields
+- run `./build.sh android ...`
+
+Resolution rules:
+
+- `android/build-config.jsonc`
+- platform defaults inside the script/Gradle template
+
+Important JSONC fields:
+
+- `sdkRoot`
+- `ndkRoot`
+- `javaHome`
+- `packageFormat`
+- `abis`
+- `api`
+- `stl`
+- `appName`
+- `applicationId`
+- `namespace`
+- `versionCode`
+- `versionName`
+- `compileSdk`
+- `targetSdk`
+- `signing.keystorePath`
+- `signing.keystorePassword`
+- `signing.keyAlias`
+- `signing.keyPassword`
+
+Example signed AAB build with a project config file:
+
+```sh
+cp android/build-config.example.jsonc android/build-config.jsonc
+# edit android/build-config.jsonc
+./build.sh android Release 8
+```
+
+More Android-specific details are documented in [android/README.md](android/README.md).

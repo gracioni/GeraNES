@@ -1,6 +1,6 @@
 #pragma once
 
-#ifdef __EMSCRIPTEN__
+#if defined(__EMSCRIPTEN__) || defined(__ANDROID__)
     #include <GLES3/gl3.h>
 #else
     #include <GL/glew.h>

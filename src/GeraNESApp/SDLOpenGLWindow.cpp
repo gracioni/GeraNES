@@ -284,6 +284,12 @@ bool SDLOpenGLWindow::create(const std::string& title, int x, int y, int w, int 
 {
     Logger::instance().log("Initializing SDL window...", Logger::Type::INFO);
 
+#ifdef __ANDROID__
+    SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_ES);
+    SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 3);
+    SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 0);
+#endif
+
     m_window = SDL_CreateWindow(title.c_str(), x, y, w, h, flags | SDL_WINDOW_OPENGL);
 
     if(m_window == NULL) {
@@ -647,6 +653,16 @@ int SDLOpenGLWindow::getDisplayFrameRate()
 glm::vec2 SDLOpenGLWindow::GetWindowDPI()
 {
     const float baseDpi = 96.0f;
+    const int displayIndex = m_window != NULL ? SDL_GetWindowDisplayIndex(m_window) : 0;
+
+    float diagonalDpi = 0.0f;
+    float horizontalDpi = 0.0f;
+    float verticalDpi = 0.0f;
+    if(displayIndex >= 0 && SDL_GetDisplayDPI(displayIndex, &diagonalDpi, &horizontalDpi, &verticalDpi) == 0) {
+        const float dpiX = horizontalDpi > 0.0f ? horizontalDpi : (diagonalDpi > 0.0f ? diagonalDpi : baseDpi);
+        const float dpiY = verticalDpi > 0.0f ? verticalDpi : (diagonalDpi > 0.0f ? diagonalDpi : baseDpi);
+        return glm::vec2(dpiX, dpiY);
+    }
 
     int winW = 0;
     int winH = 0;
