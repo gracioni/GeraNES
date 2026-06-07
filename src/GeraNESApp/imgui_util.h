@@ -65,20 +65,41 @@ extern "C" {
         return viewport->WorkSize;
     }
 
+    static float EffectiveUiScale()
+    {
+        const float baseFontSize = 13.0f;
+        const float currentFontSize = ImGui::GetFontSize();
+        if(currentFontSize <= 0.0f) {
+            return 1.0f;
+        }
+        return std::max(1.0f, currentFontSize / baseFontSize);
+    }
+
+    static ImVec2 ScaleUiSize(const ImVec2& size)
+    {
+        const float scale = EffectiveUiScale();
+        return ImVec2(size.x > 0.0f ? size.x * scale : size.x,
+                      size.y > 0.0f ? size.y * scale : size.y);
+    }
+
     static ImVec2 ClampWindowSizeToMainViewport(const ImVec2& requestedSize,
                                                 float padding = 16.0f,
                                                 const ImVec2& minimumSize = ImVec2(160.0f, 80.0f))
     {
+        const float scale = EffectiveUiScale();
         const ImVec2 workSize = MainViewportWorkSizeOrFallback();
-        const float maxWidth = std::max(minimumSize.x, workSize.x - padding);
-        const float maxHeight = std::max(minimumSize.y, workSize.y - padding);
+        const ImVec2 scaledRequestedSize = ScaleUiSize(requestedSize);
+        const ImVec2 scaledMinimumSize = ScaleUiSize(minimumSize);
+        const float scaledPadding = padding * scale;
+        const float maxWidth = std::max(scaledMinimumSize.x, workSize.x - scaledPadding);
+        const float maxHeight = std::max(scaledMinimumSize.y, workSize.y - scaledPadding);
 
-        ImVec2 size = requestedSize;
+        ImVec2 size = scaledRequestedSize;
         if(size.x > 0.0f) {
-            size.x = std::clamp(size.x, minimumSize.x, maxWidth);
+            size.x = std::clamp(size.x, scaledMinimumSize.x, maxWidth);
         }
         if(size.y > 0.0f) {
-            size.y = std::clamp(size.y, minimumSize.y, maxHeight);
+            size.y = std::clamp(size.y, scaledMinimumSize.y, maxHeight);
         }
         return size;
     }
@@ -119,17 +140,24 @@ extern "C" {
                                                     float padding = 16.0f,
                                                     const ImVec2& fallbackMin = ImVec2(160.0f, 80.0f))
     {
+        const float scale = EffectiveUiScale();
         const ImVec2 workSize = MainViewportWorkSizeOrFallback();
-        const float maxAllowedX = std::max(fallbackMin.x, workSize.x - padding);
-        const float maxAllowedY = std::max(fallbackMin.y, workSize.y - padding);
+        const ImVec2 scaledRequestedMin = ScaleUiSize(requestedMin);
+        const ImVec2 scaledFallbackMin = ScaleUiSize(fallbackMin);
+        ImVec2 scaledRequestedMax = requestedMax;
+        if(scaledRequestedMax.x < FLT_MAX) scaledRequestedMax.x *= scale;
+        if(scaledRequestedMax.y < FLT_MAX) scaledRequestedMax.y *= scale;
+        const float scaledPadding = padding * scale;
+        const float maxAllowedX = std::max(scaledFallbackMin.x, workSize.x - scaledPadding);
+        const float maxAllowedY = std::max(scaledFallbackMin.y, workSize.y - scaledPadding);
 
         ImVec2 minSize(
-            std::min(std::max(requestedMin.x, 1.0f), maxAllowedX),
-            std::min(std::max(requestedMin.y, 1.0f), maxAllowedY)
+            std::min(std::max(scaledRequestedMin.x, 1.0f), maxAllowedX),
+            std::min(std::max(scaledRequestedMin.y, 1.0f), maxAllowedY)
         );
         ImVec2 maxSize(
-            requestedMax.x >= FLT_MAX ? maxAllowedX : std::min(std::max(requestedMax.x, minSize.x), maxAllowedX),
-            requestedMax.y >= FLT_MAX ? maxAllowedY : std::min(std::max(requestedMax.y, minSize.y), maxAllowedY)
+            scaledRequestedMax.x >= FLT_MAX ? maxAllowedX : std::min(std::max(scaledRequestedMax.x, minSize.x), maxAllowedX),
+            scaledRequestedMax.y >= FLT_MAX ? maxAllowedY : std::min(std::max(scaledRequestedMax.y, minSize.y), maxAllowedY)
         );
 
         maxSize.x = std::max(maxSize.x, minSize.x);

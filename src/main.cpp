@@ -9,6 +9,7 @@
 #endif
 
 #include "GeraNES/defines.h"
+#include "GeraNES/GameDatabase.h"
 #include "CrashHandler.h"
 #include "GeraNESApp/GeraNESApp.h"
 #include "HealthCheck.h"
@@ -130,7 +131,18 @@ int main(int argc, char* argv[])
     catch(...) {
     }
 
+#ifndef __ANDROID__
     AppSettings::setStorageDirectory(std::filesystem::current_path());
+#endif
+    {
+        const std::filesystem::path cwd = std::filesystem::current_path();
+        const std::filesystem::path dataDbPath = cwd / "data" / "db.txt";
+        if(std::filesystem::exists(dataDbPath)) {
+            GameDatabase::setDatabasePath(dataDbPath.string());
+        } else {
+            GameDatabase::setDatabasePath((cwd / "db.txt").string());
+        }
+    }
     CrashHandler::install();
 
     if(argc >= 2 && std::string(argv[1]) == "--help") {

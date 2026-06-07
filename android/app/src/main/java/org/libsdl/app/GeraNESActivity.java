@@ -19,6 +19,7 @@ import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
+import org.json.JSONObject;
 
 public class GeraNESActivity extends SDLActivity {
     private static final String TAG = "GeraNESActivity";
@@ -111,6 +112,28 @@ public class GeraNESActivity extends SDLActivity {
         }
     }
 
+    public String geranesCopyDocumentUriToCache(String uriString) {
+        if(uriString == null || uriString.isEmpty()) {
+            return null;
+        }
+
+        try {
+            final Uri uri = Uri.parse(uriString);
+            final String displayName = chooseDisplayName(uri);
+            final File target = new File(createTransientCacheDirectory("recent-file"), displayName);
+            copyUriToFile(uri, target);
+
+            final JSONObject payload = new JSONObject();
+            payload.put("cachePath", target.getAbsolutePath());
+            payload.put("displayName", displayName);
+            payload.put("uri", uri.toString());
+            return payload.toString();
+        } catch(Exception e) {
+            Log.e(TAG, "Failed copying persisted document URI to cache", e);
+            return null;
+        }
+    }
+
     @Override
     protected void onActivityResult(int requestCode, int resultCode, Intent data) {
         super.onActivityResult(requestCode, resultCode, data);
@@ -147,7 +170,11 @@ public class GeraNESActivity extends SDLActivity {
                 final File target = new File(createRequestCacheDirectory("picked-files", requestId), chooseDisplayName(uri));
                 copyUriToFile(uri, target);
                 Log.i(TAG, "Copied picked document to " + target.getAbsolutePath());
-                nativeOnOpenPickerResult(requestId, target.getAbsolutePath(), null);
+                final JSONObject payload = new JSONObject();
+                payload.put("cachePath", target.getAbsolutePath());
+                payload.put("displayName", chooseDisplayName(uri));
+                payload.put("uri", uri.toString());
+                nativeOnOpenPickerResult(requestId, payload.toString(), null);
             } catch(Exception e) {
                 Log.e(TAG, "Failed copying picked document", e);
                 nativeOnOpenPickerResult(requestId, null, e.getMessage());
@@ -211,6 +238,15 @@ public class GeraNESActivity extends SDLActivity {
 
     private File createRequestCacheDirectory(String category, int requestId) throws IOException {
         final File root = new File(getCacheDir(), "geranes-picker/" + category + "-" + requestId);
+        deleteRecursively(root);
+        if(!root.mkdirs() && !root.isDirectory()) {
+            throw new IOException("Could not create picker cache directory.");
+        }
+        return root;
+    }
+
+    private File createTransientCacheDirectory(String category) throws IOException {
+        final File root = new File(getCacheDir(), "geranes-picker/" + category + "-" + System.currentTimeMillis());
         deleteRecursively(root);
         if(!root.mkdirs() && !root.isDirectory()) {
             throw new IOException("Could not create picker cache directory.");

@@ -752,6 +752,36 @@ std::vector<std::string> anyFileMimeTypes()
 {
     return {"*/*"};
 }
+
+std::string buildAndroidRecentFileEntry(const std::string& uri, const std::string& displayName)
+{
+    nlohmann::json entry = {
+        {"kind", "android-document"},
+        {"uri", uri},
+        {"displayName", displayName}
+    };
+    return std::string("android-recent:") + entry.dump();
+}
+
+bool parseAndroidRecentFileEntry(const std::string& value, std::string& outUri, std::string& outDisplayName)
+{
+    constexpr const char* prefix = "android-recent:";
+    if(value.rfind(prefix, 0) != 0) {
+        return false;
+    }
+
+    try {
+        const nlohmann::json entry = nlohmann::json::parse(value.substr(std::char_traits<char>::length(prefix)));
+        if(!entry.is_object()) {
+            return false;
+        }
+        outUri = entry.value("uri", "");
+        outDisplayName = entry.value("displayName", "");
+        return !outUri.empty();
+    } catch(...) {
+        return false;
+    }
+}
 #endif
 }
 
@@ -2665,7 +2695,22 @@ bool GeraNESApp::openRomPath(const fs::path& path, bool updateRecentFiles, bool 
     const std::string effectivePath = modLoad.effectiveRomPath.string();
 
     if(updateRecentFiles) {
+#ifdef __ANDROID__
+        if(!m_androidLastOpenedDocumentUri.empty()) {
+            const std::string recentDisplayName =
+                !m_androidLastOpenedDocumentDisplayName.empty()
+                    ? m_androidLastOpenedDocumentDisplayName
+                    : path.filename().string();
+            AppSettings::instance().data.addRecentFile(
+                buildAndroidRecentFileEntry(m_androidLastOpenedDocumentUri, recentDisplayName));
+            m_androidLastOpenedDocumentUri.clear();
+            m_androidLastOpenedDocumentDisplayName.clear();
+        } else {
+            AppSettings::instance().data.addRecentFile(path.string());
+        }
+#else
         AppSettings::instance().data.addRecentFile(path.string());
+#endif
         AppSettings::instance().data.setLastFolder(path.string());
     }
     m_hasLastModObservedFrame = false;
@@ -3696,16 +3741,18 @@ void GeraNESApp::openRom()
     }
 
 #ifdef __ANDROID__
-    std::string romPath;
+    AndroidFileDialog::PickedFile pickedRom;
     std::string error;
-    if(!AndroidFileDialog::pickFileToCache(anyFileMimeTypes(), romPath, &error)) {
+    if(!AndroidFileDialog::pickFileToCacheWithMetadata(anyFileMimeTypes(), pickedRom, &error)) {
         if(!error.empty()) {
             Logger::instance().log("ROM picker failed: " + error, Logger::Type::ERROR);
         }
         return;
     }
-    Logger::instance().log("Android ROM picker selected: " + romPath, Logger::Type::INFO);
-    openFile(romPath.c_str());
+    m_androidLastOpenedDocumentUri = pickedRom.uri;
+    m_androidLastOpenedDocumentDisplayName = pickedRom.displayName;
+    Logger::instance().log("Android ROM picker selected: " + pickedRom.cachePath, Logger::Type::INFO);
+    openFile(pickedRom.cachePath.c_str());
 #elif !defined(__EMSCRIPTEN__)
     const bool resumeAfterDialog = m_emu.withExclusiveAccess([](auto& emu) {
         if(!emu.valid()) return false;

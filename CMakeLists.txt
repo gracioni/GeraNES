@@ -50,6 +50,13 @@ if(ANDROID)
     string(APPEND CMAKE_SHARED_LINKER_FLAGS " -Wl,-z,max-page-size=16384")
     string(APPEND CMAKE_MODULE_LINKER_FLAGS " -Wl,-z,max-page-size=16384")
     string(APPEND CMAKE_EXE_LINKER_FLAGS " -Wl,-z,max-page-size=16384")
+    # Android Gradle commonly drives native "release" builds through
+    # RelWithDebInfo. Force aggressive optimization for both release-style
+    # configs so APK performance does not depend on Gradle's config naming.
+    string(APPEND CMAKE_C_FLAGS_RELEASE " -O3 -DNDEBUG")
+    string(APPEND CMAKE_CXX_FLAGS_RELEASE " -O3 -DNDEBUG")
+    string(APPEND CMAKE_C_FLAGS_RELWITHDEBINFO " -O3 -DNDEBUG")
+    string(APPEND CMAKE_CXX_FLAGS_RELWITHDEBINFO " -O3 -DNDEBUG")
 endif()
 
 add_library(geranes_warnings INTERFACE)

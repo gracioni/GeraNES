@@ -467,6 +467,10 @@ private:
     std::string m_selectedPaletteName = "";
     std::string m_paletteNameInput = "";
     fs::path m_loadedRomPath;
+#ifdef __ANDROID__
+    std::string m_androidLastOpenedDocumentUri;
+    std::string m_androidLastOpenedDocumentDisplayName;
+#endif
     struct PendingRomLoad {
         bool active = false;
         fs::path requestedPath;

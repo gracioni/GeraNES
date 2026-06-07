@@ -230,7 +230,7 @@ void AppSettings::Input::sanitizeDefaults()
 void AppSettings::Data::addRecentFile(const std::string path)
 {
     auto it = std::remove_if(recentFiles.begin(), recentFiles.end(),
-                             [path](const std::string& str) { return str.find(path) != std::string::npos; });
+                             [path](const std::string& str) { return str == path; });
 
     recentFiles.erase(it, recentFiles.end());
 

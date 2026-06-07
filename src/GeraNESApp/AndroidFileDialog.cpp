@@ -5,6 +5,7 @@
 #include <SDL.h>
 #include <SDL_system.h>
 #include <jni.h>
+#include <nlohmann/json.hpp>
 
 #include <condition_variable>
 #include <mutex>
@@ -96,6 +97,23 @@ namespace
         result.pathOrUri = value;
         result.error = error;
         g_pickerCv.notify_all();
+    }
+
+    bool parsePickedFilePayload(const std::string& payload, AndroidFileDialog::PickedFile& outFile)
+    {
+        try {
+            const nlohmann::json data = nlohmann::json::parse(payload);
+            if(!data.is_object()) {
+                return false;
+            }
+
+            outFile.cachePath = data.value("cachePath", "");
+            outFile.displayName = data.value("displayName", "");
+            outFile.uri = data.value("uri", "");
+            return !outFile.cachePath.empty();
+        } catch(...) {
+            return false;
+        }
     }
 
     bool invokeOpenFilePicker(const std::vector<std::string>& mimeTypes, std::string& outPath, std::string* outError)
@@ -297,8 +315,79 @@ namespace AndroidFileDialog
 {
     bool pickFileToCache(const std::vector<std::string>& mimeTypes, std::string& outPath, std::string* outError)
     {
+        PickedFile pickedFile;
+        if(!pickFileToCacheWithMetadata(mimeTypes, pickedFile, outError)) {
+            return false;
+        }
+        outPath = pickedFile.cachePath;
+        return true;
+    }
+
+    bool pickFileToCacheWithMetadata(const std::vector<std::string>& mimeTypes, PickedFile& outFile, std::string* outError)
+    {
         const std::vector<std::string> effectiveTypes = mimeTypes.empty() ? std::vector<std::string>{"*/*"} : mimeTypes;
-        return invokeOpenFilePicker(effectiveTypes, outPath, outError);
+        std::string payload;
+        if(!invokeOpenFilePicker(effectiveTypes, payload, outError)) {
+            return false;
+        }
+
+        if(!parsePickedFilePayload(payload, outFile)) {
+            if(outError != nullptr) {
+                *outError = "Android picker returned an invalid document payload.";
+            }
+            return false;
+        }
+        return true;
+    }
+
+    bool copyDocumentUriToCache(const std::string& uri, PickedFile& outFile, std::string* outError)
+    {
+        JNIEnv* env = currentEnv();
+        jobject activity = currentActivity();
+        if(env == nullptr || activity == nullptr) {
+            if(outError != nullptr) *outError = "SDL Android activity is unavailable.";
+            return false;
+        }
+
+        jclass activityClass = env->GetObjectClass(activity);
+        if(activityClass == nullptr) {
+            if(outError != nullptr) *outError = "Could not resolve Android activity class.";
+            return false;
+        }
+
+        const jmethodID method = env->GetMethodID(activityClass, "geranesCopyDocumentUriToCache", "(Ljava/lang/String;)Ljava/lang/String;");
+        if(method == nullptr) {
+            env->DeleteLocalRef(activityClass);
+            if(outError != nullptr) *outError = "Android activity does not implement geranesCopyDocumentUriToCache.";
+            return false;
+        }
+
+        jstring uriString = env->NewStringUTF(uri.c_str());
+        jstring payloadString = static_cast<jstring>(env->CallObjectMethod(activity, method, uriString));
+        if(env->ExceptionCheck()) {
+            env->ExceptionClear();
+            env->DeleteLocalRef(uriString);
+            env->DeleteLocalRef(activityClass);
+            if(outError != nullptr) *outError = "Android document cache copy threw an exception.";
+            return false;
+        }
+
+        const std::string payload = fromJString(env, payloadString);
+        env->DeleteLocalRef(payloadString);
+        env->DeleteLocalRef(uriString);
+        env->DeleteLocalRef(activityClass);
+
+        if(payload.empty()) {
+            if(outError != nullptr) *outError = "Android document cache copy returned no data.";
+            return false;
+        }
+
+        if(!parsePickedFilePayload(payload, outFile)) {
+            if(outError != nullptr) *outError = "Android document cache copy returned invalid data.";
+            return false;
+        }
+
+        return true;
     }
 
     bool pickFolderToCache(std::string& outPath, std::string* outError)
@@ -339,6 +428,16 @@ extern "C"
 namespace AndroidFileDialog
 {
     bool pickFileToCache(const std::vector<std::string>&, std::string&, std::string*)
+    {
+        return false;
+    }
+
+    bool pickFileToCacheWithMetadata(const std::vector<std::string>&, PickedFile&, std::string*)
+    {
+        return false;
+    }
+
+    bool copyDocumentUriToCache(const std::string&, PickedFile&, std::string*)
     {
         return false;
     }

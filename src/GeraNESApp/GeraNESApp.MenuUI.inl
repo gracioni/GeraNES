@@ -97,9 +97,33 @@ inline void GeraNESApp::menuBar() {
                     const std::string displayName = fs::path(recentFiles[i]).filename().string();
                     const std::string menuLabel = (displayName.empty() ? recentFiles[i] : displayName) + "##" + recentFiles[i];
                     if(ImGui::MenuItem(menuLabel.c_str())) {
+#elif defined(__ANDROID__)
+                    std::string androidRecentUri;
+                    std::string androidRecentDisplayName;
+                    if(parseAndroidRecentFileEntry(recentFiles[i], androidRecentUri, androidRecentDisplayName)) {
+                        const std::string menuLabel =
+                            (androidRecentDisplayName.empty() ? androidRecentUri : androidRecentDisplayName) +
+                            "##" + recentFiles[i];
+                        if(ImGui::MenuItem(menuLabel.c_str())) {
+                            AndroidFileDialog::PickedFile pickedRom;
+                            std::string error;
+                            if(AndroidFileDialog::copyDocumentUriToCache(androidRecentUri, pickedRom, &error)) {
+                                m_androidLastOpenedDocumentUri = pickedRom.uri;
+                                m_androidLastOpenedDocumentDisplayName = pickedRom.displayName;
+                                openFile(pickedRom.cachePath.c_str());
+                            } else if(!error.empty()) {
+                                Logger::instance().log("Failed to reopen recent Android document: " + error, Logger::Type::ERROR);
+                            }
+                        }
+                    } else {
+                        const std::string displayName = fs::path(recentFiles[i]).filename().string();
+                        const std::string menuLabel = (displayName.empty() ? recentFiles[i] : displayName) + "##" + recentFiles[i];
+                        if(ImGui::MenuItem(menuLabel.c_str())) {
+                            openFile(recentFiles[i].c_str());
+                        }
+                    }
 #else
                     if(ImGui::MenuItem(recentFiles[i].c_str())) {
-#endif
                         openFile(recentFiles[i].c_str());
                     }
                 }
