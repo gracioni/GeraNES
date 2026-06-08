@@ -92,6 +92,9 @@ using namespace GeraNES;
 
 const std::string LOG_FILE = "log.txt";
 
+const float kFpsFontSize = 24.0f;
+const float kToastFontSize = 24.0f;
+
 enum class CpuDebugSymbolKind {
     Unknown,
     Function,
@@ -322,8 +325,8 @@ private:
 #endif
     ImFont* m_fontToast = nullptr;
     ImFont* m_fontFps = nullptr;
-    float m_fontToastSize = 24.0f;
-    float m_fontFpsSize = 32.0f;
+    float m_fontToastSize = kToastFontSize;
+    float m_fontFpsSize = kFpsFontSize;
 #ifdef ENABLE_NSF_PLAYER
     NsfVisualizerUI m_nsfVisualizer;
 #endif
