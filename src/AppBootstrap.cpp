@@ -7,6 +7,7 @@
 #endif
 
 #include "GeraNES/GameDatabase.h"
+#include "GeraNES/PathConfig.h"
 #include "GeraNESApp/AppSettings.h"
 
 namespace
@@ -70,6 +71,7 @@ namespace
                 std::filesystem::create_directories(contentRoot);
                 copyMissingFile(internalSettingsPath, contentSettingsPath);
                 std::filesystem::current_path(runtimeDataDir);
+                GeraNES::setContentRoot(contentRoot);
                 AppSettings::setStorageDirectory(internalStorageRoot);
                 AppSettings::setContentDirectory(contentRoot);
                 return;
@@ -81,6 +83,7 @@ namespace
                 const std::filesystem::path exeDir = exePath.parent_path();
                 if(!exeDir.empty()) {
                     std::filesystem::current_path(exeDir);
+                    GeraNES::setContentRoot(exeDir);
                     AppSettings::setStorageDirectory(exeDir);
                     AppSettings::setContentDirectory(exeDir);
                     return;
@@ -90,6 +93,7 @@ namespace
         catch(...) {
         }
 
+        GeraNES::setContentRoot(std::filesystem::current_path());
         AppSettings::setStorageDirectory(std::filesystem::current_path());
         AppSettings::setContentDirectory(std::filesystem::current_path());
     }

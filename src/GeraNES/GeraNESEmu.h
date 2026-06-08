@@ -24,6 +24,7 @@
 #include "HoriAdapter.h"
 #include "BandaiHyperShot.h"
 #include "KonamiHyperShot.h"
+#include "PathConfig.h"
 #include "Settings.h"
 #include "IAudioOutput.h"
 #include "Console.h"
@@ -1535,13 +1536,14 @@ private:
         return static_cast<uint8_t>(std::min<uint8_t>(slot, 9u));
     }
 
-    const std::string saveStateFileName(uint8_t slot) {
+    std::filesystem::path saveStateFileName(uint8_t slot) const
+    {
         const std::string romStem = std::filesystem::path(m_cartridge.romFile().fileName()).stem().string();
-        return std::string(STATES_FOLDER) +
-               romStem +
-               "." +
-               std::to_string(static_cast<unsigned>(clampSaveStateSlot(slot))) +
-               ".state";
+        return resolveContentPath(STATES_FOLDER) /
+               (romStem +
+                "." +
+                std::to_string(static_cast<unsigned>(clampSaveStateSlot(slot))) +
+                ".state");
     }
 
     void preloadNsfMemory()
@@ -2052,7 +2054,10 @@ public:
         Serialize s;
         serialization(s);
         const uint8_t clampedSlot = clampSaveStateSlot(slot);
-        if(s.saveToFile(saveStateFileName(clampedSlot))) {
+        const std::filesystem::path savePath = saveStateFileName(clampedSlot);
+        std::error_code ec;
+        std::filesystem::create_directories(savePath.parent_path(), ec);
+        if(s.saveToFile(savePath.string())) {
             Logger::instance().log("State saved to slot " + std::to_string(static_cast<unsigned>(clampedSlot)), Logger::Type::USER);
         }
         else {
@@ -2075,7 +2080,7 @@ public:
 
         Deserialize d;
         const uint8_t clampedSlot = clampSaveStateSlot(slot);
-        const std::string fileName = saveStateFileName(clampedSlot);
+        const std::filesystem::path fileName = saveStateFileName(clampedSlot);
 
         if(!fs::exists(fileName)) {
             Logger::instance().log(
@@ -2085,7 +2090,7 @@ public:
             return;
         }
 
-        if(d.loadFromFile(fileName)) {
+        if(d.loadFromFile(fileName.string())) {
             serialization(d);
             resyncAudioAfterStateLoad();
             resetVolatileStateAfterStateLoad();

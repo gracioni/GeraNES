@@ -5,6 +5,7 @@
 #include <string>
 
 #include "../defines.h"
+#include "../PathConfig.h"
 #include "../NesCartridgeData/ICartridgeData.h"
 
 #include "../Serialization.h"
@@ -75,9 +76,10 @@ private:
     int m_chrRamSize = 0;
     uint8_t* m_sRam = nullptr;    
 
-    std::string saveRamFile() {
+    std::filesystem::path saveRamFile()
+    {
         auto romFile = cd().romFile();
-        return std::string(SRAM_FOLDER) + basename(romFile.fileName()) + ".sram";
+        return resolveContentPath(SRAM_FOLDER) / (basename(romFile.fileName()) + ".sram");
     }
 
     void loadSaveRamFromFile()
@@ -107,10 +109,11 @@ private:
     {
         if(!cd().hasBattery()) return;
 
-        std::string dir = fs::path(saveRamFile()).parent_path().string();
-        if(!fs::exists(dir)) fs::create_directory(dir);
+        const fs::path savePath = saveRamFile();
+        std::error_code ec;
+        fs::create_directories(savePath.parent_path(), ec);
 
-        std::ofstream f(saveRamFile(), std::ios::binary | std::ios::trunc);
+        std::ofstream f(savePath, std::ios::binary | std::ios::trunc);
         if(f.is_open()) {
             f.write(reinterpret_cast<char*>(m_sRam), cd().saveRamSize());
             f.close();
