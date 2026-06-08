@@ -129,8 +129,10 @@ inline void GeraNESApp::menuBar() {
                     std::string androidRecentUri;
                     std::string androidRecentDisplayName;
                     if(parseAndroidRecentFileEntry(recentFiles[i], androidRecentUri, androidRecentDisplayName)) {
+                        const std::string recentLabel =
+                            !androidRecentDisplayName.empty() ? androidRecentDisplayName : androidRecentUri;
                         const std::string menuLabel = BuildEllipsizedMenuLabel(
-                            androidRecentUri,
+                            recentLabel,
                             recentFiles[i],
                             recentFileLabelWidth
                         );
