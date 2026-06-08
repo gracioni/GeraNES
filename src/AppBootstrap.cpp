@@ -49,7 +49,7 @@ namespace
     {
 #ifdef __ANDROID__
         if(externalStoragePath != nullptr && externalStoragePath[0] != '\0') {
-            return std::filesystem::path(externalStoragePath) / "GeraNES";
+            return std::filesystem::path(externalStoragePath);
         }
 #endif
         return internalRoot / "content";
