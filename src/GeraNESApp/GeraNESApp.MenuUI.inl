@@ -1,7 +1,7 @@
 #pragma once
 
 inline void GeraNESApp::menuBar() {
-    bool show_menu = true;
+    const bool show_menu = m_showMenuBar;
     const bool netplayClientRestricted = isNetplayClientRestricted();
     const bool netplayRomChangeRestricted = isNetplayRomChangeRestricted();
     const bool replayInteractionLocked = isReplaySessionInteractionLocked();
@@ -10,6 +10,16 @@ inline void GeraNESApp::menuBar() {
     const ImVec4 menuBarColor = ImGuiTheme::chromeMenuBar();
     bool menuBarVisible = false;
     bool menuHostBegun = false;
+    bool touchMenuFontPushed = false;
+    float menuToggleButtonSize = 0.0f;
+
+#ifdef __ANDROID__
+    {
+        const ImGuiStyle& style = ImGui::GetStyle();
+        ImGui::PushFont(nullptr, style.FontSizeBase * 1.5f);
+        touchMenuFontPushed = true;
+    }
+#endif
 
     if(show_menu) {
         if(usingCustomChrome) {
@@ -93,10 +103,20 @@ inline void GeraNESApp::menuBar() {
             if (ImGui::BeginMenu(withMenuIcon(FontAwesomeIcons::kClockRotateLeft, "Recent Files").c_str(), recentFiles.size() > 0 && !netplayRomChangeRestricted && !replayInteractionLocked))
             {
                 for(size_t i = 0; i < recentFiles.size(); ++i) {
-                    const float recentFileLabelWidth = std::max(
+                    float recentFileLabelWidth = std::max(
                         80.0f,
                         ImGui::GetContentRegionAvail().x - ImGui::GetStyle().FramePadding.x * 2.0f
                     );
+#if !defined(__ANDROID__) && !defined(__EMSCRIPTEN__)
+                    if(const ImGuiViewport* viewport = ImGui::GetMainViewport(); viewport != nullptr) {
+                        recentFileLabelWidth = std::max(
+                            recentFileLabelWidth,
+                            std::min(640.0f, viewport->WorkSize.x * 0.45f)
+                        );
+                    } else {
+                        recentFileLabelWidth = std::max(recentFileLabelWidth, 480.0f);
+                    }
+#endif
 #ifdef __EMSCRIPTEN__
                     const std::string displayName = fs::path(recentFiles[i]).filename().string();
                     const std::string menuLabel = BuildEllipsizedMenuLabel(
@@ -1124,6 +1144,36 @@ inline void GeraNESApp::menuBar() {
             ImGui::EndMenu();
         }
 
+        menuToggleButtonSize = ImGui::GetFrameHeight();
+        const float collapseButtonX = ImGui::GetWindowContentRegionMax().x - menuToggleButtonSize;
+        if(collapseButtonX > ImGui::GetCursorPosX()) {
+            ImGui::SetCursorPosX(collapseButtonX);
+        }
+        {
+            const char* toggleLabel = m_fontAwesomeIconsLoaded ? FontAwesomeIcons::kCaretUp : "^";
+            const ImVec2 cursor = ImGui::GetCursorScreenPos();
+            const ImVec2 min(cursor.x, cursor.y);
+            const ImVec2 max(cursor.x + menuToggleButtonSize, cursor.y + menuToggleButtonSize);
+            const bool pressed = ImGui::InvisibleButton("##MenuToggleHitVisible", ImVec2(menuToggleButtonSize, menuToggleButtonSize));
+            const bool hovered = ImGui::IsItemHovered();
+            const bool held = ImGui::IsItemActive();
+            ImDrawList* drawList = ImGui::GetWindowDrawList();
+            if(held) {
+                drawList->AddRectFilled(min, max, ImGui::GetColorU32(ImGuiCol_HeaderActive));
+            } else if(hovered) {
+                drawList->AddRectFilled(min, max, ImGui::GetColorU32(ImGuiCol_HeaderHovered));
+            }
+            const ImVec2 textSize = ImGui::CalcTextSize(toggleLabel);
+            const ImVec2 textPos(
+                min.x + (menuToggleButtonSize - textSize.x) * 0.5f,
+                min.y + (menuToggleButtonSize - textSize.y) * 0.5f
+            );
+            drawList->AddText(textPos, ImGui::GetColorU32(ImGuiTheme::textOnAccent()), toggleLabel);
+            if(pressed) {
+                m_showMenuBar = false;
+            }
+        }
+
         ImGui::PopStyleVar();
 
         if(usingCustomChrome) {
@@ -1138,7 +1188,7 @@ inline void GeraNESApp::menuBar() {
         m_menuBarHeight = 0;
     }
 
-    if(usingCustomChrome) {
+    if(show_menu && usingCustomChrome) {
         if(menuHostBegun) {
             ImGui::End();
         }
@@ -1146,6 +1196,53 @@ inline void GeraNESApp::menuBar() {
         ImGui::PopStyleVar(3);
     } else if(show_menu) {
         ImGui::PopStyleColor();
+    }
+
+    if(!show_menu) {
+        ImGuiViewport* mainViewport = ImGui::GetMainViewport();
+        if(mainViewport != nullptr) {
+            const float buttonSize = std::max(menuToggleButtonSize > 0.0f ? menuToggleButtonSize : ImGui::GetFrameHeight(), 32.0f);
+            const float buttonY = mainViewport->Pos.y + (usingCustomChrome ? customTitleBarHeight() : 0.0f);
+            ImGui::SetNextWindowViewport(mainViewport->ID);
+            ImGui::SetNextWindowPos(ImVec2(mainViewport->Pos.x + mainViewport->Size.x - buttonSize, buttonY));
+            ImGui::SetNextWindowSize(ImVec2(buttonSize, buttonSize));
+            ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 0.0f);
+            ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0.0f);
+            ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f));
+            ImGui::SetNextWindowBgAlpha(0.0f);
+            if(ImGui::Begin(
+                "##GeraNESMenuToggleButton",
+                nullptr,
+                ImGuiWindowFlags_NoDecoration |
+                ImGuiWindowFlags_NoMove |
+                ImGuiWindowFlags_NoSavedSettings |
+                ImGuiWindowFlags_NoDocking |
+                ImGuiWindowFlags_NoBringToFrontOnFocus |
+                ImGuiWindowFlags_NoBackground
+            )) {
+                const char* toggleLabel = m_fontAwesomeIconsLoaded ? FontAwesomeIcons::kCaretDown : "v";
+                const ImVec2 cursor = ImGui::GetCursorScreenPos();
+                const bool pressed = ImGui::InvisibleButton("##MenuToggleHitHidden", ImVec2(buttonSize, buttonSize));
+                const ImVec2 textSize = ImGui::CalcTextSize(toggleLabel);
+                const ImVec2 textPos(
+                    cursor.x + (buttonSize - textSize.x) * 0.5f,
+                    cursor.y + (buttonSize - textSize.y) * 0.5f
+                );
+                ImGui::GetWindowDrawList()->AddText(
+                    textPos,
+                    ImGui::GetColorU32(ImGuiTheme::textOnAccent()),
+                    toggleLabel
+                );
+                if(pressed) {
+                    m_showMenuBar = true;
+                }
+            }
+            ImGui::End();
+            ImGui::PopStyleVar(3);
+        }
+    }
+    if(touchMenuFontPushed) {
+        ImGui::PopFont();
     }
 }
 

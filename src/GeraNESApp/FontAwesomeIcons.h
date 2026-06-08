@@ -10,6 +10,8 @@ inline constexpr const char* kVolumeHigh = "\xef\x80\xa8";
 inline constexpr const char* kPlay = "\xef\x81\x8b";
 inline constexpr const char* kPause = "\xef\x81\x8c";
 inline constexpr const char* kStop = "\xef\x81\x8d";
+inline constexpr const char* kCaretDown = "\xef\x83\x97";
+inline constexpr const char* kCaretUp = "\xef\x83\x98";
 inline constexpr const char* kCircleQuestion = "\xef\x81\x99";
 inline constexpr const char* kCircleInfo = "\xef\x81\x9a";
 inline constexpr const char* kExpand = "\xef\x81\xa5";
@@ -57,6 +59,7 @@ inline const ImWchar* glyphRanges()
         0xf0ac, 0xf0ad,
         0xf0c7, 0xf0c7,
         0xf11b, 0xf11c,
+        0xf102, 0xf107,
         0xf12e, 0xf12e,
         0xf188, 0xf188,
         0xf1c0, 0xf1c0,

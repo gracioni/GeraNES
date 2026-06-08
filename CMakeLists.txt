@@ -105,6 +105,11 @@ include(CMakeRC)
 include(FetchContent)
 include(CheckCCompilerFlag)
 Set(FETCHCONTENT_QUIET FALSE)
+option(GERANES_FETCHCONTENT_UPDATES "Allow FetchContent dependencies to update on reconfigure" OFF)
+
+if(NOT GERANES_FETCHCONTENT_UPDATES)
+    set(FETCHCONTENT_UPDATES_DISCONNECTED ON)
+endif()
 
 if(NOT EMSCRIPTEN)
     FetchContent_Declare(
@@ -147,6 +152,8 @@ FetchContent_Declare(
         GIT_TAG master
         GIT_SHALLOW TRUE
         GIT_PROGRESS TRUE
+        GIT_SUBMODULES ""
+        GIT_SUBMODULES_RECURSE FALSE
 )
 
 FetchContent_MakeAvailable(stb)
@@ -305,6 +312,8 @@ FetchContent_Declare(
     GIT_TAG        master
     GIT_SHALLOW TRUE
     GIT_PROGRESS TRUE
+    GIT_SUBMODULES ""
+    GIT_SUBMODULES_RECURSE FALSE
 )
 FetchContent_MakeAvailable(flips)
 
@@ -316,6 +325,8 @@ FetchContent_Declare(
     GIT_TAG master
     GIT_SHALLOW TRUE
     GIT_PROGRESS TRUE
+    GIT_SUBMODULES ""
+    GIT_SUBMODULES_RECURSE FALSE
 )
 
 FetchContent_GetProperties(pffft)
@@ -347,6 +358,8 @@ if(NOT EMSCRIPTEN)
         GIT_TAG master
         GIT_SHALLOW TRUE
         GIT_PROGRESS TRUE
+        GIT_SUBMODULES ""
+        GIT_SUBMODULES_RECURSE FALSE
     )
 
     FetchContent_MakeAvailable(enet)
@@ -587,8 +600,6 @@ list(FILTER CPP_FILES EXCLUDE REGEX ".*/src/libretro/.*")
 if(NOT EMSCRIPTEN)
     list(FILTER CPP_FILES EXCLUDE REGEX ".*/src/GeraNESApp/EmscriptenBindings\\.cpp$")
     list(FILTER CPP_FILES EXCLUDE REGEX ".*/src/GeraNESApp/EmscriptenUtil\\.cpp$")
-endif()
-if(ANDROID)
     list(FILTER CPP_FILES EXCLUDE REGEX ".*/src/GeraNESApp/OpenALAudioOutput\\.cpp$")
 endif()
 

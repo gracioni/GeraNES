@@ -27,8 +27,7 @@ inline void GeraNESApp::showGui()
     float lastMenuBarHeight = m_menuBarHeight;
 
     drawCustomWindowChrome();
-    if(m_showMenuBar) menuBar();
-    else m_menuBarHeight = 0;
+    menuBar();
 
     if(lastMenuBarHeight != m_menuBarHeight) updateBuffers();
     m_imGuiWindowFocusBlocksEmulator = false;
