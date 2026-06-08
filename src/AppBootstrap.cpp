@@ -65,11 +65,8 @@ namespace
                 const std::filesystem::path internalStorageRoot(androidInternalStorage);
                 const std::filesystem::path contentRoot = resolveAndroidContentRoot(androidExternalStorage, internalStorageRoot);
                 const std::filesystem::path runtimeDataDir = internalStorageRoot / "runtime_data";
-                const std::filesystem::path internalSettingsPath = internalStorageRoot / "settings.json";
-                const std::filesystem::path contentSettingsPath = contentRoot / "settings.json";
                 std::filesystem::create_directories(runtimeDataDir);
                 std::filesystem::create_directories(contentRoot);
-                copyMissingFile(internalSettingsPath, contentSettingsPath);
                 std::filesystem::current_path(runtimeDataDir);
                 GeraNES::setContentRoot(contentRoot);
                 AppSettings::setStorageDirectory(internalStorageRoot);

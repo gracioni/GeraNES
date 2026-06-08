@@ -219,7 +219,11 @@ public:
 
     struct TouchControls {
 
+#ifdef __ANDROID__
+        bool enabled = true;
+#else
         bool enabled = false;
+#endif
         TouchControlsTarget target = TouchControlsTarget::Port1Controller;
         float transparency = 0.5f;        
 

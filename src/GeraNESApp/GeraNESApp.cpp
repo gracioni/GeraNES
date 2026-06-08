@@ -3437,17 +3437,6 @@ GeraNESApp::GeraNESApp()
 #ifdef __ANDROID__
     ensureAndroidRuntimeDataSynced();
     ensureAndroidUserContentBootstrapped();
-    Logger::instance().log("Android storage root: " + AppSettings::storageDirectory().string(), Logger::Type::INFO);
-    Logger::instance().log("Android content root: " + userContentRoot().string(), Logger::Type::INFO);
-    Logger::instance().log("Android runtime data root: " + bundledRuntimeRoot().string(), Logger::Type::INFO);
-    logDirectorySnapshot("Android runtime data", bundledRuntimeRoot());
-    logDirectorySnapshot("Android shaders directory", bundledShadersDirectory());
-    logDirectorySnapshot("Android palettes directory", bundledPalettesDirectory());
-    logDirectorySnapshot("Android user content", userContentRoot());
-    logDirectorySnapshot("Android user shaders directory", userShadersDirectory());
-    logDirectorySnapshot("Android user palettes directory", userPalettesDirectory());
-    logDirectorySnapshot("Android replay directory", userReplayDirectory());
-    logDirectorySnapshot("Android export directory", userExportDirectory());
 #endif
 
     syncSettings();
@@ -3492,8 +3481,6 @@ void GeraNESApp::loadShaderList()
     std::sort(shaderList.begin(), shaderList.end(), [](const ShaderItem& a, const ShaderItem& b) {
         return a.label < b.label;
     });
-
-    Logger::instance().log("Shader count: " + std::to_string(shaderList.size()), Logger::Type::INFO);
 }
 
 namespace
@@ -3585,8 +3572,6 @@ void GeraNESApp::loadPaletteList()
     std::sort(m_paletteList.begin() + 1, m_paletteList.end(), [](const PaletteItem& a, const PaletteItem& b) {
         return a.name < b.name;
     });
-
-    Logger::instance().log("Palette count: " + std::to_string(m_paletteList.size()), Logger::Type::INFO);
 }
 
 const GeraNESApp::ShaderItem* GeraNESApp::findShaderByLabel(const std::string& label) const

@@ -284,7 +284,10 @@ void AppSettings::load()
 {
     Logger::instance().log("Loading settings...", Logger::Type::INFO);
 
-    std::ifstream file(settingsFilePath());
+    const fs::path path = settingsFilePath();
+    bool shouldPersistDefaults = false;
+
+    std::ifstream file(path);
 
     if(file.is_open()) {
         try {
@@ -296,7 +299,10 @@ void AppSettings::load()
                 Logger::Type::WARNING
             );
             data = Data{};
+            shouldPersistDefaults = true;
         }
+    } else {
+        shouldPersistDefaults = true;
     }
 
 #ifdef __EMSCRIPTEN__
@@ -325,6 +331,10 @@ void AppSettings::load()
 #endif
 
     sanitizeDefaults();
+
+    if(shouldPersistDefaults) {
+        save();
+    }
 }
 
 void AppSettings::sanitizeDefaults()
