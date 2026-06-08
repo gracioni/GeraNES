@@ -209,6 +209,15 @@ inline bool GeraNESApp::paintGL()
 #ifdef __EMSCRIPTEN__
     emcriptenSyncImGuiClipboardSelection();
     emcriptenSyncImGuiTextInput(ImGui::GetIO().WantTextInput);
+#elif defined(__ANDROID__)
+    {
+        const bool wantTextInput = ImGui::GetIO().WantTextInput;
+        if(wantTextInput && !SDL_IsTextInputActive()) {
+            SDL_StartTextInput();
+        } else if(!wantTextInput && SDL_IsTextInputActive()) {
+            SDL_StopTextInput();
+        }
+    }
 #endif
 
     ImGui::Render();
