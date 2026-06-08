@@ -50,7 +50,7 @@ inline void GeraNESApp::drawShaderWindow()
         m_shaderPresetNameInput = name;
     };
 
-    ImGui::SetNextItemWidth(220.0f);
+    SetNextItemWidthScaledClamped(220.0f);
     ImGui::InputTextWithHint("##ShaderPresetName", "Preset name", &m_shaderPresetNameInput);
     ImGui::SameLine();
     if(ImGui::Button("Save Preset")) {
@@ -66,7 +66,7 @@ inline void GeraNESApp::drawShaderWindow()
     }
     ImGui::SameLine();
     const std::string presetPreview = m_selectedShaderPresetName.empty() ? "Load preset..." : m_selectedShaderPresetName;
-    ImGui::SetNextItemWidth(220.0f);
+    SetNextItemWidthScaledClamped(220.0f);
     if(ImGui::BeginCombo("##ShaderPresetList", presetPreview.c_str())) {
         for(const auto& [presetName, presetStack] : shaderPresets) {
             (void)presetStack;

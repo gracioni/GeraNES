@@ -12,9 +12,13 @@ inline void GeraNESApp::drawOverscanWindow()
 
     auto overscan = m_overscanConfig;
     bool changed = false;
+    SetNextItemWidthScaledClamped(120.0f);
     changed |= ImGui::InputInt("Top", &overscan.top);
+    SetNextItemWidthScaledClamped(120.0f);
     changed |= ImGui::InputInt("Right", &overscan.right);
+    SetNextItemWidthScaledClamped(120.0f);
     changed |= ImGui::InputInt("Bottom", &overscan.bottom);
+    SetNextItemWidthScaledClamped(120.0f);
     changed |= ImGui::InputInt("Left", &overscan.left);
 
     if(ImGui::Button("Reset Defaults")) {

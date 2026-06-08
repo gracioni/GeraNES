@@ -10,7 +10,7 @@ inline void GeraNESApp::drawSnesMouseConfigWindow()
         ImGui::Separator();
 
         float sensitivity = AppSettings::instance().data.input.snesMouse.sensitivity;
-        ImGui::SetNextItemWidth(180.0f);
+        SetNextItemWidthScaledClamped(180.0f);
         if(ImGui::SliderFloat("Sensitivity", &sensitivity, 0.05f, 2.0f, "%.2fx")) {
             AppSettings::instance().data.input.snesMouse.sensitivity = std::clamp(sensitivity, 0.05f, 2.0f);
         }

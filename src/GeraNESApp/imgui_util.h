@@ -82,6 +82,22 @@ extern "C" {
                       size.y > 0.0f ? size.y * scale : size.y);
     }
 
+    static void SetNextItemWidthScaledClamped(float baseWidth,
+                                              float minimumWidth = 72.0f)
+    {
+        const float scale = EffectiveUiScale();
+        const float scaledBaseWidth = std::max(1.0f, baseWidth * scale);
+        const float scaledMinimumWidth = std::max(1.0f, minimumWidth * scale);
+        const float availableWidth = ImGui::GetContentRegionAvail().x;
+
+        float targetWidth = std::max(scaledBaseWidth, scaledMinimumWidth);
+        if(availableWidth > 0.0f) {
+            targetWidth = std::max(std::min(targetWidth, availableWidth), std::min(scaledMinimumWidth, availableWidth));
+        }
+
+        ImGui::SetNextItemWidth(std::max(1.0f, targetWidth));
+    }
+
     static ImVec2 ClampWindowSizeToMainViewport(const ImVec2& requestedSize,
                                                 float padding = 16.0f,
                                                 const ImVec2& minimumSize = ImVec2(160.0f, 80.0f))

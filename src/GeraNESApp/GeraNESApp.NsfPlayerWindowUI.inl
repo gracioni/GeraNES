@@ -44,6 +44,7 @@ inline void GeraNESApp::drawNsfPlayerWindow()
         int selectedSong = currentSong;
         const bool hasSongs = totalSongs > 0;
         ImGui::BeginDisabled(!hasSongs);
+        SetNextItemWidthScaledClamped(120.0f);
         if(ImGui::InputInt("Song", &selectedSong, 1, 1) && hasSongs) {
             if(selectedSong == currentSong + 1 || (currentSong == totalSongs && selectedSong > totalSongs)) {
                 m_emu.nsfNextSong();

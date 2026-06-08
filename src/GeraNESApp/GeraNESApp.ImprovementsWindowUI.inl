@@ -18,7 +18,7 @@ inline void GeraNESApp::drawImprovementsWindow()
         }
         AppSettings::instance().data.improvements.overclock = m_emu.overclocked();
 
-        ImGui::SetNextItemWidth(100);
+        SetNextItemWidthScaledClamped(100.0f);
 
         const bool netplayRewindDisabled = shouldSuppressRewindForNetplay();
         int value = netplayRewindDisabled

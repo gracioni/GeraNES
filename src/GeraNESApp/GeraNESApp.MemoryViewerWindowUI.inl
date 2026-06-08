@@ -75,7 +75,7 @@ inline void GeraNESApp::drawMemoryViewerWindow()
 
     ImGui::TextUnformatted("Memory Type");
     ImGui::SameLine();
-    ImGui::SetNextItemWidth(220.0f);
+    SetNextItemWidthScaledClamped(220.0f);
     if(ImGui::BeginCombo("##MemoryViewerType", comboRegion.name)) {
         for(int i = 0; i < static_cast<int>(std::size(kRegions)); ++i) {
             const bool selected = i == m_memoryViewerType;
@@ -98,7 +98,7 @@ inline void GeraNESApp::drawMemoryViewerWindow()
     ImGui::SameLine();
     ImGui::TextUnformatted("Address");
     ImGui::SameLine();
-    ImGui::SetNextItemWidth(86.0f);
+    SetNextItemWidthScaledClamped(86.0f);
     const bool gotoSubmitted = ImGui::InputText(
         "##MemoryViewerAddress",
         m_memoryViewerGotoText,
@@ -122,7 +122,7 @@ inline void GeraNESApp::drawMemoryViewerWindow()
     }
 
     ImGui::SameLine();
-    ImGui::SetNextItemWidth(64.0f);
+    SetNextItemWidthScaledClamped(64.0f);
     ImGui::InputInt("Columns", &m_memoryViewerColumns, 0, 0);
     m_memoryViewerColumns = std::clamp(m_memoryViewerColumns, 4, 32);
     ImGui::SameLine();

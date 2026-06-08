@@ -690,7 +690,7 @@ inline void GeraNESApp::drawPpuViewerWindow()
         ImGui::BeginGroup();
         ImGui::TextUnformatted("CHR / Pattern Tables");
         ImGui::TextDisabled("Left: $0000   Right: $1000");
-        ImGui::SetNextItemWidth(160.0f);
+        SetNextItemWidthScaledClamped(160.0f);
         ImGui::Combo("Display palette", &m_ppuViewerChrPaletteMode, kChrPaletteModeLabels.data(), static_cast<int>(kChrPaletteModeLabels.size()));
         ImGui::Image(
             static_cast<ImTextureID>(static_cast<uintptr_t>(m_ppuChrTexture)),

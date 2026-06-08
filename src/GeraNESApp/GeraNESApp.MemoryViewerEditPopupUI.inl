@@ -7,7 +7,7 @@ inline void GeraNESApp::drawMemoryViewerEditPopup(uint32_t regionBaseAddress, in
         if(ImGui::IsWindowAppearing()) {
             ImGui::SetKeyboardFocusHere();
         }
-        ImGui::SetNextItemWidth(70.0f);
+        SetNextItemWidthScaledClamped(70.0f);
         const bool editSubmitted = ImGui::InputText(
             "Value",
             m_memoryViewerEditText,

@@ -36,7 +36,7 @@ inline void GeraNESApp::drawPaletteWindow()
     ImGui::SameLine();
 
     if(ImGui::BeginChild("PaletteEditor", ImVec2(0.0f, 0.0f), true)) {
-        ImGui::SetNextItemWidth(260.0f);
+        SetNextItemWidthScaledClamped(260.0f);
         ImGui::InputText("##PaletteName", &m_paletteNameInput);
 
         ImGui::SameLine();

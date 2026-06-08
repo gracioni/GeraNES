@@ -86,7 +86,7 @@ inline void GeraNESApp::drawMemoryCompareWindow()
     const MemoryCompareRegion& comboRegion = kRegions[m_memoryCompareType];
     ImGui::TextUnformatted("Memory Type");
     ImGui::SameLine();
-    ImGui::SetNextItemWidth(220.0f);
+    SetNextItemWidthScaledClamped(220.0f);
     if(ImGui::BeginCombo("##MemoryCompareType", comboRegion.name)) {
         for(int i = 0; i < static_cast<int>(std::size(kRegions)); ++i) {
             const bool selected = i == m_memoryCompareType;
@@ -138,14 +138,14 @@ inline void GeraNESApp::drawMemoryCompareWindow()
 
     ImGui::Checkbox("Auto refresh", &m_memoryCompareAutoRefresh);
     ImGui::SameLine();
-    ImGui::SetNextItemWidth(170.0f);
+    SetNextItemWidthScaledClamped(170.0f);
     const char* filterItems[] = {"All", "Changed", "Unchanged", "Changed from -> to"};
     ImGui::Combo("Filter", &m_memoryCompareFilter, filterItems, static_cast<int>(std::size(filterItems)));
     if(m_memoryCompareFilter == 3) {
         ImGui::SameLine();
         ImGui::TextUnformatted("From");
         ImGui::SameLine();
-        ImGui::SetNextItemWidth(42.0f);
+        SetNextItemWidthScaledClamped(42.0f, 42.0f);
         ImGui::InputText(
             "##MemoryCompareFrom",
             m_memoryCompareFromText,
@@ -155,7 +155,7 @@ inline void GeraNESApp::drawMemoryCompareWindow()
         ImGui::SameLine();
         ImGui::TextUnformatted("To");
         ImGui::SameLine();
-        ImGui::SetNextItemWidth(42.0f);
+        SetNextItemWidthScaledClamped(42.0f, 42.0f);
         ImGui::InputText(
             "##MemoryCompareTo",
             m_memoryCompareToText,

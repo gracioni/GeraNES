@@ -84,7 +84,7 @@ inline void GeraNESApp::drawModPixelInspectorWindow()
         m_modPixelInspectorInspectMod = false;
     }
 
-    ImGui::SetNextItemWidth(160.0f);
+    SetNextItemWidthScaledClamped(160.0f);
     ImGui::SliderFloat("Zoom", &m_modPixelInspectorZoom, 1.0f, 8.0f, "%.1fx");
     ImGui::SameLine();
     ImGui::BeginDisabled(!modActive);
@@ -97,7 +97,7 @@ inline void GeraNESApp::drawModPixelInspectorWindow()
         ImGui::AlignTextToFramePadding();
         ImGui::TextUnformatted("Original");
         ImGui::SameLine();
-        ImGui::SetNextItemWidth(180.0f);
+        SetNextItemWidthScaledClamped(180.0f);
         ImGui::SliderFloat("##ModPixelInspectorBlend", &m_modPixelInspectorBlend, 0.0f, 1.0f, "");
         ImGui::SameLine();
         ImGui::TextUnformatted("Mod");

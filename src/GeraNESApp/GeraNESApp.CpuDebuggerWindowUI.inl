@@ -294,7 +294,7 @@ inline void GeraNESApp::drawCpuDebuggerWindow()
         if(ImGui::BeginMenu("Navigate")) {
             uint16_t requestedViewAddress = m_cpuDebuggerViewAddress;
             ImGui::TextUnformatted("Goto Address");
-            ImGui::SetNextItemWidth(90.0f);
+            SetNextItemWidthScaledClamped(90.0f);
             if(ImGui::InputScalar("##CpuDebuggerMenuViewAddress", ImGuiDataType_U16, &requestedViewAddress, nullptr, nullptr, "%04X", ImGuiInputTextFlags_CharsHexadecimal | ImGuiInputTextFlags_EnterReturnsTrue)) {
                 navigateCpuDebuggerTo(requestedViewAddress, false);
             }
@@ -331,7 +331,7 @@ inline void GeraNESApp::drawCpuDebuggerWindow()
             ImGui::EndDisabled();
             ImGui::Separator();
             ImGui::BeginDisabled(m_cpuDebugSymbols.empty());
-            ImGui::SetNextItemWidth(180.0f);
+            SetNextItemWidthScaledClamped(180.0f);
             const bool searchSubmitted = ImGui::InputText(
                 "Search Symbol",
                 m_cpuDebuggerSymbolSearch.data(),

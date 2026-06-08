@@ -193,7 +193,7 @@ void drawNetplayWindow(bool& showWindow,
         runtime.setTransportBackend(static_cast<NetTransportBackend>(configuredBackend));
     }
     const auto drawBackendSelector = [&]() {
-        ImGui::SetNextItemWidth(220.0f);
+        SetNextItemWidthScaledClamped(220.0f);
         ImGui::BeginDisabled(active || showConnectedControls);
         if(ImGui::BeginCombo("Backend##NetplayBackend",
                              netTransportBackendLabel(static_cast<NetTransportBackend>(configuredBackend)))) {
@@ -213,9 +213,9 @@ void drawNetplayWindow(bool& showWindow,
     };
 
     const auto drawWebRtcConfig = [&](bool hostMode) {
-        ImGui::SetNextItemWidth(220.0f);
+        SetNextItemWidthScaledClamped(220.0f);
         ImGui::InputText("Room Id##NetplaySignalingRoomId", &cfg.signalingRoomId);
-        ImGui::SetNextItemWidth(220.0f);
+        SetNextItemWidthScaledClamped(220.0f);
         ImGui::InputText(hostMode ? "Room Password##NetplayHostRoomPassword" : "Room Password##NetplayJoinRoomPassword",
                          &cfg.signalingPassword);
 #ifdef __EMSCRIPTEN__
@@ -228,11 +228,11 @@ void drawNetplayWindow(bool& showWindow,
 #endif
 
         if(hostMode && cfg.useEmbeddedSignalingServer) {
-            ImGui::SetNextItemWidth(120.0f);
+            SetNextItemWidthScaledClamped(120.0f);
             ImGui::InputInt("Signaling Port##NetplayEmbeddedSignalingPort", &cfg.embeddedSignalingPort);
             cfg.embeddedSignalingPort = std::clamp(cfg.embeddedSignalingPort, 1, 65535);
         } else {
-            ImGui::SetNextItemWidth(320.0f);
+            SetNextItemWidthScaledClamped(320.0f);
             ImGui::InputText("Signaling URL##NetplaySignalingUrl", &cfg.signalingUrl);
         }
 
@@ -391,7 +391,7 @@ void drawNetplayWindow(bool& showWindow,
         ImGui::OpenPopup(kNetplayOperationPopupId);
     }
 
-    ImGui::SetNextItemWidth(220.0f);
+    SetNextItemWidthScaledClamped(220.0f);
     ImGui::InputText("Display Name##NetplayDisplayName", &cfg.displayName);
     const bool usingWebRtc = static_cast<NetTransportBackend>(configuredBackend) == NetTransportBackend::WebRTC;
     const bool blockInputs = pendingOperation.active();
@@ -461,7 +461,7 @@ void drawNetplayWindow(bool& showWindow,
 #ifndef NDEBUG
     ImGui::Checkbox("Auto Gameplay Tuning##NetplayAutoGameplayTuning", &cfg.autoGameplayTuning);
     if(!cfg.autoGameplayTuning) {
-        ImGui::SetNextItemWidth(120.0f);
+        SetNextItemWidthScaledClamped(120.0f);
         ImGui::InputInt("Input Delay##NetplayInputDelay", &cfg.inputDelayFrames);
     } else {
         ImGui::Text("Auto Delay: %u frame(s)", static_cast<unsigned>(snapshot.autoSettings.currentRecommendedDelay));
@@ -469,7 +469,7 @@ void drawNetplayWindow(bool& showWindow,
                     static_cast<unsigned>(snapshot.autoSettings.pingFloorDelay),
                     snapshot.autoSettings.smoothedHighestPingMs);
     }
-    ImGui::SetNextItemWidth(120.0f);
+    SetNextItemWidthScaledClamped(120.0f);
     ImGui::InputInt("Gameplay Lag ms##NetplayGameplayLag", &cfg.gameplayReceiveDelayMs);
 #else
     cfg.autoGameplayTuning = true;
@@ -516,11 +516,11 @@ void drawNetplayWindow(bool& showWindow,
                 if(usingWebRtc) {
                     drawWebRtcConfig(true);
                 } else {
-                    ImGui::SetNextItemWidth(120.0f);
+                    SetNextItemWidthScaledClamped(120.0f);
                     ImGui::InputInt("Port##NetplayHostPort", &cfg.port);
                     cfg.port = std::clamp(cfg.port, 1, 65535);
                 }
-                ImGui::SetNextItemWidth(120.0f);
+                SetNextItemWidthScaledClamped(120.0f);
                 ImGui::InputInt("Max Peers##NetplayMaxPeers", &cfg.maxPeers);
                 cfg.maxPeers = std::clamp(cfg.maxPeers, 1, 32);
                 ImGui::BeginDisabled(!canHost);
@@ -546,9 +546,9 @@ void drawNetplayWindow(bool& showWindow,
                 if(usingWebRtc) {
                     drawWebRtcConfig(false);
                 } else {
-                    ImGui::SetNextItemWidth(220.0f);
+                    SetNextItemWidthScaledClamped(220.0f);
                     ImGui::InputText("Owner##NetplayHostName", &cfg.hostName);
-                    ImGui::SetNextItemWidth(120.0f);
+                    SetNextItemWidthScaledClamped(120.0f);
                     ImGui::InputInt("Port##NetplayJoinPort", &cfg.port);
                     cfg.port = std::clamp(cfg.port, 1, 65535);
                 }
@@ -677,7 +677,7 @@ void drawNetplayWindow(bool& showWindow,
 
     if(ImGui::BeginPopupModal("Join Protected Room", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
         ImGui::TextWrapped("Enter the password for room %s.", roomBrowser.pendingRoomId.c_str());
-        ImGui::SetNextItemWidth(240.0f);
+        SetNextItemWidthScaledClamped(240.0f);
         ImGui::InputText("Password##NetplayRoomJoinPassword", &roomBrowser.pendingPassword, ImGuiInputTextFlags_Password);
         if(ImGui::Button("Join##NetplayPasswordJoin")) {
             cfg.signalingRoomId = roomBrowser.pendingRoomId;
@@ -740,7 +740,7 @@ void drawNetplayWindow(bool& showWindow,
     }
     if(ImGui::CollapsingHeader("Diagnostics##NetplayDiagnostics")) {
         int snapshotWindowFrames = AppSettings::instance().data.netplay.snapshotWindowFrames;
-        ImGui::SetNextItemWidth(120.0f);
+        SetNextItemWidthScaledClamped(120.0f);
         if(ImGui::InputInt("Snapshot Window (frames)##NetplaySnapshotWindow", &snapshotWindowFrames)) {
             snapshotWindowFrames = std::max(0, snapshotWindowFrames);
             AppSettings::instance().data.netplay.snapshotWindowFrames = snapshotWindowFrames;

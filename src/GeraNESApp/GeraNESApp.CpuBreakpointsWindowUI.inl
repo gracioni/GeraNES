@@ -81,11 +81,11 @@ inline void GeraNESApp::drawCpuBreakpointsWindow()
     ImGui::TextUnformatted("Exact CPU Watch");
     configChanged |= ImGui::Checkbox("Break on CPU read", &config.breakOnExactCpuRead);
     ImGui::SameLine();
-    ImGui::SetNextItemWidth(90.0f);
+    SetNextItemWidthScaledClamped(90.0f);
     configChanged |= ImGui::InputScalar("##ExactCpuReadAddress", ImGuiDataType_U16, &config.exactCpuReadAddress, nullptr, nullptr, "%04X", ImGuiInputTextFlags_CharsHexadecimal);
     configChanged |= ImGui::Checkbox("Break on CPU write", &config.breakOnExactCpuWrite);
     ImGui::SameLine();
-    ImGui::SetNextItemWidth(90.0f);
+    SetNextItemWidthScaledClamped(90.0f);
     configChanged |= ImGui::InputScalar("##ExactCpuWriteAddress", ImGuiDataType_U16, &config.exactCpuWriteAddress, nullptr, nullptr, "%04X", ImGuiInputTextFlags_CharsHexadecimal);
 
     if(configChanged) {
