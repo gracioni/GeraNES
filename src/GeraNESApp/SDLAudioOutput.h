@@ -25,7 +25,6 @@ private:
 
     double sampleAcc = 0.0;
     float m_volume = 1.0f;
-    float m_sampleFormatScale = 256.0f;
 
     void clearBuffers();
     void turnOff();

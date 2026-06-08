@@ -219,8 +219,6 @@ bool SDLAudioOutput::config(const std::string& deviceName, int requestedSampleRa
     Logger::instance().log(std::string("Sample size: ") + std::to_string(spec.format & 0xFF), Logger::Type::INFO);
     Logger::instance().log(std::string("Channels: ") + std::to_string(spec.channels), Logger::Type::INFO);
 
-    m_sampleFormatScale = std::exp2(static_cast<float>(sampleSize()));
-
     SDL_PauseAudioDevice(m_device, 0);
     initChannels(spec.freq);
 
@@ -260,18 +258,35 @@ void SDLAudioOutput::render(uint32_t dt)
     float vol = std::pow(m_volume, 2.0f);
     while(sampleAcc >= 1000.0)
     {
+        const auto appendRawSample = [&](uint32_t rawValue) {
+            if(SDL_AUDIO_ISBIGENDIAN(spec.format)) {
+                for(int i = bytesPerSample - 1; i >= 0; --i) {
+                    m_buffer.push_back(static_cast<char>((rawValue >> (i * 8)) & 0xFFu));
+                }
+            } else {
+                for(int i = 0; i < bytesPerSample; ++i) {
+                    m_buffer.push_back(static_cast<char>((rawValue >> (i * 8)) & 0xFFu));
+                }
+            }
+        };
+
         const auto appendSample = [&](float value) {
+            const float clamped = std::clamp(value, -0.999f, 0.999f);
             if(bitsPerSample == 8) {
-                int temp = static_cast<int>((value / 2.0f + 0.5f) * 255.0f);
+                int temp = static_cast<int>((clamped * 0.5f + 0.5f) * 255.0f);
                 if(temp < 0) temp = 0;
                 else if(temp > 255) temp = 255;
                 m_buffer.push_back(static_cast<char>(temp));
+            } else if(bitsPerSample == 16) {
+                const int16_t sample = static_cast<int16_t>(std::lrintf(clamped * 32767.0f));
+                appendRawSample(static_cast<uint16_t>(sample));
+            } else if(bitsPerSample == 32) {
+                const int32_t sample = static_cast<int32_t>(std::llround(static_cast<double>(clamped) * 2147483647.0));
+                appendRawSample(static_cast<uint32_t>(sample));
             } else {
-                uint64_t temp = static_cast<uint64_t>(value / 2.0f * m_sampleFormatScale);
-                for(int i = 0; i < bytesPerSample; i++ ){
-                    m_buffer.push_back(static_cast<char>(temp & 0xFF));
-                    temp >>= 8;
-                }
+                // Fallback for uncommon signed formats larger than 8-bit.
+                const int32_t sample = static_cast<int32_t>(std::llround(static_cast<double>(clamped) * 2147483647.0));
+                appendRawSample(static_cast<uint32_t>(sample));
             }
         };
 
