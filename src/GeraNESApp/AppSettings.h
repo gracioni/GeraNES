@@ -332,7 +332,7 @@ public:
 #else
         bool useEmbeddedSignalingServer = false;
 #endif
-        std::string signalingUrl = "ws://127.0.0.1:27990";
+        std::string signalingUrl = "wss://signal.racionisoft.com/ws/";
         int embeddedSignalingPort = 27990;
         std::string signalingRoomId = "default";
         std::string signalingPassword;

@@ -24,10 +24,8 @@
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
 
     <application
-        android:allowBackup="false"
+        android:allowBackup="true"
         android:appCategory="game"
-        android:dataExtractionRules="@null"
-        android:fullBackupContent="false"
         android:hardwareAccelerated="true"
         android:icon="${geranesAppIcon}"
         android:isGame="true"

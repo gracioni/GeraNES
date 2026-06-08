@@ -109,6 +109,12 @@ inline void GeraNESApp::drawReplayWindow()
         const uint32_t replayFps = hasRomLoaded ? std::max<uint32_t>(1u, m_emu.getRegionFPS()) : 60u;
         const bool speedRestricted = isNetplaySpeedRestricted();
         const EmulationSpeed currentSpeed = effectiveEmulationSpeed(m_maxSpeedRequested);
+        const ImVec2 playStopButtonSize = ScaleUiSize(ImVec2(90.0f, 0.0f));
+        const ImVec2 pauseButtonSize = ScaleUiSize(ImVec2(100.0f, 0.0f));
+        const ImVec2 recordButtonSize = ScaleUiSize(ImVec2(130.0f, 0.0f));
+        const ImVec2 speedArrowButtonSize = ScaleUiSize(ImVec2(28.0f, 0.0f));
+        const ImVec2 speedLabelButtonSize = ScaleUiSize(ImVec2(70.0f, 0.0f));
+        const ImVec2 confirmationButtonSize = ScaleUiSize(ImVec2(120.0f, 0.0f));
 
         if(ImGui::BeginMenuBar()) {
             if(ImGui::BeginMenu("File")) {
@@ -124,14 +130,14 @@ inline void GeraNESApp::drawReplayWindow()
         }
 
         ImGui::BeginDisabled(!playEnabled);
-        if(ImGui::Button((std::string(FontAwesomeIcons::kPlay) + " Play").c_str(), ImVec2(90.0f, 0.0f))) {
+        if(ImGui::Button((std::string(FontAwesomeIcons::kPlay) + " Play").c_str(), playStopButtonSize)) {
             startReplayPlayback();
         }
         ImGui::EndDisabled();
 
         ImGui::SameLine();
         ImGui::BeginDisabled(!playbackReady);
-        if(ImGui::Button((std::string(FontAwesomeIcons::kStop) + " Stop").c_str(), ImVec2(90.0f, 0.0f))) {
+        if(ImGui::Button((std::string(FontAwesomeIcons::kStop) + " Stop").c_str(), playStopButtonSize)) {
             (void)stopReplayToStart();
         }
         ImGui::EndDisabled();
@@ -142,7 +148,7 @@ inline void GeraNESApp::drawReplayWindow()
             recording
                 ? std::string(FontAwesomeIcons::kPause) + (recordingPaused ? " Resume" : " Pause")
                 : std::string(FontAwesomeIcons::kPause) + " Pause";
-        if(ImGui::Button(pauseLabel.c_str(), ImVec2(100.0f, 0.0f))) {
+        if(ImGui::Button(pauseLabel.c_str(), pauseButtonSize)) {
             if(recording) {
                 m_emu.togglePaused();
                 if(recordingPaused) {
@@ -160,7 +166,7 @@ inline void GeraNESApp::drawReplayWindow()
         ImGui::BeginDisabled(!recordEnabled);
         const std::string recordLabel =
             std::string(FontAwesomeIcons::kRecordVinyl) + (recording ? " Recording..." : " Record");
-        if(ImGui::Button(recordLabel.c_str(), ImVec2(130.0f, 0.0f))) {
+        if(ImGui::Button(recordLabel.c_str(), recordButtonSize)) {
             if(recording) {
                 stopReplayRecording();
             } else if(canContinueRecordingFromReplay) {
@@ -175,17 +181,17 @@ inline void GeraNESApp::drawReplayWindow()
         ImGui::TextUnformatted("Speed");
         ImGui::SameLine();
         ImGui::BeginDisabled(speedRestricted);
-        if(ImGui::Button("<", ImVec2(28.0f, 0.0f))) {
+        if(ImGui::Button("<", speedArrowButtonSize)) {
             cycleEmulationSpeedSelection(-1);
         }
         ImGui::EndDisabled();
         ImGui::SameLine();
         ImGui::BeginDisabled();
-        ImGui::Button(emulationSpeedLabel(currentSpeed), ImVec2(70.0f, 0.0f));
+        ImGui::Button(emulationSpeedLabel(currentSpeed), speedLabelButtonSize);
         ImGui::EndDisabled();
         ImGui::SameLine();
         ImGui::BeginDisabled(speedRestricted);
-        if(ImGui::Button(">", ImVec2(28.0f, 0.0f))) {
+        if(ImGui::Button(">", speedArrowButtonSize)) {
             cycleEmulationSpeedSelection(1);
         }
         ImGui::EndDisabled();
@@ -233,12 +239,12 @@ inline void GeraNESApp::drawReplayWindow()
         if(ImGui::BeginPopupModal(kReplayContinueRecordingPopupId, nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
             ImGui::TextUnformatted("Close the loaded replay and continue recording from the current replay position?");
             ImGui::Separator();
-            if(ImGui::Button("Yes", ImVec2(120.0f, 0.0f))) {
+            if(ImGui::Button("Yes", confirmationButtonSize)) {
                 (void)continueReplayRecordingFromCurrentCursor();
                 ImGui::CloseCurrentPopup();
             }
             ImGui::SameLine();
-            if(ImGui::Button("No", ImVec2(120.0f, 0.0f))) {
+            if(ImGui::Button("No", confirmationButtonSize)) {
                 ImGui::CloseCurrentPopup();
             }
             ImGui::EndPopup();
