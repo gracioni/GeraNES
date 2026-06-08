@@ -10,7 +10,11 @@
 class SDLAudioOutput : public AudioOutputBase
 {
 private:
+#ifdef __ANDROID__
+    static constexpr float BUFFER_TIME = 0.03f;
+#else
     static constexpr float BUFFER_TIME = 0.1f;
+#endif
 
     SDL_AudioDeviceID m_device = 0;
     std::string m_currentDeviceName = "";

@@ -155,27 +155,34 @@ bool SDLAudioOutput::config(const std::string& deviceName, int requestedSampleRa
     }
 
     SDL_AudioSpec preferredSpec{};
-    preferredSpec.freq = 44100;
+    preferredSpec.freq = 48000;
     preferredSpec.format = AUDIO_S16;
     preferredSpec.channels = static_cast<Uint8>(desiredOutputChannels());
 
     if(deviceIndex >= 0 && SDL_GetAudioDeviceSpec(deviceIndex, 0, &preferredSpec) != 0) {
         Logger::instance().log(std::string("SDL_GetAudioDeviceSpec error: ") + SDL_GetError() + ". Using fallback format.", Logger::Type::WARNING);
-        preferredSpec.freq = 44100;
+        preferredSpec.freq = 48000;
         preferredSpec.format = AUDIO_S16;
         preferredSpec.channels = static_cast<Uint8>(desiredOutputChannels());
     }
 
     int newSampleRate = requestedSampleRate > 0 ? requestedSampleRate : preferredSpec.freq;
+    if(newSampleRate <= 0) {
+        newSampleRate = 48000;
+    }
     int newSampleSize = 8;
     if(requestedSampleSize > 0) {
         newSampleSize = requestedSampleSize;
     } else {
+#ifdef __ANDROID__
+        newSampleSize = 16;
+#else
         switch(preferredSpec.format) {
             case AUDIO_U8: newSampleSize = 8; break;
             case AUDIO_S16: newSampleSize = 16; break;
             case AUDIO_S32: newSampleSize = 32; break;
         }
+#endif
     }
 
     spec.freq = newSampleRate;

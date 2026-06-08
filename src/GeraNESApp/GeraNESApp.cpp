@@ -28,6 +28,11 @@ extern "C" {
     #include <emscripten.h>
 #endif
 
+#ifdef __ANDROID__
+    #include <SDL_system.h>
+    #include <jni.h>
+#endif
+
 namespace {
 #ifdef __EMSCRIPTEN__
 constexpr Uint64 kWebMainLoopCounterFrequency = 1000000u;
@@ -59,6 +64,267 @@ std::string trimCopy(const std::string& value)
     const auto last = std::find_if_not(value.rbegin(), value.rend(), [](unsigned char ch) { return std::isspace(ch) != 0; }).base();
     if(first >= last) return "";
     return std::string(first, last);
+}
+
+#ifdef __ANDROID__
+bool openAndroidBundledDocumentation()
+{
+    JNIEnv* env = reinterpret_cast<JNIEnv*>(SDL_AndroidGetJNIEnv());
+    jobject activity = reinterpret_cast<jobject>(SDL_AndroidGetActivity());
+    if(env == nullptr || activity == nullptr) {
+        return false;
+    }
+
+    jclass activityClass = env->GetObjectClass(activity);
+    if(activityClass == nullptr) {
+        return false;
+    }
+
+    const jmethodID method = env->GetMethodID(activityClass, "geranesOpenBundledDocumentation", "()Z");
+    if(method == nullptr) {
+        env->DeleteLocalRef(activityClass);
+        return false;
+    }
+
+    const jboolean opened = env->CallBooleanMethod(activity, method);
+    const bool success = !env->ExceptionCheck() && opened == JNI_TRUE;
+    if(env->ExceptionCheck()) {
+        env->ExceptionClear();
+    }
+
+    env->DeleteLocalRef(activityClass);
+    return success;
+}
+
+bool ensureAndroidRuntimeDataSynced()
+{
+    JNIEnv* env = reinterpret_cast<JNIEnv*>(SDL_AndroidGetJNIEnv());
+    jobject activity = reinterpret_cast<jobject>(SDL_AndroidGetActivity());
+    if(env == nullptr || activity == nullptr) {
+        return false;
+    }
+
+    jclass activityClass = env->GetObjectClass(activity);
+    if(activityClass == nullptr) {
+        return false;
+    }
+
+    const jmethodID method = env->GetMethodID(activityClass, "geranesEnsureRuntimeDataSynced", "()Z");
+    if(method == nullptr) {
+        env->DeleteLocalRef(activityClass);
+        return false;
+    }
+
+    const jboolean synced = env->CallBooleanMethod(activity, method);
+    const bool success = !env->ExceptionCheck() && synced == JNI_TRUE;
+    if(env->ExceptionCheck()) {
+        env->ExceptionClear();
+    }
+
+    env->DeleteLocalRef(activityClass);
+    return success;
+}
+#endif
+
+fs::path bundledRuntimeRoot()
+{
+#ifdef __ANDROID__
+    return AppSettings::storageDirectory() / "runtime_data";
+#else
+    return fs::current_path();
+#endif
+}
+
+fs::path bundledShadersDirectory()
+{
+    return bundledRuntimeRoot() / "shaders";
+}
+
+fs::path bundledPalettesDirectory()
+{
+    return bundledRuntimeRoot() / "palettes";
+}
+
+fs::path userContentRoot()
+{
+    return AppSettings::contentDirectory();
+}
+
+fs::path userShadersDirectory()
+{
+    return userContentRoot() / "shaders";
+}
+
+fs::path userPalettesDirectory()
+{
+    return userContentRoot() / "palettes";
+}
+
+fs::path userReplayDirectory()
+{
+    return userContentRoot() / "replays";
+}
+
+fs::path userExportDirectory()
+{
+    return userContentRoot() / "exports";
+}
+
+fs::path userDatabasePath()
+{
+    return userContentRoot() / "db.txt";
+}
+
+std::string sanitizeUserFileName(const std::string& input, const std::string& fallbackStem)
+{
+    std::string sanitized;
+    for(char c : input) {
+        const unsigned char ch = static_cast<unsigned char>(c);
+        if(std::isalnum(ch) || c == '-' || c == '_') {
+            sanitized.push_back(c);
+        } else if(c == ' ') {
+            sanitized.push_back('_');
+        }
+    }
+
+    if(sanitized.empty()) {
+        sanitized = fallbackStem;
+    }
+
+    return sanitized;
+}
+
+fs::path uniquePathForStem(const fs::path& directory, const std::string& stem, const std::string& extension)
+{
+    const std::string safeStem = sanitizeUserFileName(stem, "file");
+    fs::path candidate = directory / (safeStem + extension);
+    if(!fs::exists(candidate)) {
+        return candidate;
+    }
+
+    for(int index = 1; index < 10000; ++index) {
+        candidate = directory / (safeStem + "_" + std::to_string(index) + extension);
+        if(!fs::exists(candidate)) {
+            return candidate;
+        }
+    }
+
+    return directory / (safeStem + "_" + std::to_string(SDL_GetTicks()) + extension);
+}
+
+#ifdef __ANDROID__
+bool copyMissingFile(const fs::path& source, const fs::path& destination)
+{
+    std::error_code ec;
+    if(!fs::exists(source, ec) || fs::exists(destination, ec)) {
+        return false;
+    }
+
+    fs::create_directories(destination.parent_path(), ec);
+    if(ec) {
+        Logger::instance().log(
+            "Failed to create directory for " + destination.string() + ": " + ec.message(),
+            Logger::Type::WARNING
+        );
+        return false;
+    }
+
+    fs::copy_file(source, destination, fs::copy_options::skip_existing, ec);
+    if(ec) {
+        Logger::instance().log(
+            "Failed to copy " + source.string() + " to " + destination.string() + ": " + ec.message(),
+            Logger::Type::WARNING
+        );
+        return false;
+    }
+
+    Logger::instance().log("Bootstrapped Android content file: " + destination.string(), Logger::Type::INFO);
+    return true;
+}
+
+void copyMissingDirectoryContents(const fs::path& sourceDir, const fs::path& destinationDir)
+{
+    std::error_code ec;
+    if(!fs::exists(sourceDir, ec) || !fs::is_directory(sourceDir, ec)) {
+        return;
+    }
+
+    fs::create_directories(destinationDir, ec);
+    if(ec) {
+        Logger::instance().log(
+            "Failed to create Android content directory " + destinationDir.string() + ": " + ec.message(),
+            Logger::Type::WARNING
+        );
+        return;
+    }
+
+    for(const auto& entry : fs::directory_iterator(sourceDir, ec)) {
+        if(ec) {
+            Logger::instance().log(
+                "Failed to enumerate " + sourceDir.string() + ": " + ec.message(),
+                Logger::Type::WARNING
+            );
+            return;
+        }
+
+        if(!entry.is_regular_file()) {
+            continue;
+        }
+
+        copyMissingFile(entry.path(), destinationDir / entry.path().filename());
+    }
+}
+
+void ensureAndroidUserContentBootstrapped()
+{
+    std::error_code ec;
+    fs::create_directories(userContentRoot(), ec);
+    fs::create_directories(userShadersDirectory(), ec);
+    fs::create_directories(userPalettesDirectory(), ec);
+    fs::create_directories(userReplayDirectory(), ec);
+    fs::create_directories(userExportDirectory(), ec);
+
+    copyMissingFile(bundledRuntimeRoot() / "db.txt", userDatabasePath());
+    copyMissingFile(bundledRuntimeRoot() / "data" / "db.txt", userDatabasePath());
+    copyMissingDirectoryContents(bundledShadersDirectory(), userShadersDirectory());
+    copyMissingDirectoryContents(bundledRuntimeRoot() / "data" / "shaders", userShadersDirectory());
+    copyMissingDirectoryContents(bundledPalettesDirectory(), userPalettesDirectory());
+    copyMissingDirectoryContents(bundledRuntimeRoot() / "data" / "palettes", userPalettesDirectory());
+
+    if(fs::exists(userDatabasePath(), ec)) {
+        GameDatabase::setDatabasePath(userDatabasePath().string());
+    }
+}
+#endif
+
+void logDirectorySnapshot(const std::string& label, const fs::path& path)
+{
+    std::error_code ec;
+    const bool exists = fs::exists(path, ec);
+    const bool isDir = exists && fs::is_directory(path, ec);
+
+    Logger::instance().log(
+        label + ": path=" + path.string() +
+        " exists=" + (exists ? "true" : "false") +
+        " isDir=" + (isDir ? "true" : "false"),
+        Logger::Type::INFO
+    );
+
+    if(!isDir) {
+        return;
+    }
+
+    std::ostringstream entries;
+    entries << label << " entries:";
+    bool any = false;
+    for(const auto& entry : fs::directory_iterator(path, ec)) {
+        any = true;
+        entries << ' ' << entry.path().filename().string();
+    }
+    if(!any) {
+        entries << " <empty>";
+    }
+    Logger::instance().log(entries.str(), Logger::Type::INFO);
 }
 
 std::string sanitizeCpuSymbolName(std::string name)
@@ -1005,6 +1271,13 @@ bool GeraNESApp::openDocumentation()
         return false;
     }
     return true;
+#elif defined(__ANDROID__)
+    if(!openAndroidBundledDocumentation()) {
+        Logger::instance().log("Failed to open help documentation", Logger::Type::WARNING);
+        m_userToast.show("Failed to open help documentation");
+        return false;
+    }
+    return true;
 #else
     const fs::path docPath = fs::current_path() / "docs" / "index.html";
     if(!fs::exists(docPath)) {
@@ -1592,27 +1865,19 @@ void GeraNESApp::stopReplayRecording()
     );
 
 #ifdef __ANDROID__
-    std::vector<uint8_t> replayBytes;
+    fs::create_directories(userReplayDirectory());
+    const std::string defaultStem = m_loadedRomPath.stem().empty() ? "session" : m_loadedRomPath.stem().string();
+    const fs::path savePath = uniquePathForStem(userReplayDirectory(), defaultStem, ".replay");
     std::string error;
-    if(!m_replaySession.saveToBytes(replayBytes, error)) {
+    if(!m_replaySession.saveToFile(savePath, error)) {
         Logger::instance().log("Failed to save replay: " + error, Logger::Type::ERROR);
         m_userToast.show("Failed to save replay file");
         clearReplaySession(true);
         return;
     }
 
-    const std::string defaultName = m_loadedRomPath.stem().empty() ? "session.replay" : (m_loadedRomPath.stem().string() + ".replay");
-    if(!AndroidFileDialog::saveBytesWithDocumentPicker(defaultName, "application/octet-stream", replayBytes, &error)) {
-        if(!error.empty()) {
-            Logger::instance().log("Failed to save replay: " + error, Logger::Type::ERROR);
-        } else {
-            Logger::instance().log("Replay recording stopped without saving", Logger::Type::USER);
-        }
-        clearReplaySession(true);
-        return;
-    }
-
-    Logger::instance().log("Replay saved: " + defaultName, Logger::Type::USER);
+    AppSettings::instance().data.setLastFolder(savePath.string());
+    Logger::instance().log("Replay saved: " + savePath.string(), Logger::Type::USER);
     clearReplaySession(true);
     return;
 #elif defined(__EMSCRIPTEN__)
@@ -3169,6 +3434,22 @@ GeraNESApp::GeraNESApp()
 
     m_audioDevices = m_emu.getAudioList();
 
+#ifdef __ANDROID__
+    ensureAndroidRuntimeDataSynced();
+    ensureAndroidUserContentBootstrapped();
+    Logger::instance().log("Android storage root: " + AppSettings::storageDirectory().string(), Logger::Type::INFO);
+    Logger::instance().log("Android content root: " + userContentRoot().string(), Logger::Type::INFO);
+    Logger::instance().log("Android runtime data root: " + bundledRuntimeRoot().string(), Logger::Type::INFO);
+    logDirectorySnapshot("Android runtime data", bundledRuntimeRoot());
+    logDirectorySnapshot("Android shaders directory", bundledShadersDirectory());
+    logDirectorySnapshot("Android palettes directory", bundledPalettesDirectory());
+    logDirectorySnapshot("Android user content", userContentRoot());
+    logDirectorySnapshot("Android user shaders directory", userShadersDirectory());
+    logDirectorySnapshot("Android user palettes directory", userPalettesDirectory());
+    logDirectorySnapshot("Android replay directory", userReplayDirectory());
+    logDirectorySnapshot("Android export directory", userExportDirectory());
+#endif
+
     syncSettings();
     createShortcuts();
     installSelectedInputObserver();
@@ -3191,11 +3472,15 @@ GeraNESApp::GeraNESApp()
 
 void GeraNESApp::loadShaderList()
 {
-    const char* SHADER_DIR = "shaders/";
     shaderList.clear();
 
-    const std::string dir = fs::path(SHADER_DIR).parent_path().string();
-    if(!fs::exists(dir)) fs::create_directory(dir);
+    const fs::path dir = userShadersDirectory();
+    std::error_code ec;
+    fs::create_directories(dir, ec);
+    if(!fs::exists(dir)) {
+        Logger::instance().log("Shader directory not found: " + dir.string(), Logger::Type::WARNING);
+        return;
+    }
 
     for(const auto& entry : fs::directory_iterator(dir)) {
         if(fs::is_regular_file(entry.path()) && entry.path().extension() == ".glsl") {
@@ -3207,13 +3492,15 @@ void GeraNESApp::loadShaderList()
     std::sort(shaderList.begin(), shaderList.end(), [](const ShaderItem& a, const ShaderItem& b) {
         return a.label < b.label;
     });
+
+    Logger::instance().log("Shader count: " + std::to_string(shaderList.size()), Logger::Type::INFO);
 }
 
 namespace
 {
     fs::path palettesDirectory()
     {
-        return AppSettings::storageDirectory() / "palettes";
+        return userPalettesDirectory();
     }
 
     std::string paletteColorToHex(uint32_t color)
@@ -3246,16 +3533,7 @@ namespace
 
     fs::path palettePathForName(const std::string& name)
     {
-        std::string safeName;
-        for(char c : name) {
-            if(std::isalnum(static_cast<unsigned char>(c)) || c == '-' || c == '_') {
-                safeName += c;
-            } else if(c == ' ') {
-                safeName += '_';
-            }
-        }
-        if(safeName.empty()) safeName = "palette";
-        return palettesDirectory() / (safeName + ".json");
+        return palettesDirectory() / (sanitizeUserFileName(name, "palette") + ".json");
     }
 }
 
@@ -3272,8 +3550,12 @@ void GeraNESApp::loadPaletteList()
     std::error_code ec;
     fs::create_directories(palettesDirectory(), ec);
 
-    if(fs::exists(palettesDirectory())) {
-        for(const auto& entry : fs::directory_iterator(palettesDirectory())) {
+    auto appendPalettesFromDirectory = [this, &defaultPalette](const fs::path& directory, bool builtIn) {
+        if(!fs::exists(directory)) {
+            return;
+        }
+
+        for(const auto& entry : fs::directory_iterator(directory)) {
             if(!entry.is_regular_file() || entry.path().extension() != ".json") continue;
 
             try {
@@ -3284,7 +3566,7 @@ void GeraNESApp::loadPaletteList()
                 PaletteItem item;
                 item.name = j.value("name", entry.path().stem().string());
                 item.path = entry.path();
-                item.builtIn = false;
+                item.builtIn = builtIn;
                 for(size_t i = 0; i < item.colors.size(); ++i) {
                     uint32_t color = defaultPalette.colors[i];
                     paletteColorFromHex(j["colors"][i].get<std::string>(), color);
@@ -3296,11 +3578,15 @@ void GeraNESApp::loadPaletteList()
                 Logger::instance().log("Failed to load palette: " + entry.path().string(), Logger::Type::WARNING);
             }
         }
-    }
+    };
+
+    appendPalettesFromDirectory(palettesDirectory(), false);
 
     std::sort(m_paletteList.begin() + 1, m_paletteList.end(), [](const PaletteItem& a, const PaletteItem& b) {
         return a.name < b.name;
     });
+
+    Logger::instance().log("Palette count: " + std::to_string(m_paletteList.size()), Logger::Type::INFO);
 }
 
 const GeraNESApp::ShaderItem* GeraNESApp::findShaderByLabel(const std::string& label) const
@@ -3370,15 +3656,22 @@ void GeraNESApp::exportPpuViewerChrPng(const std::vector<uint32_t>& pixels, int 
         return;
     }
 
-    std::string error;
-    if(!AndroidFileDialog::saveBytesWithDocumentPicker("ppu_chr.png", "image/png", pngData, &error)) {
-        if(!error.empty()) {
-            Logger::instance().log("Could not export PPU CHR PNG: " + error, Logger::Type::ERROR);
-        }
+    std::error_code ec;
+    fs::create_directories(userExportDirectory(), ec);
+    const fs::path exportPath = uniquePathForStem(userExportDirectory(), "ppu_chr", ".png");
+    std::ofstream file(exportPath, std::ios::binary | std::ios::trunc);
+    if(!file.is_open()) {
+        Logger::instance().log("Could not open PPU CHR PNG for writing: " + exportPath.string(), Logger::Type::ERROR);
+        return;
+    }
+    file.write(reinterpret_cast<const char*>(pngData.data()), static_cast<std::streamsize>(pngData.size()));
+    if(!file.good()) {
+        Logger::instance().log("Failed writing PPU CHR PNG: " + exportPath.string(), Logger::Type::ERROR);
         return;
     }
 
-    Logger::instance().log("PPU CHR PNG export completed.", Logger::Type::USER);
+    AppSettings::instance().data.setLastFolder(exportPath.string());
+    Logger::instance().log("PPU CHR PNG exported: " + exportPath.string(), Logger::Type::USER);
 #else
     if(width <= 0 || height <= 0 || pixels.size() != static_cast<size_t>(width * height)) {
         Logger::instance().log("Could not export PPU CHR PNG: invalid image buffer.", Logger::Type::ERROR);
@@ -5036,6 +5329,12 @@ bool GeraNESApp::onEvent(SDL_Event& event)
     }
 
     switch(event.type) {
+        case SDL_APP_WILLENTERBACKGROUND:
+        case SDL_APP_DIDENTERBACKGROUND:
+        case SDL_APP_TERMINATING:
+            persistSettingsForShutdown();
+            break;
+
         case SDL_KEYDOWN: {
             std::string keyName = SDL_GetKeyName(event.key.keysym.sym);
             const bool hasCtrlModifier = (event.key.keysym.mod & KMOD_CTRL) != 0;

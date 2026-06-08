@@ -4,12 +4,8 @@
 #include <limits>
 #include <string>
 
-#ifdef __ANDROID__
-#include <SDL_system.h>
-#endif
-
+#include "AppBootstrap.h"
 #include "GeraNES/defines.h"
-#include "GeraNES/GameDatabase.h"
 #include "CrashHandler.h"
 #include "GeraNESApp/GeraNESApp.h"
 #include "HealthCheck.h"
@@ -107,42 +103,7 @@ int main(int argc, char* argv[])
         }
     } cwdRestoreGuard{originalCwd};
 
-    try {
-#ifdef __ANDROID__
-        const char* androidInternalStorage = SDL_AndroidGetInternalStoragePath();
-        if(androidInternalStorage != nullptr && androidInternalStorage[0] != '\0') {
-            const std::filesystem::path storageRoot(androidInternalStorage);
-            const std::filesystem::path runtimeDataDir = storageRoot / "runtime_data";
-            std::filesystem::create_directories(runtimeDataDir);
-            std::filesystem::current_path(runtimeDataDir);
-            AppSettings::setStorageDirectory(storageRoot);
-        }
-        else
-#endif
-        if(argc > 0 && argv[0] && argv[0][0] != '\0') {
-            const std::filesystem::path exePath = std::filesystem::absolute(argv[0]);
-            const std::filesystem::path exeDir = exePath.parent_path();
-            if(!exeDir.empty()) {
-                std::filesystem::current_path(exeDir);
-                AppSettings::setStorageDirectory(exeDir);
-            }
-        }
-    }
-    catch(...) {
-    }
-
-#ifndef __ANDROID__
-    AppSettings::setStorageDirectory(std::filesystem::current_path());
-#endif
-    {
-        const std::filesystem::path cwd = std::filesystem::current_path();
-        const std::filesystem::path dataDbPath = cwd / "data" / "db.txt";
-        if(std::filesystem::exists(dataDbPath)) {
-            GameDatabase::setDatabasePath(dataDbPath.string());
-        } else {
-            GameDatabase::setDatabasePath((cwd / "db.txt").string());
-        }
-    }
+    AppBootstrap::initializeAppEnvironment((argc > 0 && argv[0] != nullptr) ? argv[0] : nullptr);
     CrashHandler::install();
 
     if(argc >= 2 && std::string(argv[1]) == "--help") {

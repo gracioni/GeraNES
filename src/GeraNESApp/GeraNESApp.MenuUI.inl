@@ -101,9 +101,7 @@ inline void GeraNESApp::menuBar() {
                     std::string androidRecentUri;
                     std::string androidRecentDisplayName;
                     if(parseAndroidRecentFileEntry(recentFiles[i], androidRecentUri, androidRecentDisplayName)) {
-                        const std::string menuLabel =
-                            (androidRecentDisplayName.empty() ? androidRecentUri : androidRecentDisplayName) +
-                            "##" + recentFiles[i];
+                        const std::string menuLabel = androidRecentUri + "##" + recentFiles[i];
                         if(ImGui::MenuItem(menuLabel.c_str())) {
                             AndroidFileDialog::PickedFile pickedRom;
                             std::string error;
@@ -126,6 +124,7 @@ inline void GeraNESApp::menuBar() {
                     if(ImGui::MenuItem(recentFiles[i].c_str())) {
                         openFile(recentFiles[i].c_str());
                     }
+#endif
                 }
                 ImGui::EndMenu();
             }

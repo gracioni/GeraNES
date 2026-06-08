@@ -16,7 +16,7 @@ inline void GeraNESApp::drawPaletteWindow()
         }
 
         for(const PaletteItem& item : m_paletteList) {
-            if(item.builtIn) continue;
+            if(item.name == "Default") continue;
             if(ImGui::Selectable(item.name.c_str(), m_selectedPaletteName == item.name)) {
                 applyPalette(item.colors, item.name);
             }
@@ -45,7 +45,13 @@ inline void GeraNESApp::drawPaletteWindow()
         }
 
         ImGui::SameLine();
-        const bool canDeletePalette = m_selectedPaletteName != "Default";
+        const auto selectedPaletteIt = std::find_if(m_paletteList.begin(), m_paletteList.end(), [this](const PaletteItem& item) {
+            return item.name == m_selectedPaletteName;
+        });
+        const bool canDeletePalette =
+            selectedPaletteIt != m_paletteList.end() &&
+            selectedPaletteIt->name != "Default" &&
+            !selectedPaletteIt->builtIn;
         if(!canDeletePalette) ImGui::BeginDisabled();
         if(ImGui::Button("Delete")) {
             deleteCurrentPalette();

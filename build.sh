@@ -362,13 +362,15 @@ prepare_android_assets() {
 
     if [ -d "$runtime_data_stage_dir" ]; then
         cp -R "$runtime_data_stage_dir/." "$android_assets_dir/"
+        rm -f "$android_assets_dir/docs/sitemap.xml.gz"
         return 0
     fi
 
-    cp -R "$ROOT_DIR/data" "$android_assets_dir/"
+    cp -R "$ROOT_DIR/data/." "$android_assets_dir/"
     if [ -d "$ROOT_DIR/docs/user-guide/site" ]; then
         mkdir -p "$android_assets_dir/docs"
         cp -R "$ROOT_DIR/docs/user-guide/site/." "$android_assets_dir/docs/"
+        rm -f "$android_assets_dir/docs/sitemap.xml.gz"
     fi
 }
 
@@ -381,7 +383,6 @@ prepare_android_project() {
     android_app_java_dir="$android_project_dir/app/src/main/java"
     android_app_res_dir="$android_project_dir/app/src/main/res"
 
-    rm -rf "$android_project_dir"
     mkdir -p "$android_project_dir"
     cp -R "$ROOT_DIR/android/." "$android_project_dir/"
     mkdir -p "$android_app_java_dir" "$android_app_res_dir"
@@ -389,7 +390,7 @@ prepare_android_project() {
     cp -R "$sdl_res_dir/." "$android_app_res_dir/"
 
     android_project_dir_normalized=$(normalize_path "$android_project_dir")
-    android_assets_dir_normalized=$(normalize_path "$android_assets_dir")
+    android_assets_dir_normalized=$(normalize_path "$ROOT_DIR/$android_assets_dir")
     repo_root_normalized=$(normalize_path "$ROOT_DIR")
     app_icon_resource="@android:drawable/sym_def_app_icon"
     keystore_path_normalized=""
@@ -599,11 +600,6 @@ fi
 
 rm -rf "$DEPLOY_DIR"
 mkdir -p "$BUILD_DIR"
-
-if [ "$PLATFORM" = "android" ]; then
-    rm -f "$BUILD_DIR/CMakeCache.txt" "$BUILD_DIR/build.ninja"
-    rm -rf "$BUILD_DIR/CMakeFiles"
-fi
 
 cd "$ROOT_DIR"
 eval "$CONFIGURE_CMD -S . -B \"$BUILD_DIR\" $GENERATOR_ARGS -DCMAKE_BUILD_TYPE=\"$BUILD_TYPE\" $EXTRA_CMAKE_ARGS"

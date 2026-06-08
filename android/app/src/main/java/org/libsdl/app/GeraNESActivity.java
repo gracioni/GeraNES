@@ -1,5 +1,7 @@
 package org.libsdl.app;
 
+import android.content.pm.ActivityInfo;
+import android.content.res.Configuration;
 import android.content.res.AssetManager;
 import android.content.ContentResolver;
 import android.content.Intent;
@@ -32,12 +34,13 @@ public class GeraNESActivity extends SDLActivity {
 
     @Override
     protected void onCreate(android.os.Bundle savedInstanceState) {
-        super.onCreate(savedInstanceState);
-        applyImmersiveFullscreen();
         try {
             syncBundledRuntimeData();
         } catch (Exception ignored) {
         }
+        super.onCreate(savedInstanceState);
+        setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_FULL_USER);
+        applyImmersiveFullscreen();
     }
 
     @Override
@@ -47,10 +50,37 @@ public class GeraNESActivity extends SDLActivity {
     }
 
     @Override
+    public void onConfigurationChanged(Configuration newConfig) {
+        super.onConfigurationChanged(newConfig);
+        applyImmersiveFullscreen();
+    }
+
+    @Override
     public void onWindowFocusChanged(boolean hasFocus) {
         super.onWindowFocusChanged(hasFocus);
         if(hasFocus) {
             applyImmersiveFullscreen();
+        }
+    }
+
+    public boolean geranesOpenBundledDocumentation() {
+        try {
+            final Intent intent = new Intent(this, DocumentationActivity.class);
+            startActivity(intent);
+            return true;
+        } catch(Exception e) {
+            Log.e(TAG, "Failed to open bundled documentation", e);
+            return false;
+        }
+    }
+
+    public boolean geranesEnsureRuntimeDataSynced() {
+        try {
+            syncBundledRuntimeData();
+            return true;
+        } catch(Exception e) {
+            Log.e(TAG, "Failed to sync bundled runtime data", e);
+            return false;
         }
     }
 
@@ -356,8 +386,27 @@ public class GeraNESActivity extends SDLActivity {
             throw new IOException("Could not create runtime data directory.");
         }
 
-        syncAssetTree("data", new File(runtimeRoot, "data"));
+        syncAssetChildrenToDirectory("", runtimeRoot);
         syncAssetTree("docs", new File(runtimeRoot, "docs"));
+    }
+
+    private void syncAssetChildrenToDirectory(String assetPath, File targetDir) throws IOException {
+        final String[] entries = getAssets().list(assetPath);
+        if(entries == null || entries.length == 0) {
+            return;
+        }
+
+        if(!targetDir.exists() && !targetDir.mkdirs() && !targetDir.isDirectory()) {
+            throw new IOException("Could not create directory " + targetDir.getAbsolutePath());
+        }
+
+        for(String entry : entries) {
+            if(entry == null || entry.isEmpty() || entry.equals("docs")) {
+                continue;
+            }
+            final String childAssetPath = assetPath.isEmpty() ? entry : assetPath + "/" + entry;
+            syncAssetTree(childAssetPath, new File(targetDir, entry));
+        }
     }
 
     private void syncAssetTree(String assetPath, File targetPath) throws IOException {

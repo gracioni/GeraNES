@@ -89,6 +89,10 @@ public:
 
     static void setStorageDirectory(const fs::path& path);
 
+    static fs::path& contentDirectory();
+
+    static void setContentDirectory(const fs::path& path);
+
     static fs::path settingsFilePath();
 
     struct Improvements {   

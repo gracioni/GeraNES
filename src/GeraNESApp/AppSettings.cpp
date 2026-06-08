@@ -12,15 +12,27 @@ fs::path& AppSettings::storageDirectory()
     return path;
 }
 
+fs::path& AppSettings::contentDirectory()
+{
+    static fs::path path = storageDirectory();
+    return path;
+}
+
 void AppSettings::setStorageDirectory(const fs::path& path)
 {
     if(path.empty()) return;
     storageDirectory() = path;
 }
 
+void AppSettings::setContentDirectory(const fs::path& path)
+{
+    if(path.empty()) return;
+    contentDirectory() = path;
+}
+
 fs::path AppSettings::settingsFilePath()
 {
-    return storageDirectory() / "settings.json";
+    return contentDirectory() / "settings.json";
 }
 
 bool AppSettings::Input::getControllerInfo(int index, ControllerInfo& result)
@@ -259,7 +271,7 @@ const std::vector<std::string> AppSettings::Data::getRecentFiles()
 
 void AppSettings::Data::sanitizeDefaults()
 {
-    if(lastFolder == "") lastFolder = AppSettings::storageDirectory().string();
+    if(lastFolder == "") lastFolder = AppSettings::contentDirectory().string();
     saveStateSlot = std::clamp(saveStateSlot, 0, 9);
 }
 
@@ -351,6 +363,8 @@ AppSettings::~AppSettings()
 void AppSettings::save()
 {
     Logger::instance().log("Saving settings...", Logger::Type::INFO);
+    std::error_code ec;
+    fs::create_directories(settingsFilePath().parent_path(), ec);
     std::ofstream file(settingsFilePath());
     file << std::setw(4) << nlohmann::json(data);
 }
