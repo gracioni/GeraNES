@@ -1,6 +1,5 @@
 package org.libsdl.app;
 
-import android.content.pm.ActivityInfo;
 import android.content.res.Configuration;
 import android.content.res.AssetManager;
 import android.content.ContentResolver;
@@ -23,6 +22,11 @@ import java.io.InputStream;
 import java.io.OutputStream;
 import org.json.JSONObject;
 
+import androidx.core.view.ViewCompat;
+import androidx.core.view.WindowCompat;
+import androidx.core.view.WindowInsetsCompat;
+import androidx.core.view.WindowInsetsControllerCompat;
+
 public class GeraNESActivity extends SDLActivity {
     private static final String TAG = "GeraNESActivity";
     private static final int REQUEST_OPEN_DOCUMENT_BASE = 0x4700;
@@ -39,28 +43,42 @@ public class GeraNESActivity extends SDLActivity {
         } catch (Exception ignored) {
         }
         super.onCreate(savedInstanceState);
-        setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_FULL_USER);
-        applyImmersiveFullscreen();
+        scheduleImmersiveFullscreen();
     }
 
     @Override
     protected void onResume() {
         super.onResume();
-        applyImmersiveFullscreen();
+        scheduleImmersiveFullscreen();
+    }
+
+    @Override
+    protected void onPostResume() {
+        super.onPostResume();
+        scheduleImmersiveFullscreen();
     }
 
     @Override
     public void onConfigurationChanged(Configuration newConfig) {
         super.onConfigurationChanged(newConfig);
-        applyImmersiveFullscreen();
+        final View decorView = getWindow().getDecorView();
+        decorView.requestLayout();
+        decorView.requestApplyInsets();
+        scheduleImmersiveFullscreen();
     }
 
     @Override
     public void onWindowFocusChanged(boolean hasFocus) {
         super.onWindowFocusChanged(hasFocus);
         if(hasFocus) {
-            applyImmersiveFullscreen();
+            scheduleImmersiveFullscreen();
         }
+    }
+
+    @Override
+    public void onAttachedToWindow() {
+        super.onAttachedToWindow();
+        scheduleImmersiveFullscreen();
     }
 
     public boolean geranesOpenBundledDocumentation() {
@@ -450,18 +468,50 @@ public class GeraNESActivity extends SDLActivity {
         }
     }
 
+    private void scheduleImmersiveFullscreen() {
+        final View decorView = getWindow().getDecorView();
+        decorView.post(this::applyImmersiveFullscreen);
+        decorView.postDelayed(this::applyImmersiveFullscreen, 32L);
+        decorView.postDelayed(this::applyImmersiveFullscreen, 160L);
+    }
+
     private void applyImmersiveFullscreen() {
-        getWindow().addFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN);
-        getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+        final android.view.Window window = getWindow();
+        window.addFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN);
+        window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+        if(Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            final WindowManager.LayoutParams attributes = window.getAttributes();
+            attributes.layoutInDisplayCutoutMode =
+                WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES;
+            window.setAttributes(attributes);
+        }
+        final View decorView = window.getDecorView();
+        WindowCompat.setDecorFitsSystemWindows(window, false);
+        final WindowInsetsControllerCompat controller = WindowCompat.getInsetsController(window, decorView);
+        if(controller != null) {
+            controller.setSystemBarsBehavior(WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE);
+            controller.hide(WindowInsetsCompat.Type.systemBars());
+        }
+        ViewCompat.setOnApplyWindowInsetsListener(decorView, (view, windowInsets) -> {
+            if(windowInsets.isVisible(WindowInsetsCompat.Type.statusBars()) ||
+               windowInsets.isVisible(WindowInsetsCompat.Type.navigationBars())) {
+                view.post(() -> {
+                    final WindowInsetsControllerCompat insetsController =
+                        WindowCompat.getInsetsController(window, view);
+                    if(insetsController != null) {
+                        insetsController.hide(WindowInsetsCompat.Type.systemBars());
+                    }
+                });
+            }
+            return ViewCompat.onApplyWindowInsets(view, windowInsets);
+        });
         if(Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            getWindow().setDecorFitsSystemWindows(false);
-            final WindowInsetsController controller = getWindow().getInsetsController();
-            if(controller != null) {
-                controller.hide(WindowInsets.Type.systemBars());
-                controller.setSystemBarsBehavior(WindowInsetsController.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE);
+            final WindowInsetsController platformInsetsController = window.getInsetsController();
+            if(platformInsetsController != null) {
+                platformInsetsController.hide(WindowInsets.Type.systemBars());
+                platformInsetsController.setSystemBarsBehavior(WindowInsetsController.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE);
             }
         } else {
-            final View decorView = getWindow().getDecorView();
             decorView.setSystemUiVisibility(
                 View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
                     | View.SYSTEM_UI_FLAG_LAYOUT_STABLE
@@ -470,6 +520,19 @@ public class GeraNESActivity extends SDLActivity {
                     | View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
                     | View.SYSTEM_UI_FLAG_FULLSCREEN
             );
+            decorView.setOnSystemUiVisibilityChangeListener(visibility -> {
+                final int fullscreenFlags =
+                    View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
+                        | View.SYSTEM_UI_FLAG_LAYOUT_STABLE
+                        | View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
+                        | View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
+                        | View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
+                        | View.SYSTEM_UI_FLAG_FULLSCREEN;
+                if((visibility & View.SYSTEM_UI_FLAG_FULLSCREEN) == 0 ||
+                   (visibility & View.SYSTEM_UI_FLAG_HIDE_NAVIGATION) == 0) {
+                    decorView.post(() -> decorView.setSystemUiVisibility(fullscreenFlags));
+                }
+            });
         }
     }
 }

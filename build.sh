@@ -427,6 +427,7 @@ prepare_android_project() {
 
     write_file "$android_project_dir/gradle.properties" \
         "org.gradle.jvmargs=-Xmx4096m -Dfile.encoding=UTF-8" \
+        "android.useAndroidX=true" \
         "GERANES_REPO_ROOT=$repo_root_normalized" \
         "GERANES_ANDROID_ASSETS_DIR=$android_assets_dir_normalized" \
         "GERANES_ANDROID_NDK_PATH=$(normalize_path "$ANDROID_NDK_ROOT_RESOLVED")" \
