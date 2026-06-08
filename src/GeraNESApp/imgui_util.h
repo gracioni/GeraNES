@@ -236,6 +236,43 @@ extern "C" {
         ImGui::PopStyleVar();
     }
 
+    static std::string EllipsizeStartToFit(const std::string& text,
+                                           float max_width,
+                                           const char* ellipsis = "...")
+    {
+        if(text.empty() || max_width <= 0.0f) {
+            return text;
+        }
+
+        if(ImGui::CalcTextSize(text.c_str()).x <= max_width) {
+            return text;
+        }
+
+        const float ellipsis_width = ImGui::CalcTextSize(ellipsis).x;
+        if(ellipsis_width >= max_width) {
+            return ellipsis;
+        }
+
+        std::string fitted = text;
+        size_t start_index = 0;
+        while(start_index < text.size()) {
+            fitted = std::string(ellipsis) + text.substr(start_index);
+            if(ImGui::CalcTextSize(fitted.c_str()).x <= max_width) {
+                return fitted;
+            }
+            ++start_index;
+        }
+
+        return ellipsis;
+    }
+
+    static std::string BuildEllipsizedMenuLabel(const std::string& visible_text,
+                                                const std::string& unique_id,
+                                                float max_width)
+    {
+        return EllipsizeStartToFit(visible_text, max_width) + "##" + unique_id;
+    }
+
 #ifdef __cplusplus
 }
 #endif

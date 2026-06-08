@@ -93,15 +93,27 @@ inline void GeraNESApp::menuBar() {
             if (ImGui::BeginMenu(withMenuIcon(FontAwesomeIcons::kClockRotateLeft, "Recent Files").c_str(), recentFiles.size() > 0 && !netplayRomChangeRestricted && !replayInteractionLocked))
             {
                 for(size_t i = 0; i < recentFiles.size(); ++i) {
+                    const float recentFileLabelWidth = std::max(
+                        80.0f,
+                        ImGui::GetContentRegionAvail().x - ImGui::GetStyle().FramePadding.x * 2.0f
+                    );
 #ifdef __EMSCRIPTEN__
                     const std::string displayName = fs::path(recentFiles[i]).filename().string();
-                    const std::string menuLabel = (displayName.empty() ? recentFiles[i] : displayName) + "##" + recentFiles[i];
+                    const std::string menuLabel = BuildEllipsizedMenuLabel(
+                        displayName.empty() ? recentFiles[i] : displayName,
+                        recentFiles[i],
+                        recentFileLabelWidth
+                    );
                     if(ImGui::MenuItem(menuLabel.c_str())) {
 #elif defined(__ANDROID__)
                     std::string androidRecentUri;
                     std::string androidRecentDisplayName;
                     if(parseAndroidRecentFileEntry(recentFiles[i], androidRecentUri, androidRecentDisplayName)) {
-                        const std::string menuLabel = androidRecentUri + "##" + recentFiles[i];
+                        const std::string menuLabel = BuildEllipsizedMenuLabel(
+                            androidRecentUri,
+                            recentFiles[i],
+                            recentFileLabelWidth
+                        );
                         if(ImGui::MenuItem(menuLabel.c_str())) {
                             AndroidFileDialog::PickedFile pickedRom;
                             std::string error;
@@ -115,13 +127,22 @@ inline void GeraNESApp::menuBar() {
                         }
                     } else {
                         const std::string displayName = fs::path(recentFiles[i]).filename().string();
-                        const std::string menuLabel = (displayName.empty() ? recentFiles[i] : displayName) + "##" + recentFiles[i];
+                        const std::string menuLabel = BuildEllipsizedMenuLabel(
+                            displayName.empty() ? recentFiles[i] : displayName,
+                            recentFiles[i],
+                            recentFileLabelWidth
+                        );
                         if(ImGui::MenuItem(menuLabel.c_str())) {
                             openFile(recentFiles[i].c_str());
                         }
                     }
 #else
-                    if(ImGui::MenuItem(recentFiles[i].c_str())) {
+                    const std::string menuLabel = BuildEllipsizedMenuLabel(
+                        recentFiles[i],
+                        recentFiles[i],
+                        recentFileLabelWidth
+                    );
+                    if(ImGui::MenuItem(menuLabel.c_str())) {
                         openFile(recentFiles[i].c_str());
                     }
 #endif

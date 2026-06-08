@@ -322,6 +322,8 @@ private:
 #endif
     ImFont* m_fontToast = nullptr;
     ImFont* m_fontFps = nullptr;
+    float m_fontToastSize = 24.0f;
+    float m_fontFpsSize = 32.0f;
 #ifdef ENABLE_NSF_PLAYER
     NsfVisualizerUI m_nsfVisualizer;
 #endif

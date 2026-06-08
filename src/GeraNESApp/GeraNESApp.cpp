@@ -4902,8 +4902,10 @@ bool GeraNESApp::initGL()
             m_fontNsfTitle = io.Fonts->AddFontFromMemoryTTF(m_embeddedUiFontData.data(), static_cast<int>(m_embeddedUiFontData.size()), 34.0f * uiScale, &cfg);
             m_fontNsfSubtitle = io.Fonts->AddFontFromMemoryTTF(m_embeddedUiFontData.data(), static_cast<int>(m_embeddedUiFontData.size()), 20.0f * uiScale, &cfg);
 #endif
-            m_fontToast = io.Fonts->AddFontFromMemoryTTF(m_embeddedUiFontData.data(), static_cast<int>(m_embeddedUiFontData.size()), 24.0f * uiScale, &cfg);
-            m_fontFps = io.Fonts->AddFontFromMemoryTTF(m_embeddedUiFontData.data(), static_cast<int>(m_embeddedUiFontData.size()), 32.0f * uiScale, &cfg);
+            m_fontToastSize = 24.0f * uiScale;
+            m_fontFpsSize = 32.0f * uiScale;
+            m_fontToast = io.Fonts->AddFontFromMemoryTTF(m_embeddedUiFontData.data(), static_cast<int>(m_embeddedUiFontData.size()), m_fontToastSize, &cfg);
+            m_fontFps = io.Fonts->AddFontFromMemoryTTF(m_embeddedUiFontData.data(), static_cast<int>(m_embeddedUiFontData.size()), m_fontFpsSize, &cfg);
 
             if(
 #ifdef ENABLE_NSF_PLAYER

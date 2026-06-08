@@ -1536,7 +1536,7 @@ private:
         return static_cast<uint8_t>(std::min<uint8_t>(slot, 9u));
     }
 
-    std::filesystem::path saveStateFileName(uint8_t slot) const
+    std::filesystem::path saveStateFileName(uint8_t slot)
     {
         const std::string romStem = std::filesystem::path(m_cartridge.romFile().fileName()).stem().string();
         return resolveContentPath(STATES_FOLDER) /

@@ -207,8 +207,8 @@ inline void GeraNESApp::showOverlay()
     drawInputMiniaturesOverlay(drawList, overlayOrigin);
 
     if(AppSettings::instance().data.debug.showFps) {
-        const int fontSize = 24;
         ImFont* fpsFont = m_fontFps != nullptr ? m_fontFps : ImGui::GetFont();
+        const float fontSize = m_fontFps != nullptr ? m_fontFpsSize : ImGui::GetFontSize();
         const SDL_Rect clientArea = emulatorClientArea();
         const std::array<std::string, 2> fpsLines = {
             "EMU " + std::to_string(m_emulatorFps),

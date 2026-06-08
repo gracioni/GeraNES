@@ -26,20 +26,22 @@ void UserToastNotifier::draw(ImDrawList* drawList, ImVec2 origin, float viewport
     }
 
     // Moved 8px up/right from previous placement.
-    const ImVec2 margin = ImVec2(26.0f, 26.0f);
-
     ImFont* activeFont = font != nullptr ? font : ImGui::GetFont();
-    ImVec2 textSize = activeFont->CalcTextSizeA(FONT_SIZE, FLT_MAX, 0.0f, m_message.c_str());
+    const float fontSize = font != nullptr ? font->LegacySize : ImGui::GetFontSize();
+    const float scale = std::max(1.0f, fontSize / FONT_SIZE);
+    const ImVec2 margin = ImVec2(26.0f * scale, 26.0f * scale);
+
+    ImVec2 textSize = activeFont->CalcTextSizeA(fontSize, FLT_MAX, 0.0f, m_message.c_str());
     ImVec2 textPos = ImVec2(origin.x + margin.x, origin.y + viewportHeight - margin.y - textSize.y);
 
-    ImVec2 boxMin = ImVec2(textPos.x - 8.0f, textPos.y - 6.0f);
-    ImVec2 boxMax = ImVec2(textPos.x + textSize.x + 10.0f, textPos.y + textSize.y + 6.0f);
+    ImVec2 boxMin = ImVec2(textPos.x - 8.0f * scale, textPos.y - 6.0f * scale);
+    ImVec2 boxMax = ImVec2(textPos.x + textSize.x + 10.0f * scale, textPos.y + textSize.y + 6.0f * scale);
 
     const int fillAlpha = static_cast<int>(220.0f * alpha);
     const int borderAlpha = static_cast<int>(220.0f * alpha);
     const int textAlpha = static_cast<int>(255.0f * alpha);
 
-    drawList->AddRectFilled(boxMin, boxMax, IM_COL32(20, 28, 38, fillAlpha), 6.0f);
-    drawList->AddRect(boxMin, boxMax, IM_COL32(90, 140, 190, borderAlpha), 6.0f);
-    DrawTextOutlined(drawList, activeFont, FONT_SIZE, textPos, IM_COL32(240, 246, 255, textAlpha), IM_COL32(0, 0, 0, textAlpha), m_message.c_str());
+    drawList->AddRectFilled(boxMin, boxMax, IM_COL32(20, 28, 38, fillAlpha), 6.0f * scale);
+    drawList->AddRect(boxMin, boxMax, IM_COL32(90, 140, 190, borderAlpha), 6.0f * scale);
+    DrawTextOutlined(drawList, activeFont, fontSize, textPos, IM_COL32(240, 246, 255, textAlpha), IM_COL32(0, 0, 0, textAlpha), m_message.c_str());
 }
