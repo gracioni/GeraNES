@@ -263,8 +263,8 @@ void drawNetplayChatDrawer(NetplayAppRuntime& runtime)
 
     ImGui::SetNextWindowPos(windowPos, ImGuiCond_Always);
     ImGui::SetNextWindowSize(ImVec2(drawerWidth, drawerHeight), ImGuiCond_Always);
-    ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 14.0f);
-    ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 1.0f);
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 0.0f);
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0.0f);
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f));
     ImGui::PushStyleColor(ImGuiCol_WindowBg, IM_COL32(18, 20, 26, 192));
     ImGui::PushStyleColor(ImGuiCol_Border, IM_COL32(255, 255, 255, 38));
@@ -323,7 +323,6 @@ void drawNetplayChatDrawer(NetplayAppRuntime& runtime)
 
             const ImVec2 bodyMin = ImGui::GetWindowPos();
             const ImVec2 bodyMax(bodyMin.x + ImGui::GetWindowSize().x, bodyMin.y + ImGui::GetWindowSize().y);
-            //drawList->AddRectFilled(bodyMin, bodyMax, IM_COL32(18, 20, 26, 192), 12.0f, ImDrawFlags_RoundCornersLeft);
 
             constexpr float contentPadX = 12.0f;
             constexpr float contentPadTop = 10.0f;
