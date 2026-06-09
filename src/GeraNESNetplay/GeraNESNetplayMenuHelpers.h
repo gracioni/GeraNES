@@ -16,6 +16,7 @@ struct MenuSnapshot
     bool inputManaged = false;
     ConsoleNetplay::NetTransportBackend transportBackend = ConsoleNetplay::defaultNetTransportBackend();
     std::vector<ConsoleNetplay::PlayerSlot> localAssignments;
+    std::vector<ConsoleNetplay::PlayerSlot> roomAssignments;
     std::optional<Settings::Device> port1Device;
     std::optional<Settings::Device> port2Device;
     Settings::ExpansionDevice expansionDevice = Settings::ExpansionDevice::NONE;

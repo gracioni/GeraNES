@@ -337,6 +337,8 @@ private:
     IEmulationHost::InputState m_netplayLatestInputState = {};
     mutable std::mutex m_selectedInputFrameMutex;
     std::optional<InputFrame> m_latestSelectedInputFrame;
+    mutable std::mutex m_queuedInputFrameMutex;
+    std::optional<InputFrame> m_latestQueuedInputFrame;
     ReplaySession m_replaySession;
     int m_replaySliderValue = 0;
     bool m_replaySliderDragging = false;

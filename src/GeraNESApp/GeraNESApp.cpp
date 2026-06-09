@@ -1504,6 +1504,11 @@ void GeraNESApp::notifyReplaySessionInteractionLocked(const char* action)
 
 void GeraNESApp::installSelectedInputObserver()
 {
+    m_emu.setQueuedInputObserver([this](const InputFrame& frame) {
+        std::scoped_lock queuedFrameLock(m_queuedInputFrameMutex);
+        m_latestQueuedInputFrame = frame;
+    });
+
     m_emu.setSelectedInputObserver([this](const InputFrame& frame) {
         {
             std::scoped_lock selectedFrameLock(m_selectedInputFrameMutex);
@@ -1521,13 +1526,11 @@ void GeraNESApp::configureReplaySessionMode(ReplaySession::ReplayMode mode)
 
     if(mode == ReplaySession::ReplayMode::Recording) {
         m_emu.setFrameInputResolver({});
-        m_emu.setQueuedInputObserver({});
         installSelectedInputObserver();
         return;
     }
 
     m_emu.setFrameInputResolver({});
-    m_emu.setQueuedInputObserver({});
     installSelectedInputObserver();
 }
 

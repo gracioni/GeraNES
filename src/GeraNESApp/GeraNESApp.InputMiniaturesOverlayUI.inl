@@ -7,12 +7,58 @@ inline void GeraNESApp::drawInputMiniaturesOverlay(ImDrawList* drawList, const I
     }
 
     InputState state{};
+    bool stateLoaded = false;
+    const auto netplayMenu = GeraNESNetplay::menuSnapshot(m_netplayRuntime);
+    const bool preferQueuedNetplayFrame = netplayMenu.inputManaged;
+    const auto hasRoomAssignment = [&](ConsoleNetplay::PlayerSlot slot) {
+        if(!netplayMenu.inputManaged) {
+            return true;
+        }
+        return std::find(netplayMenu.roomAssignments.begin(),
+                         netplayMenu.roomAssignments.end(),
+                         slot) != netplayMenu.roomAssignments.end();
+    };
+    if(preferQueuedNetplayFrame) {
+        std::scoped_lock queuedFrameLock(m_queuedInputFrameMutex);
+        if(m_latestQueuedInputFrame.has_value()) {
+            state = m_latestQueuedInputFrame->state;
+            stateLoaded = true;
+        }
+    }
     {
         std::scoped_lock selectedFrameLock(m_selectedInputFrameMutex);
-        if(m_latestSelectedInputFrame.has_value()) {
+        if(!stateLoaded && m_latestSelectedInputFrame.has_value()) {
             state = m_latestSelectedInputFrame->state;
+            stateLoaded = true;
         }
-        state.topology = m_inputTopology;
+    }
+
+    if(!stateLoaded) {
+        if(netplayMenu.inputManaged) {
+            const bool roomUsesMultitap =
+                hasRoomAssignment(GeraNESNetplay::kMultitapP1PlayerSlot) ||
+                hasRoomAssignment(GeraNESNetplay::kMultitapP2PlayerSlot) ||
+                hasRoomAssignment(GeraNESNetplay::kMultitapP3PlayerSlot) ||
+                hasRoomAssignment(GeraNESNetplay::kMultitapP4PlayerSlot);
+            state.topology.port1Device =
+                hasRoomAssignment(GeraNESNetplay::kPort1PlayerSlot)
+                    ? netplayMenu.port1Device.value_or(Settings::Device::NONE)
+                    : Settings::Device::NONE;
+            state.topology.port2Device =
+                hasRoomAssignment(GeraNESNetplay::kPort2PlayerSlot)
+                    ? netplayMenu.port2Device.value_or(Settings::Device::NONE)
+                    : Settings::Device::NONE;
+            state.topology.expansionDevice =
+                hasRoomAssignment(GeraNESNetplay::kExpansionPlayerSlot)
+                    ? netplayMenu.expansionDevice
+                    : Settings::ExpansionDevice::NONE;
+            state.topology.nesMultitapDevice =
+                roomUsesMultitap ? netplayMenu.nesMultitapDevice : Settings::NesMultitapDevice::NONE;
+            state.topology.famicomMultitapDevice =
+                roomUsesMultitap ? netplayMenu.famicomMultitapDevice : Settings::FamicomMultitapDevice::NONE;
+        } else {
+            state.topology = m_inputTopology;
+        }
     }
 
     const SDL_Rect clientArea = emulatorClientArea();
@@ -200,12 +246,21 @@ inline void GeraNESApp::drawInputMiniaturesOverlay(ImDrawList* drawList, const I
     };
 
     if(state.multitapActive()) {
-        addItem(S(92.0f), S(42.0f), [=](const ImVec2& pos) { drawStandardPad(pos, "P1", state.portButtons(1), false); });
-        addItem(S(92.0f), S(42.0f), [=](const ImVec2& pos) { drawStandardPad(pos, "P2", state.portButtons(2), false); });
-        addItem(S(92.0f), S(42.0f), [=](const ImVec2& pos) { drawStandardPad(pos, "P3", state.portButtons(3), false); });
-        addItem(S(92.0f), S(42.0f), [=](const ImVec2& pos) { drawStandardPad(pos, "P4", state.portButtons(4), false); });
+        if(hasRoomAssignment(GeraNESNetplay::kMultitapP1PlayerSlot)) {
+            addItem(S(92.0f), S(42.0f), [=](const ImVec2& pos) { drawStandardPad(pos, "P1", state.portButtons(1), false); });
+        }
+        if(hasRoomAssignment(GeraNESNetplay::kMultitapP2PlayerSlot)) {
+            addItem(S(92.0f), S(42.0f), [=](const ImVec2& pos) { drawStandardPad(pos, "P2", state.portButtons(2), false); });
+        }
+        if(hasRoomAssignment(GeraNESNetplay::kMultitapP3PlayerSlot)) {
+            addItem(S(92.0f), S(42.0f), [=](const ImVec2& pos) { drawStandardPad(pos, "P3", state.portButtons(3), false); });
+        }
+        if(hasRoomAssignment(GeraNESNetplay::kMultitapP4PlayerSlot)) {
+            addItem(S(92.0f), S(42.0f), [=](const ImVec2& pos) { drawStandardPad(pos, "P4", state.portButtons(4), false); });
+        }
     } else {
-        switch(state.topology.port1Device) {
+        if(hasRoomAssignment(GeraNESNetplay::kPort1PlayerSlot)) {
+            switch(state.topology.port1Device) {
             case Settings::Device::CONTROLLER:
                 addItem(S(92.0f), S(42.0f), [=](const ImVec2& pos) { drawStandardPad(pos, "P1", state.portButtons(1), false); });
                 break;
@@ -239,9 +294,11 @@ inline void GeraNESApp::drawInputMiniaturesOverlay(ImDrawList* drawList, const I
             case Settings::Device::BANDAI_HYPERSHOT:
             case Settings::Device::NONE:
                 break;
+            }
         }
 
-        switch(state.topology.port2Device) {
+        if(hasRoomAssignment(GeraNESNetplay::kPort2PlayerSlot)) {
+            switch(state.topology.port2Device) {
             case Settings::Device::CONTROLLER:
                 addItem(S(92.0f), S(42.0f), [=](const ImVec2& pos) { drawStandardPad(pos, "P2", state.portButtons(2), false); });
                 break;
@@ -275,9 +332,11 @@ inline void GeraNESApp::drawInputMiniaturesOverlay(ImDrawList* drawList, const I
             case Settings::Device::BANDAI_HYPERSHOT:
             case Settings::Device::NONE:
                 break;
+            }
         }
 
-        switch(state.topology.expansionDevice) {
+        if(hasRoomAssignment(GeraNESNetplay::kExpansionPlayerSlot)) {
+            switch(state.topology.expansionDevice) {
             case Settings::ExpansionDevice::STANDARD_CONTROLLER_FAMICOM:
                 addItem(S(92.0f), S(42.0f), [=](const ImVec2& pos) { drawStandardPad(pos, "EXP", state.portButtons(3), true); });
                 break;
@@ -304,6 +363,7 @@ inline void GeraNESApp::drawInputMiniaturesOverlay(ImDrawList* drawList, const I
                 break;
             case Settings::ExpansionDevice::NONE:
                 break;
+            }
         }
     }
 

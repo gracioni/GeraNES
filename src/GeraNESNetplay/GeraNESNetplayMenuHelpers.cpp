@@ -1,5 +1,7 @@
 #include "GeraNESNetplay/GeraNESNetplayMenuHelpers.h"
 
+#include <algorithm>
+
 #include "ConsoleNetplay/NetplayInputAssignment.h"
 #include "GeraNESNetplay/GeraNESNetplayAdapters.h"
 
@@ -16,9 +18,14 @@ MenuSnapshot menuSnapshot(const NetplayAppRuntime& runtime)
     snapshot.transportBackend = ui.transportBackend;
     if(snapshot.inputManaged) {
         for(const auto& participant : ui.room.participants) {
+            for(const PlayerSlot slot : participantAssignments(participant)) {
+                if(std::find(snapshot.roomAssignments.begin(), snapshot.roomAssignments.end(), slot) ==
+                   snapshot.roomAssignments.end()) {
+                    snapshot.roomAssignments.push_back(slot);
+                }
+            }
             if(participant.id != ui.localParticipantId) continue;
             snapshot.localAssignments = participantAssignments(participant);
-            break;
         }
     }
     snapshot.port1Device = geraNESPortDeviceFromTopology(ui.room, kPort1PlayerSlot);
