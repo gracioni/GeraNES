@@ -9,6 +9,7 @@ import android.net.Uri;
 import android.os.Build;
 import android.provider.DocumentsContract;
 import android.provider.OpenableColumns;
+import android.util.Base64;
 import android.util.Log;
 import android.view.View;
 import android.view.WindowInsets;
@@ -20,6 +21,11 @@ import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.nio.charset.StandardCharsets;
+import java.security.KeyStore;
+import java.security.cert.Certificate;
+import java.security.cert.X509Certificate;
+import java.util.Enumeration;
 import org.json.JSONObject;
 
 import androidx.core.view.ViewCompat;
@@ -99,6 +105,22 @@ public class GeraNESActivity extends SDLActivity {
         } catch(Exception e) {
             Log.e(TAG, "Failed to sync bundled runtime data", e);
             return false;
+        }
+    }
+
+    public String geranesPrepareSystemCaBundle() {
+        try {
+            final File tlsDir = new File(getFilesDir(), "tls");
+            if(!tlsDir.exists() && !tlsDir.mkdirs() && !tlsDir.isDirectory()) {
+                return null;
+            }
+
+            final File bundleFile = new File(tlsDir, "android-system-ca.pem");
+            writeAndroidCaBundle(bundleFile);
+            return bundleFile.getAbsolutePath();
+        } catch(Exception e) {
+            Log.e(TAG, "Failed to export Android system CA bundle", e);
+            return null;
         }
     }
 
@@ -396,6 +418,33 @@ public class GeraNESActivity extends SDLActivity {
             }
         }
         file.delete();
+    }
+
+    private void writeAndroidCaBundle(File bundleFile) throws Exception {
+        final KeyStore keyStore = KeyStore.getInstance("AndroidCAStore");
+        keyStore.load(null);
+
+        try (FileOutputStream outputStream = new FileOutputStream(bundleFile, false)) {
+            final Enumeration<String> aliases = keyStore.aliases();
+            while(aliases.hasMoreElements()) {
+                final String alias = aliases.nextElement();
+                final Certificate certificate = keyStore.getCertificate(alias);
+                if(!(certificate instanceof X509Certificate)) {
+                    continue;
+                }
+
+                final String encoded = Base64.encodeToString(certificate.getEncoded(), Base64.NO_WRAP);
+                outputStream.write("-----BEGIN CERTIFICATE-----\n".getBytes(StandardCharsets.US_ASCII));
+                int index = 0;
+                while(index < encoded.length()) {
+                    final int end = Math.min(index + 64, encoded.length());
+                    outputStream.write(encoded.substring(index, end).getBytes(StandardCharsets.US_ASCII));
+                    outputStream.write('\n');
+                    index = end;
+                }
+                outputStream.write("-----END CERTIFICATE-----\n".getBytes(StandardCharsets.US_ASCII));
+            }
+        }
     }
 
     private void syncBundledRuntimeData() throws IOException {

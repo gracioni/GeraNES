@@ -18,6 +18,10 @@
 #include <windows.h>
 #include <winhttp.h>
 #else
+#if defined(__ANDROID__)
+#include <SDL_system.h>
+#include <jni.h>
+#endif
 #include <ixwebsocket/IXNetSystem.h>
 #include <ixwebsocket/IXSocketTLSOptions.h>
 #include <ixwebsocket/IXWebSocket.h>
@@ -85,6 +89,58 @@ void enqueueSignalingCleanup(Fn&& task)
 {
     SignalingCleanupQueue::instance().enqueue(std::forward<Fn>(task));
 }
+
+#if defined(__ANDROID__)
+std::string fromJString(JNIEnv* env, jstring value)
+{
+    if(env == nullptr || value == nullptr) {
+        return {};
+    }
+
+    const char* utfChars = env->GetStringUTFChars(value, nullptr);
+    if(utfChars == nullptr) {
+        return {};
+    }
+
+    std::string result(utfChars);
+    env->ReleaseStringUTFChars(value, utfChars);
+    return result;
+}
+
+std::string buildAndroidSystemCaBundlePath()
+{
+    JNIEnv* env = reinterpret_cast<JNIEnv*>(SDL_AndroidGetJNIEnv());
+    jobject activity = reinterpret_cast<jobject>(SDL_AndroidGetActivity());
+    if(env == nullptr || activity == nullptr) {
+        return {};
+    }
+
+    jclass activityClass = env->GetObjectClass(activity);
+    if(activityClass == nullptr) {
+        return {};
+    }
+
+    const jmethodID method = env->GetMethodID(activityClass, "geranesPrepareSystemCaBundle", "()Ljava/lang/String;");
+    if(method == nullptr) {
+        env->DeleteLocalRef(activityClass);
+        return {};
+    }
+
+    jstring pathValue = static_cast<jstring>(env->CallObjectMethod(activity, method));
+    std::string path;
+    if(!env->ExceptionCheck()) {
+        path = fromJString(env, pathValue);
+    } else {
+        env->ExceptionClear();
+    }
+
+    if(pathValue != nullptr) {
+        env->DeleteLocalRef(pathValue);
+    }
+    env->DeleteLocalRef(activityClass);
+    return path;
+}
+#endif
 
 #if defined(_WIN32)
 struct ParsedWebSocketUrl
@@ -735,6 +791,14 @@ public:
             } else {
                 logTrace("Windows root CA bundle unavailable; falling back to IXWebSocket system TLS defaults");
             }
+#elif defined(__ANDROID__)
+            const std::string androidSystemCaBundle = buildAndroidSystemCaBundlePath();
+            if(!androidSystemCaBundle.empty()) {
+                tlsOptions.caFile = androidSystemCaBundle;
+                logTrace("using Android exported system CA bundle for TLS verification");
+            } else {
+                logTrace("Android system CA bundle unavailable; IXWebSocket TLS verification may fail");
+            }
 #endif
             socket->setTLSOptions(tlsOptions);
         }
@@ -891,8 +955,11 @@ public:
             logTrace("disconnecting socket");
             enqueueSignalingCleanup([socket = std::move(socket)]() mutable {
                 try {
-                    socket->setOnMessageCallback(nullptr);
+                    // ixwebsocket still emits a close event while stop() runs.
+                    // Clearing the callback first can make its internal close
+                    // callback call an empty std::function and abort the process.
                     socket->stop();
+                    socket->setOnMessageCallback(nullptr);
                 } catch(...) {
                 }
                 socket.reset();
