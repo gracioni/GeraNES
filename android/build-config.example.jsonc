@@ -32,8 +32,17 @@
   // App label shown on the device launcher.
   "appName": "GeraNES",
 
-  // Optional path to a custom launcher icon image. Leave empty to use the default Android app icon.
+  // Optional path to a single custom launcher icon image. Leave empty to use the default Android app icon.
   "iconPath": "",
+
+  // Optional Android adaptive icon foreground layer. Requires iconBackgroundPath when set.
+  "iconForegroundPath": "",
+
+  // Optional Android adaptive icon background layer. Requires iconForegroundPath when set.
+  "iconBackgroundPath": "",
+
+  // Optional Android adaptive icon monochrome layer for themed launchers.
+  "iconMonochromePath": "",
 
   // Final Android applicationId / package name.
   "applicationId": "com.racionisoft.geranes",

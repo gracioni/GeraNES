@@ -5,6 +5,7 @@
 #include <string>
 
 #include "../defines.h"
+#include "../MirroringType.h"
 #include "../PathConfig.h"
 #include "../NesCartridgeData/ICartridgeData.h"
 

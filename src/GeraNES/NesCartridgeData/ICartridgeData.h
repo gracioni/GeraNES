@@ -1,6 +1,7 @@
 #pragma once
 
 #include "GeraNES/defines.h"
+#include "GeraNES/MirroringType.h"
 #include "GeraNES/util/MapperUtil.h"
 #include <string>
 #include <sstream>

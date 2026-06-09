@@ -198,6 +198,9 @@ mapping = {
     "stl": ("GERANES_ANDROID_STL", "value"),
     "appName": ("GERANES_ANDROID_APP_NAME", "value"),
     "iconPath": ("GERANES_ANDROID_ICON_PATH", "path"),
+    "iconForegroundPath": ("GERANES_ANDROID_ICON_FOREGROUND_PATH", "path"),
+    "iconBackgroundPath": ("GERANES_ANDROID_ICON_BACKGROUND_PATH", "path"),
+    "iconMonochromePath": ("GERANES_ANDROID_ICON_MONOCHROME_PATH", "path"),
     "applicationId": ("GERANES_ANDROID_APPLICATION_ID", "value"),
     "namespace": ("GERANES_ANDROID_NAMESPACE", "value"),
     "versionCode": ("GERANES_ANDROID_VERSION_CODE", "value"),
@@ -228,8 +231,8 @@ if abis_value is not None:
         rendered_abis = ",".join(str(item).strip() for item in abis_value if str(item).strip())
     else:
         rendered_abis = str(abis_value).strip()
-    lines.append(f"GERANES_ANDROID_ABI={shlex.quote(rendered_abis)}")
-    lines.append("export GERANES_ANDROID_ABI")
+    lines.append(f"GERANES_ANDROID_ABIS={shlex.quote(rendered_abis)}")
+    lines.append("export GERANES_ANDROID_ABIS")
 
 print("\n".join(lines))
 PY
@@ -393,11 +396,72 @@ prepare_android_project() {
     android_assets_dir_normalized=$(normalize_path "$ROOT_DIR/$android_assets_dir")
     repo_root_normalized=$(normalize_path "$ROOT_DIR")
     app_icon_resource="@android:drawable/sym_def_app_icon"
+    icon_foreground_path="${GERANES_ANDROID_ICON_FOREGROUND_PATH:-}"
+    icon_background_path="${GERANES_ANDROID_ICON_BACKGROUND_PATH:-}"
+    icon_monochrome_path="${GERANES_ANDROID_ICON_MONOCHROME_PATH:-}"
     keystore_path_normalized=""
     if [ -n "${GERANES_ANDROID_KEYSTORE_PATH:-}" ]; then
         keystore_path_normalized=$(normalize_path "$GERANES_ANDROID_KEYSTORE_PATH")
     fi
-    if [ -n "${GERANES_ANDROID_ICON_PATH:-}" ]; then
+    if [ -n "$icon_foreground_path" ] || [ -n "$icon_background_path" ] || [ -n "$icon_monochrome_path" ]; then
+        if [ -z "$icon_foreground_path" ] || [ -z "$icon_background_path" ]; then
+            printf 'Adaptive Android icons require both iconForegroundPath and iconBackgroundPath.\n' >&2
+            exit 1
+        fi
+
+        for icon_path in "$icon_foreground_path" "$icon_background_path"; do
+            if [ ! -f "$icon_path" ]; then
+                printf 'Configured Android adaptive icon file not found: %s\n' "$icon_path" >&2
+                exit 1
+            fi
+        done
+
+        if [ -n "$icon_monochrome_path" ] && [ ! -f "$icon_monochrome_path" ]; then
+            printf 'Configured Android monochrome icon file not found: %s\n' "$icon_monochrome_path" >&2
+            exit 1
+        fi
+
+        for icon_path in "$icon_foreground_path" "$icon_background_path" "$icon_monochrome_path"; do
+            if [ -z "$icon_path" ]; then
+                continue
+            fi
+            icon_extension=$(printf '%s' "${icon_path##*.}" | tr '[:upper:]' '[:lower:]')
+            case "$icon_extension" in
+                png|webp|jpg|jpeg)
+                    ;;
+                *)
+                    printf 'Unsupported Android adaptive icon file extension: %s (expected png, webp, jpg, or jpeg)\n' "$icon_extension" >&2
+                    exit 1
+                    ;;
+            esac
+        done
+
+        icon_mipmap_dir="$android_project_dir/app/src/main/res/mipmap-anydpi-v26"
+        icon_drawable_dir="$android_project_dir/app/src/main/res/drawable"
+        mkdir -p "$icon_mipmap_dir" "$icon_drawable_dir"
+
+        foreground_extension=$(printf '%s' "${icon_foreground_path##*.}" | tr '[:upper:]' '[:lower:]')
+        background_extension=$(printf '%s' "${icon_background_path##*.}" | tr '[:upper:]' '[:lower:]')
+        cp "$icon_foreground_path" "$icon_drawable_dir/geranes_app_icon_foreground.$foreground_extension"
+        cp "$icon_background_path" "$icon_drawable_dir/geranes_app_icon_background.$background_extension"
+
+        adaptive_icon_xml="<?xml version=\"1.0\" encoding=\"utf-8\"?>
+<adaptive-icon xmlns:android=\"http://schemas.android.com/apk/res/android\">
+    <background android:drawable=\"@drawable/geranes_app_icon_background\" />
+    <foreground android:drawable=\"@drawable/geranes_app_icon_foreground\" />"
+        if [ -n "$icon_monochrome_path" ]; then
+            monochrome_extension=$(printf '%s' "${icon_monochrome_path##*.}" | tr '[:upper:]' '[:lower:]')
+            cp "$icon_monochrome_path" "$icon_drawable_dir/geranes_app_icon_monochrome.$monochrome_extension"
+            adaptive_icon_xml="$adaptive_icon_xml
+    <monochrome android:drawable=\"@drawable/geranes_app_icon_monochrome\" />"
+        fi
+        adaptive_icon_xml="$adaptive_icon_xml
+</adaptive-icon>
+"
+        write_file "$icon_mipmap_dir/ic_launcher.xml" "$adaptive_icon_xml"
+        write_file "$icon_mipmap_dir/ic_launcher_round.xml" "$adaptive_icon_xml"
+        app_icon_resource="@mipmap/ic_launcher"
+    elif [ -n "${GERANES_ANDROID_ICON_PATH:-}" ]; then
         icon_source_path="${GERANES_ANDROID_ICON_PATH}"
         if [ ! -f "$icon_source_path" ]; then
             printf 'Configured Android icon file not found: %s\n' "$icon_source_path" >&2
@@ -438,7 +502,7 @@ prepare_android_project() {
         "GERANES_ANDROID_COMPILE_SDK=${GERANES_ANDROID_COMPILE_SDK:-34}" \
         "GERANES_ANDROID_TARGET_SDK=${GERANES_ANDROID_TARGET_SDK:-34}" \
         "GERANES_ANDROID_API=$ANDROID_API" \
-        "GERANES_ANDROID_ABIS=$ANDROID_ABI" \
+        "GERANES_ANDROID_ABIS=$ANDROID_ABIS" \
         "GERANES_ANDROID_STL=$ANDROID_STL" \
         "GERANES_ANDROID_VERSION_CODE=${GERANES_ANDROID_VERSION_CODE:-1}" \
         "GERANES_ANDROID_VERSION_NAME=${GERANES_ANDROID_VERSION_NAME:-1.0}" \
@@ -549,7 +613,8 @@ if [ "$PLATFORM" = "android" ]; then
     ANDROID_SDK_ROOT_RESOLVED="${GERANES_ANDROID_SDK_ROOT:-}"
     ANDROID_NDK_ROOT_RESOLVED=$(resolve_android_ndk_root || true)
     ANDROID_JAVA_HOME_RESOLVED="${GERANES_ANDROID_JAVA_HOME:-}"
-    ANDROID_ABI="${GERANES_ANDROID_ABI:-arm64-v8a}"
+    ANDROID_ABIS="${GERANES_ANDROID_ABIS:-arm64-v8a}"
+    ANDROID_ABI="${ANDROID_ABIS%%,*}"
     ANDROID_API="${GERANES_ANDROID_API:-24}"
     ANDROID_STL="${GERANES_ANDROID_STL:-c++_shared}"
     ANDROID_PACKAGE_FORMAT="${GERANES_ANDROID_PACKAGE_FORMAT:-apk}"

@@ -26,7 +26,7 @@
 namespace GeraNES {
 
 static constexpr const char* GERANES_NAME = "GeraNES";
-static constexpr const char* GERANES_VERSION = "2.1.2";
+static constexpr const char* GERANES_VERSION = "2.2";
 
 static constexpr uint32_t SAVE_STATE_MAGIC = makeMagic('G','N','E','S');
 static constexpr uint32_t SAVE_STATE_VERSION = 12;
@@ -34,9 +34,5 @@ static constexpr uint32_t SAVE_STATE_VERSION = 12;
 static constexpr const char* STATES_FOLDER  = "states/";
 
 static constexpr const char* SRAM_FOLDER = "sram/";
-
-enum class MirroringType {
-    HORIZONTAL=0, VERTICAL=1, SINGLE_SCREEN_A=2, SINGLE_SCREEN_B=3, FOUR_SCREEN=4, CUSTOM=5
-};
 
 } // namespace GeraNES

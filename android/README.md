@@ -66,6 +66,20 @@ JSONC fields:
 - `abis`
 - `api`
 - `stl`
+- `iconPath`
+- `iconForegroundPath`
+- `iconBackgroundPath`
+- `iconMonochromePath`
+
+`iconPath` configures a legacy single-image launcher icon.
+
+For modern adaptive icons, set:
+
+- `iconForegroundPath`
+- `iconBackgroundPath`
+- optionally `iconMonochromePath`
+
+When adaptive icon fields are present, they take precedence over `iconPath`.
 
 ## Runtime assets
 
