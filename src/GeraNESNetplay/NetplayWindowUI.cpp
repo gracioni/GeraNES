@@ -330,9 +330,11 @@ void drawNetplayChatDrawer(NetplayAppRuntime& runtime)
             constexpr float buttonWidth = 76.0f;
 
             ImGui::SetCursorPos(ImVec2(contentPadX, contentPadTop));
+            ImGui::PushStyleColor(ImGuiCol_Text, IM_COL32(236, 240, 246, 255));
             ImGui::TextUnformatted("Netplay Chat");
+            ImGui::PopStyleColor();
             ImGui::SameLine();
-            ImGui::TextDisabled("(%s)", sessionStateLabel(snapshot.room.state));
+            ImGui::TextColored(ImVec4(0.78f, 0.82f, 0.88f, 1.0f), "(%s)", sessionStateLabel(snapshot.room.state));
             ImGui::Separator();
 
             const float composerHeight = ImGui::GetFrameHeight();
