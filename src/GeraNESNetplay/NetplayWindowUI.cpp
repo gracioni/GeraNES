@@ -349,8 +349,9 @@ bool drawNetplayChatDrawer(NetplayAppRuntime& runtime)
                                  false,
                                  ImGuiWindowFlags_HorizontalScrollbar)) {
                 for(const auto& message : snapshot.chatHistory) {
+                    ImGui::SetCursorPosX(contentPadX);
                     ImGui::PushStyleColor(ImGuiCol_Text, participantColorFromHue(message.nameColorHue));
-                    ImGui::TextUnformatted(message.displayName.c_str());
+                    ImGui::TextUnformatted((message.displayName + ":").c_str());
                     ImGui::PopStyleColor();
                     ImGui::SameLine();
                     ImGui::PushStyleColor(ImGuiCol_Text, IM_COL32(232, 236, 242, 255));
