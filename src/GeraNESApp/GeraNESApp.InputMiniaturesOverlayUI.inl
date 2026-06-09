@@ -18,6 +18,16 @@ inline void GeraNESApp::drawInputMiniaturesOverlay(ImDrawList* drawList, const I
                          netplayMenu.roomAssignments.end(),
                          slot) != netplayMenu.roomAssignments.end();
     };
+    const auto slotDisplayFor = [&](ConsoleNetplay::PlayerSlot slot) -> const GeraNESNetplay::MenuSnapshot::SlotParticipantDisplay* {
+        const auto it = std::find_if(
+            netplayMenu.slotDisplays.begin(),
+            netplayMenu.slotDisplays.end(),
+            [slot](const GeraNESNetplay::MenuSnapshot::SlotParticipantDisplay& display) {
+                return display.slot == slot;
+            }
+        );
+        return it != netplayMenu.slotDisplays.end() ? &(*it) : nullptr;
+    };
     if(preferQueuedNetplayFrame) {
         std::scoped_lock queuedFrameLock(m_queuedInputFrameMutex);
         if(m_latestQueuedInputFrame.has_value()) {
@@ -91,6 +101,34 @@ inline void GeraNESApp::drawInputMiniaturesOverlay(ImDrawList* drawList, const I
 
     auto drawLabel = [&](const ImVec2& pos, const std::string& text) {
         drawList->AddText(pos, baseText, text.c_str());
+    };
+    const auto hueToColor = [](uint16_t hueDegrees) {
+        const float h = std::fmod(static_cast<float>(hueDegrees % 360u) / 60.0f, 6.0f);
+        const float c = 0.85f;
+        const float x = c * (1.0f - std::fabs(std::fmod(h, 2.0f) - 1.0f));
+        float r = 0.0f;
+        float g = 0.0f;
+        float b = 0.0f;
+        if(h < 1.0f) {
+            r = c; g = x;
+        } else if(h < 2.0f) {
+            r = x; g = c;
+        } else if(h < 3.0f) {
+            g = c; b = x;
+        } else if(h < 4.0f) {
+            g = x; b = c;
+        } else if(h < 5.0f) {
+            r = x; b = c;
+        } else {
+            r = c; b = x;
+        }
+        const float m = 0.28f;
+        return IM_COL32(
+            static_cast<int>((r + m) * 255.0f),
+            static_cast<int>((g + m) * 255.0f),
+            static_cast<int>((b + m) * 255.0f),
+            overlayAlpha
+        );
     };
 
     auto drawDPad = [&](const ImVec2& origin, float unit, bool up, bool down, bool left, bool right) {
@@ -235,61 +273,72 @@ inline void GeraNESApp::drawInputMiniaturesOverlay(ImDrawList* drawList, const I
     };
 
     struct MiniatureItem {
+        std::string headerText;
+        ImU32 headerColor = baseText;
         float width = 0.0f;
         float height = 0.0f;
         std::function<void(const ImVec2&)> draw;
     };
 
     std::vector<MiniatureItem> items;
-    auto addItem = [&](float width, float height, std::function<void(const ImVec2&)> draw) {
-        items.push_back({width, height, std::move(draw)});
+    auto addItem = [&](ConsoleNetplay::PlayerSlot slot, float width, float height, std::function<void(const ImVec2&)> draw) {
+        MiniatureItem item;
+        item.width = width;
+        item.height = height;
+        item.draw = std::move(draw);
+        if(const auto* display = slotDisplayFor(slot); display != nullptr && !display->name.empty()) {
+            item.headerText = display->name;
+            item.headerColor = hueToColor(display->hue);
+            item.height += S(13.0f);
+        }
+        items.push_back(std::move(item));
     };
 
     if(state.multitapActive()) {
         if(hasRoomAssignment(GeraNESNetplay::kMultitapP1PlayerSlot)) {
-            addItem(S(92.0f), S(42.0f), [=](const ImVec2& pos) { drawStandardPad(pos, "P1", state.portButtons(1), false); });
+            addItem(GeraNESNetplay::kMultitapP1PlayerSlot, S(92.0f), S(42.0f), [=](const ImVec2& pos) { drawStandardPad(pos, "P1", state.portButtons(1), false); });
         }
         if(hasRoomAssignment(GeraNESNetplay::kMultitapP2PlayerSlot)) {
-            addItem(S(92.0f), S(42.0f), [=](const ImVec2& pos) { drawStandardPad(pos, "P2", state.portButtons(2), false); });
+            addItem(GeraNESNetplay::kMultitapP2PlayerSlot, S(92.0f), S(42.0f), [=](const ImVec2& pos) { drawStandardPad(pos, "P2", state.portButtons(2), false); });
         }
         if(hasRoomAssignment(GeraNESNetplay::kMultitapP3PlayerSlot)) {
-            addItem(S(92.0f), S(42.0f), [=](const ImVec2& pos) { drawStandardPad(pos, "P3", state.portButtons(3), false); });
+            addItem(GeraNESNetplay::kMultitapP3PlayerSlot, S(92.0f), S(42.0f), [=](const ImVec2& pos) { drawStandardPad(pos, "P3", state.portButtons(3), false); });
         }
         if(hasRoomAssignment(GeraNESNetplay::kMultitapP4PlayerSlot)) {
-            addItem(S(92.0f), S(42.0f), [=](const ImVec2& pos) { drawStandardPad(pos, "P4", state.portButtons(4), false); });
+            addItem(GeraNESNetplay::kMultitapP4PlayerSlot, S(92.0f), S(42.0f), [=](const ImVec2& pos) { drawStandardPad(pos, "P4", state.portButtons(4), false); });
         }
     } else {
         if(hasRoomAssignment(GeraNESNetplay::kPort1PlayerSlot)) {
             switch(state.topology.port1Device) {
             case Settings::Device::CONTROLLER:
-                addItem(S(92.0f), S(42.0f), [=](const ImVec2& pos) { drawStandardPad(pos, "P1", state.portButtons(1), false); });
+                addItem(GeraNESNetplay::kPort1PlayerSlot, S(92.0f), S(42.0f), [=](const ImVec2& pos) { drawStandardPad(pos, "P1", state.portButtons(1), false); });
                 break;
             case Settings::Device::FAMICOM_CONTROLLER:
-                addItem(S(92.0f), S(42.0f), [=](const ImVec2& pos) { drawStandardPad(pos, "P1", state.portButtons(1), true); });
+                addItem(GeraNESNetplay::kPort1PlayerSlot, S(92.0f), S(42.0f), [=](const ImVec2& pos) { drawStandardPad(pos, "P1", state.portButtons(1), true); });
                 break;
             case Settings::Device::SNES_CONTROLLER:
-                addItem(S(108.0f), S(48.0f), [=](const ImVec2& pos) { drawSnesPad(pos, "P1", state.portButtons(1)); });
+                addItem(GeraNESNetplay::kPort1PlayerSlot, S(108.0f), S(48.0f), [=](const ImVec2& pos) { drawSnesPad(pos, "P1", state.portButtons(1)); });
                 break;
             case Settings::Device::VIRTUAL_BOY_CONTROLLER:
-                addItem(S(118.0f), S(48.0f), [=](const ImVec2& pos) { drawVirtualBoyPad(pos, "P1", state.portButtons(1)); });
+                addItem(GeraNESNetplay::kPort1PlayerSlot, S(118.0f), S(48.0f), [=](const ImVec2& pos) { drawVirtualBoyPad(pos, "P1", state.portButtons(1)); });
                 break;
             case Settings::Device::ZAPPER:
-                addItem(S(100.0f), S(28.0f), [=](const ImVec2& pos) { drawZapper(pos, "P1 Zapper", state.zapper(1)); });
+                addItem(GeraNESNetplay::kPort1PlayerSlot, S(100.0f), S(28.0f), [=](const ImVec2& pos) { drawZapper(pos, "P1 Zapper", state.zapper(1)); });
                 break;
             case Settings::Device::ARKANOID_CONTROLLER:
-                addItem(S(96.0f), S(34.0f), [=](const ImVec2& pos) { drawArkanoid(pos, "P1 Ark", state.arkanoidController(1)); });
+                addItem(GeraNESNetplay::kPort1PlayerSlot, S(96.0f), S(34.0f), [=](const ImVec2& pos) { drawArkanoid(pos, "P1 Ark", state.arkanoidController(1)); });
                 break;
             case Settings::Device::SNES_MOUSE:
-                addItem(S(84.0f), S(38.0f), [=](const ImVec2& pos) { drawMouse(pos, "P1", state.snesMouse(1), false); });
+                addItem(GeraNESNetplay::kPort1PlayerSlot, S(84.0f), S(38.0f), [=](const ImVec2& pos) { drawMouse(pos, "P1", state.snesMouse(1), false); });
                 break;
             case Settings::Device::SUBOR_MOUSE:
-                addItem(S(84.0f), S(38.0f), [=](const ImVec2& pos) { drawMouse(pos, "P1", state.suborMouse(1), true); });
+                addItem(GeraNESNetplay::kPort1PlayerSlot, S(84.0f), S(38.0f), [=](const ImVec2& pos) { drawMouse(pos, "P1", state.suborMouse(1), true); });
                 break;
             case Settings::Device::POWER_PAD_SIDE_A:
-                addItem(S(92.0f), S(54.0f), [=](const ImVec2& pos) { drawPowerPad(pos, "P1 Pad", state.powerPadButtons(1), false); });
+                addItem(GeraNESNetplay::kPort1PlayerSlot, S(92.0f), S(54.0f), [=](const ImVec2& pos) { drawPowerPad(pos, "P1 Pad", state.powerPadButtons(1), false); });
                 break;
             case Settings::Device::POWER_PAD_SIDE_B:
-                addItem(S(92.0f), S(54.0f), [=](const ImVec2& pos) { drawPowerPad(pos, "P1 Pad", state.powerPadButtons(1), true); });
+                addItem(GeraNESNetplay::kPort1PlayerSlot, S(92.0f), S(54.0f), [=](const ImVec2& pos) { drawPowerPad(pos, "P1 Pad", state.powerPadButtons(1), true); });
                 break;
             case Settings::Device::BANDAI_HYPERSHOT:
             case Settings::Device::NONE:
@@ -300,34 +349,34 @@ inline void GeraNESApp::drawInputMiniaturesOverlay(ImDrawList* drawList, const I
         if(hasRoomAssignment(GeraNESNetplay::kPort2PlayerSlot)) {
             switch(state.topology.port2Device) {
             case Settings::Device::CONTROLLER:
-                addItem(S(92.0f), S(42.0f), [=](const ImVec2& pos) { drawStandardPad(pos, "P2", state.portButtons(2), false); });
+                addItem(GeraNESNetplay::kPort2PlayerSlot, S(92.0f), S(42.0f), [=](const ImVec2& pos) { drawStandardPad(pos, "P2", state.portButtons(2), false); });
                 break;
             case Settings::Device::FAMICOM_CONTROLLER:
-                addItem(S(92.0f), S(42.0f), [=](const ImVec2& pos) { drawStandardPad(pos, "P2", state.portButtons(2), true); });
+                addItem(GeraNESNetplay::kPort2PlayerSlot, S(92.0f), S(42.0f), [=](const ImVec2& pos) { drawStandardPad(pos, "P2", state.portButtons(2), true); });
                 break;
             case Settings::Device::SNES_CONTROLLER:
-                addItem(S(108.0f), S(48.0f), [=](const ImVec2& pos) { drawSnesPad(pos, "P2", state.portButtons(2)); });
+                addItem(GeraNESNetplay::kPort2PlayerSlot, S(108.0f), S(48.0f), [=](const ImVec2& pos) { drawSnesPad(pos, "P2", state.portButtons(2)); });
                 break;
             case Settings::Device::VIRTUAL_BOY_CONTROLLER:
-                addItem(S(118.0f), S(48.0f), [=](const ImVec2& pos) { drawVirtualBoyPad(pos, "P2", state.portButtons(2)); });
+                addItem(GeraNESNetplay::kPort2PlayerSlot, S(118.0f), S(48.0f), [=](const ImVec2& pos) { drawVirtualBoyPad(pos, "P2", state.portButtons(2)); });
                 break;
             case Settings::Device::ZAPPER:
-                addItem(S(100.0f), S(28.0f), [=](const ImVec2& pos) { drawZapper(pos, "P2 Zapper", state.zapper(2)); });
+                addItem(GeraNESNetplay::kPort2PlayerSlot, S(100.0f), S(28.0f), [=](const ImVec2& pos) { drawZapper(pos, "P2 Zapper", state.zapper(2)); });
                 break;
             case Settings::Device::ARKANOID_CONTROLLER:
-                addItem(S(96.0f), S(34.0f), [=](const ImVec2& pos) { drawArkanoid(pos, "P2 Ark", state.arkanoidController(2)); });
+                addItem(GeraNESNetplay::kPort2PlayerSlot, S(96.0f), S(34.0f), [=](const ImVec2& pos) { drawArkanoid(pos, "P2 Ark", state.arkanoidController(2)); });
                 break;
             case Settings::Device::SNES_MOUSE:
-                addItem(S(84.0f), S(38.0f), [=](const ImVec2& pos) { drawMouse(pos, "P2", state.snesMouse(2), false); });
+                addItem(GeraNESNetplay::kPort2PlayerSlot, S(84.0f), S(38.0f), [=](const ImVec2& pos) { drawMouse(pos, "P2", state.snesMouse(2), false); });
                 break;
             case Settings::Device::SUBOR_MOUSE:
-                addItem(S(84.0f), S(38.0f), [=](const ImVec2& pos) { drawMouse(pos, "P2", state.suborMouse(2), true); });
+                addItem(GeraNESNetplay::kPort2PlayerSlot, S(84.0f), S(38.0f), [=](const ImVec2& pos) { drawMouse(pos, "P2", state.suborMouse(2), true); });
                 break;
             case Settings::Device::POWER_PAD_SIDE_A:
-                addItem(S(92.0f), S(54.0f), [=](const ImVec2& pos) { drawPowerPad(pos, "P2 Pad", state.powerPadButtons(2), false); });
+                addItem(GeraNESNetplay::kPort2PlayerSlot, S(92.0f), S(54.0f), [=](const ImVec2& pos) { drawPowerPad(pos, "P2 Pad", state.powerPadButtons(2), false); });
                 break;
             case Settings::Device::POWER_PAD_SIDE_B:
-                addItem(S(92.0f), S(54.0f), [=](const ImVec2& pos) { drawPowerPad(pos, "P2 Pad", state.powerPadButtons(2), true); });
+                addItem(GeraNESNetplay::kPort2PlayerSlot, S(92.0f), S(54.0f), [=](const ImVec2& pos) { drawPowerPad(pos, "P2 Pad", state.powerPadButtons(2), true); });
                 break;
             case Settings::Device::BANDAI_HYPERSHOT:
             case Settings::Device::NONE:
@@ -338,28 +387,28 @@ inline void GeraNESApp::drawInputMiniaturesOverlay(ImDrawList* drawList, const I
         if(hasRoomAssignment(GeraNESNetplay::kExpansionPlayerSlot)) {
             switch(state.topology.expansionDevice) {
             case Settings::ExpansionDevice::STANDARD_CONTROLLER_FAMICOM:
-                addItem(S(92.0f), S(42.0f), [=](const ImVec2& pos) { drawStandardPad(pos, "EXP", state.portButtons(3), true); });
+                addItem(GeraNESNetplay::kExpansionPlayerSlot, S(92.0f), S(42.0f), [=](const ImVec2& pos) { drawStandardPad(pos, "EXP", state.portButtons(3), true); });
                 break;
             case Settings::ExpansionDevice::BANDAI_HYPERSHOT:
-                addItem(S(116.0f), S(46.0f), [=](const ImVec2& pos) { drawBandai(pos, state.bandaiButtons(), state.bandaiPointer()); });
+                addItem(GeraNESNetplay::kExpansionPlayerSlot, S(116.0f), S(46.0f), [=](const ImVec2& pos) { drawBandai(pos, state.bandaiButtons(), state.bandaiPointer()); });
                 break;
             case Settings::ExpansionDevice::KONAMI_HYPERSHOT:
-                addItem(S(116.0f), S(42.0f), [=](const ImVec2& pos) { drawKonami(pos, state.konamiHyperShot()); });
+                addItem(GeraNESNetplay::kExpansionPlayerSlot, S(116.0f), S(42.0f), [=](const ImVec2& pos) { drawKonami(pos, state.konamiHyperShot()); });
                 break;
             case Settings::ExpansionDevice::ARKANOID_CONTROLLER:
-                addItem(S(96.0f), S(34.0f), [=](const ImVec2& pos) { drawArkanoid(pos, "EXP Ark", state.arkanoidExpansion()); });
+                addItem(GeraNESNetplay::kExpansionPlayerSlot, S(96.0f), S(34.0f), [=](const ImVec2& pos) { drawArkanoid(pos, "EXP Ark", state.arkanoidExpansion()); });
                 break;
             case Settings::ExpansionDevice::FAMILY_TRAINER_SIDE_A:
-                addItem(S(92.0f), S(54.0f), [=](const ImVec2& pos) { drawPowerPad(pos, "Trainer", state.powerPadButtons(1), false); });
+                addItem(GeraNESNetplay::kExpansionPlayerSlot, S(92.0f), S(54.0f), [=](const ImVec2& pos) { drawPowerPad(pos, "Trainer", state.powerPadButtons(1), false); });
                 break;
             case Settings::ExpansionDevice::FAMILY_TRAINER_SIDE_B:
-                addItem(S(92.0f), S(54.0f), [=](const ImVec2& pos) { drawPowerPad(pos, "Trainer", state.powerPadButtons(1), true); });
+                addItem(GeraNESNetplay::kExpansionPlayerSlot, S(92.0f), S(54.0f), [=](const ImVec2& pos) { drawPowerPad(pos, "Trainer", state.powerPadButtons(1), true); });
                 break;
             case Settings::ExpansionDevice::SUBOR_KEYBOARD:
-                addItem(S(87.0f), S(61.0f), [=](const ImVec2& pos) { drawKeyboardGrid(pos, "Subor", state.suborKeyboardKeys(), 11, 9); });
+                addItem(GeraNESNetplay::kExpansionPlayerSlot, S(87.0f), S(61.0f), [=](const ImVec2& pos) { drawKeyboardGrid(pos, "Subor", state.suborKeyboardKeys(), 11, 9); });
                 break;
             case Settings::ExpansionDevice::FAMILY_BASIC_KEYBOARD:
-                addItem(S(94.0f), S(46.0f), [=](const ImVec2& pos) { drawKeyboardGrid(pos, "Basic", state.familyBasicKeyboardKeys(), 12, 6); });
+                addItem(GeraNESNetplay::kExpansionPlayerSlot, S(94.0f), S(46.0f), [=](const ImVec2& pos) { drawKeyboardGrid(pos, "Basic", state.familyBasicKeyboardKeys(), 12, 6); });
                 break;
             case Settings::ExpansionDevice::NONE:
                 break;
@@ -423,7 +472,13 @@ inline void GeraNESApp::drawInputMiniaturesOverlay(ImDrawList* drawList, const I
     for(size_t row = 0; row < rows.size(); ++row) {
         float cursorX = panelMin.x + (panelWidth - rowWidths[row]);
         for(size_t itemIndex : rows[row]) {
-            items[itemIndex].draw(ImVec2(cursorX, cursorY));
+            const MiniatureItem& item = items[itemIndex];
+            float drawY = cursorY;
+            if(!item.headerText.empty()) {
+                drawList->AddText(ImVec2(cursorX, cursorY), item.headerColor, item.headerText.c_str());
+                drawY += S(13.0f);
+            }
+            item.draw(ImVec2(cursorX, drawY));
             cursorX += items[itemIndex].width + gap;
         }
         cursorY += rowHeights[row] + gap;

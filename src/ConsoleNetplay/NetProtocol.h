@@ -14,7 +14,7 @@ namespace ConsoleNetplay {
 class PacketWriter;
 class PacketReader;
 
-constexpr uint8_t kProtocolVersion = 17;
+constexpr uint8_t kProtocolVersion = 19;
 constexpr size_t kMaxRomHashBytes = 32;
 constexpr size_t kMaxDisplayNameBytes = 32;
 constexpr size_t kMaxChatMessageBytes = 256;
@@ -267,6 +267,16 @@ struct LeaveRoomData
 
     void serialize(PacketWriter& writer) const;
     static bool deserialize(PacketReader& reader, LeaveRoomData& data);
+};
+
+struct ChatMessageData
+{
+    ParticipantId participantId = kInvalidParticipantId;
+    std::string displayName;
+    std::string text;
+
+    void serialize(PacketWriter& writer) const;
+    static bool deserialize(PacketReader& reader, ChatMessageData& data);
 };
 
 struct StartSessionData

@@ -78,6 +78,7 @@ public:
         NetplayRuntimeDiagnostics runtimeDiagnostics;
         std::string sessionBlockedReason;
         std::vector<std::string> eventLog;
+        std::vector<NetplayCoordinator::ChatMessageRecord> chatHistory;
     };
 
     using RomSelection = NetplayRomSelection;
@@ -188,6 +189,7 @@ public:
     void toggleHostedSessionPause();
     void appendNetplayLog(const std::string& message);
     void clearNetplayLog();
+    void sendChatMessage(const std::string& text);
     void shutdown();
     void shutdownForUnload();
     bool tryBuildPlaybackFrame(FrameNumber frame,

@@ -23,6 +23,11 @@ MenuSnapshot menuSnapshot(const NetplayAppRuntime& runtime)
                    snapshot.roomAssignments.end()) {
                     snapshot.roomAssignments.push_back(slot);
                 }
+                snapshot.slotDisplays.push_back(MenuSnapshot::SlotParticipantDisplay{
+                    slot,
+                    participant.displayName,
+                    participant.nameColorHue
+                });
             }
             if(participant.id != ui.localParticipantId) continue;
             snapshot.localAssignments = participantAssignments(participant);

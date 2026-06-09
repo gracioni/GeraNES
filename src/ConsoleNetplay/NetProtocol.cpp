@@ -340,6 +340,30 @@ bool LeaveRoomData::deserialize(PacketReader& reader, LeaveRoomData& data)
     return reader.readPod(data.participantId);
 }
 
+void ChatMessageData::serialize(PacketWriter& writer) const
+{
+    writer.writePod(participantId);
+    writer.writeString(displayName);
+    writer.writeString(text);
+}
+
+bool ChatMessageData::deserialize(PacketReader& reader, ChatMessageData& data)
+{
+    if(!reader.readPod(data.participantId) ||
+       !reader.readString(data.displayName) ||
+       !reader.readString(data.text)) {
+        return false;
+    }
+
+    if(data.displayName.size() > kMaxDisplayNameBytes ||
+       data.text.empty() ||
+       data.text.size() > kMaxChatMessageBytes) {
+        return false;
+    }
+
+    return true;
+}
+
 void StartSessionData::serialize(PacketWriter& writer) const
 {
     writer.writePod(state);

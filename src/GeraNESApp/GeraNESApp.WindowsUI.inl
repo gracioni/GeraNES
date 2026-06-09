@@ -138,6 +138,7 @@ inline void GeraNESApp::showGui()
     if(m_showNetplayWindow) {
         GeraNESNetplay::drawNetplayWindow(m_showNetplayWindow, m_netplayRuntime, ImGui::GetMainViewport()->GetCenter());
     }
+    GeraNESNetplay::drawNetplayChatDrawer(m_netplayRuntime);
 
     drawRomDatabaseWindow();
 

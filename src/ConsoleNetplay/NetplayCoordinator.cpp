@@ -34,6 +34,7 @@ constexpr uint32_t kDisconnectReasonRecoverableResyncFailure = 2u;
 constexpr uint32_t kRecoveryStabilizationFrames = 8;
 constexpr uint32_t kRecoveryStabilizationFailTimeoutFrames = 240;
 constexpr uint32_t kPostRecoveryClientDesyncRequestGraceFrames = 60;
+constexpr size_t kMaxChatHistoryEntries = 128;
 constexpr uint8_t kLocalInputRejectNone = 0u;
 constexpr uint8_t kLocalInputRejectExistingFrame = 1u;
 constexpr uint8_t kLocalInputRejectNonSequential = 2u;
@@ -377,6 +378,14 @@ uint64_t NetplayCoordinator::generateReconnectToken()
     return mixed != 0 ? mixed : 1ull;
 }
 
+uint16_t NetplayCoordinator::generateParticipantColorHue()
+{
+    const auto now = std::chrono::steady_clock::now().time_since_epoch();
+    const uint64_t value = static_cast<uint64_t>(std::chrono::duration_cast<std::chrono::nanoseconds>(now).count());
+    const uint64_t mixed = value ^ (value >> 17) ^ (value << 9) ^ 0xA24BAED4963EE407ull;
+    return static_cast<uint16_t>(mixed % 360ull);
+}
+
 int64_t NetplayCoordinator::monotonicNowMicros()
 {
     const auto now = std::chrono::steady_clock::now().time_since_epoch();
@@ -534,6 +543,8 @@ void NetplayCoordinator::resetSessionState()
     m_sharedClockSynchronized = false;
     m_authoritativeFrameStartClockMicros.clear();
     m_authoritativeFrameStartClockOrder.clear();
+    m_chatHistory.clear();
+    m_nextChatSerial = 1;
     m_session.roomState().sharedClockMicros = 0;
     m_session.roomState().sharedClockRttMicros = 0;
     m_session.roomState().sharedClockOffsetMicros = 0;
@@ -599,6 +610,7 @@ ParticipantInfo& NetplayCoordinator::ensureParticipant(ParticipantId id, const s
     ParticipantInfo participant;
     participant.id = id;
     participant.displayName = displayName;
+    participant.nameColorHue = generateParticipantColorHue();
     participant.inputSuspended = false;
     participant.inputResumeAwaitingResync = false;
     m_session.roomState().participants.push_back(participant);
@@ -1124,6 +1136,7 @@ std::vector<uint8_t> NetplayCoordinator::buildParticipantJoinedPacket(const Part
     writer.writePod(static_cast<uint8_t>(participant.reconnectReserved ? 1 : 0));
     writer.writePod(participant.reservationSecondsRemaining);
     writer.writePod(participant.role);
+    writer.writePod(participant.nameColorHue);
     const uint8_t assignmentCount = static_cast<uint8_t>(
         std::min(participant.controllerAssignments.size(), static_cast<size_t>(std::numeric_limits<uint8_t>::max()))
     );
@@ -1215,6 +1228,19 @@ std::vector<uint8_t> NetplayCoordinator::buildLeaveRoomPacket(ParticipantId part
 
     LeaveRoomData data;
     data.participantId = participantId;
+    data.serialize(writer);
+
+    return writer.data();
+}
+
+std::vector<uint8_t> NetplayCoordinator::buildChatMessagePacket(const ChatMessageData& data) const
+{
+    PacketWriter writer;
+
+    PacketHeader header;
+    header.type = MessageType::ChatMessage;
+    header.sessionId = m_session.roomState().sessionId;
+    header.serialize(writer);
     data.serialize(writer);
 
     return writer.data();
@@ -2854,6 +2880,8 @@ void NetplayCoordinator::resetRuntimeTimelineStateForSessionStart()
     m_localSimulationFrame = 0;
     m_authoritativeFrameStartClockMicros.clear();
     m_authoritativeFrameStartClockOrder.clear();
+    m_chatHistory.clear();
+    m_nextChatSerial = 1;
     m_recoveryStats.lastDecision.clear();
     m_recoveryStats.lastDecisionFrame = 0;
     m_recoveryStats.lastDecisionSlot = kObserverPlayerSlot;
@@ -3206,6 +3234,51 @@ bool NetplayCoordinator::handleLeaveRoom(NetTransport::PeerHandle peer, PacketRe
     }
     m_transport.flush();
     refreshHostRoomState();
+    return true;
+}
+
+bool NetplayCoordinator::handleChatMessage(NetTransport::PeerHandle peer, PacketReader& reader)
+{
+    ChatMessageData data;
+    if(!ChatMessageData::deserialize(reader, data)) return false;
+
+    if(m_hosting) {
+        const ParticipantId participantId = participantIdFromPeer(peer);
+        if(participantId == kInvalidParticipantId || participantId != data.participantId) {
+            pushLog("Ignored chat message with mismatched participant id");
+            return false;
+        }
+
+        ParticipantInfo* participant = m_session.findParticipant(participantId);
+        if(participant == nullptr || !participant->connected) {
+            pushLog("Ignored chat message from unknown participant");
+            return false;
+        }
+
+        ChatMessageData forwarded;
+        forwarded.participantId = participant->id;
+        forwarded.displayName = participant->displayName;
+        forwarded.text = data.text;
+
+        appendChatMessageRecord(
+            forwarded.participantId,
+            forwarded.displayName,
+            participant->nameColorHue,
+            forwarded.text,
+            false
+        );
+        return m_transport.broadcastReliable(Channel::Control, buildChatMessagePacket(forwarded));
+    }
+
+    appendChatMessageRecord(
+        data.participantId,
+        data.displayName,
+        m_session.findParticipant(data.participantId) != nullptr
+            ? m_session.findParticipant(data.participantId)->nameColorHue
+            : 0,
+        data.text,
+        data.participantId == m_localParticipantId
+    );
     return true;
 }
 
@@ -4394,6 +4467,7 @@ bool NetplayCoordinator::handleParticipantJoined(PacketReader& reader)
     uint8_t reconnectReserved = 0;
     uint16_t reservationSecondsRemaining = 0;
     ParticipantRole role = ParticipantRole::Observer;
+    uint16_t nameColorHue = 0;
     uint8_t assignmentCount = 0;
     std::string displayName;
 
@@ -4403,6 +4477,7 @@ bool NetplayCoordinator::handleParticipantJoined(PacketReader& reader)
     if(!reader.readPod(reconnectReserved)) return false;
     if(!reader.readPod(reservationSecondsRemaining)) return false;
     if(!reader.readPod(role)) return false;
+    if(!reader.readPod(nameColorHue)) return false;
     if(!reader.readPod(assignmentCount)) return false;
     std::vector<PlayerSlot> controllerAssignments;
     controllerAssignments.reserve(assignmentCount);
@@ -4432,6 +4507,7 @@ bool NetplayCoordinator::handleParticipantJoined(PacketReader& reader)
     participant.reconnectReserved = reconnectReserved != 0;
     participant.reservationSecondsRemaining = reservationSecondsRemaining;
     participant.role = role;
+    participant.nameColorHue = nameColorHue % 360u;
     participant.controllerAssignments = std::move(controllerAssignments);
     if(topologyCanRepresentAssignments(participant.controllerAssignments, m_session.roomState().inputTopology)) {
         participant.normalizeControllerAssignments(&m_session.roomState().inputTopology);
@@ -4574,6 +4650,9 @@ bool NetplayCoordinator::handleControlPacket(NetTransport::PeerHandle peer, cons
 
         case MessageType::LeaveRoom:
             return handleLeaveRoom(peer, reader);
+
+        case MessageType::ChatMessage:
+            return handleChatMessage(peer, reader);
 
         case MessageType::ResyncBegin:
             return handleResyncBegin(reader);
@@ -5323,6 +5402,7 @@ bool NetplayCoordinator::injectParticipantJoinedForTests(const ParticipantInfo& 
     writer.writePod(static_cast<uint8_t>(participant.reconnectReserved ? 1 : 0));
     writer.writePod(participant.reservationSecondsRemaining);
     writer.writePod(participant.role);
+    writer.writePod(participant.nameColorHue);
     const uint8_t assignmentCount = static_cast<uint8_t>(
         std::min(participant.controllerAssignments.size(), static_cast<size_t>(std::numeric_limits<uint8_t>::max()))
     );
@@ -5468,6 +5548,11 @@ const std::vector<std::string>& NetplayCoordinator::eventLog() const
     return m_eventLog;
 }
 
+const std::vector<NetplayCoordinator::ChatMessageRecord>& NetplayCoordinator::chatHistory() const
+{
+    return m_chatHistory;
+}
+
 NetplayCoordinator::PerformanceDiagnostics NetplayCoordinator::performanceDiagnostics() const
 {
     return m_performanceDiagnostics;
@@ -5481,6 +5566,63 @@ void NetplayCoordinator::clearEventLog()
 void NetplayCoordinator::appendNetplayLog(const std::string& message)
 {
     pushLog(message);
+}
+
+void NetplayCoordinator::appendChatMessageRecord(ParticipantId participantId,
+                                                 const std::string& displayName,
+                                                 uint16_t nameColorHue,
+                                                 const std::string& text,
+                                                 bool local)
+{
+    ChatMessageRecord record;
+    record.serial = m_nextChatSerial++;
+    record.participantId = participantId;
+    record.displayName = displayName;
+    record.nameColorHue = nameColorHue;
+    record.text = text;
+    record.local = local;
+    m_chatHistory.push_back(std::move(record));
+    if(m_chatHistory.size() > kMaxChatHistoryEntries) {
+        const size_t overflow = m_chatHistory.size() - kMaxChatHistoryEntries;
+        m_chatHistory.erase(
+            m_chatHistory.begin(),
+            m_chatHistory.begin() + static_cast<std::vector<ChatMessageRecord>::difference_type>(overflow)
+        );
+    }
+}
+
+bool NetplayCoordinator::sendChatMessage(const std::string& text)
+{
+    if(m_localParticipantId == kInvalidParticipantId || text.empty() || text.size() > kMaxChatMessageBytes) {
+        return false;
+    }
+
+    if(m_hosting) {
+        const ParticipantInfo* participant = m_session.findParticipant(m_localParticipantId);
+        const std::string displayName =
+            participant != nullptr && !participant->displayName.empty()
+                ? participant->displayName
+                : m_localDisplayName;
+
+        ChatMessageData data;
+        data.participantId = m_localParticipantId;
+        data.displayName = displayName;
+        data.text = text;
+
+        appendChatMessageRecord(data.participantId, data.displayName, participant->nameColorHue, data.text, true);
+        m_transport.broadcastReliable(Channel::Control, buildChatMessagePacket(data));
+        return true;
+    }
+
+    if(m_serverPeer == NetTransport::kInvalidPeerHandle || !m_connected) {
+        return false;
+    }
+
+    ChatMessageData data;
+    data.participantId = m_localParticipantId;
+    data.displayName = m_localDisplayName;
+    data.text = text;
+    return m_transport.sendReliable(m_serverPeer, Channel::Control, buildChatMessagePacket(data));
 }
 
 const NetplayRecoveryStats& NetplayCoordinator::recoveryStats() const

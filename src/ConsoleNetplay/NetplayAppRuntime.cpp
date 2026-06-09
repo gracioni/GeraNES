@@ -411,6 +411,14 @@ void NetplayAppRuntime::clearNetplayLog()
     });
 }
 
+void NetplayAppRuntime::sendChatMessage(const std::string& text)
+{
+    wakeRuntimeHost();
+    enqueueRuntimeCommand([text](NetplayAppRuntime& self) {
+        self.m_coordinator.sendChatMessage(text);
+    });
+}
+
 void NetplayAppRuntime::shutdown()
 {
     wakeRuntimeHost();
@@ -1192,6 +1200,7 @@ NetplayAppRuntime::UiSnapshot buildNetplayUiSnapshot(
     snapshot.runtimeDiagnostics = runtimeDiagnostics;
     snapshot.sessionBlockedReason = sessionBlockedReason;
     snapshot.eventLog = coordinator.eventLog();
+    snapshot.chatHistory = coordinator.chatHistory();
     if(includeDebugLog) {
         std::vector<std::string> debugMessages = netplayDebugLogMessages();
         snapshot.eventLog.insert(snapshot.eventLog.end(), debugMessages.begin(), debugMessages.end());

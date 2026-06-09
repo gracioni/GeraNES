@@ -20,6 +20,7 @@ struct ParticipantInfo
 {
     ParticipantId id = kInvalidParticipantId;
     std::string displayName;
+    uint16_t nameColorHue = 0;
     uint64_t reconnectToken = 0;
     bool connected = false;
     bool reconnectReserved = false;

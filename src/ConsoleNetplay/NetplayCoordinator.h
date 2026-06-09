@@ -66,6 +66,16 @@ public:
         NetplayInputFrame netplayFrame = {};
     };
 
+    struct ChatMessageRecord
+    {
+        uint64_t serial = 0;
+        ParticipantId participantId = kInvalidParticipantId;
+        std::string displayName;
+        uint16_t nameColorHue = 0;
+        std::string text;
+        bool local = false;
+    };
+
 private:
     struct IncomingResyncTransfer
     {
@@ -207,11 +217,14 @@ private:
     bool m_sharedClockSynchronized = false;
     std::unordered_map<FrameNumber, uint64_t> m_authoritativeFrameStartClockMicros;
     std::deque<FrameNumber> m_authoritativeFrameStartClockOrder;
+    std::vector<ChatMessageRecord> m_chatHistory;
+    uint64_t m_nextChatSerial = 1;
     mutable PerformanceDiagnostics m_performanceDiagnostics;
 
     static std::string defaultDisplayName();
     static uint32_t generateSessionId();
     static uint64_t generateReconnectToken();
+    static uint16_t generateParticipantColorHue();
     static std::string messageTypeLabel(MessageType type);
 
     void resetSessionState();
@@ -251,6 +264,7 @@ private:
     std::vector<uint8_t> buildRomValidationResultPacket(const RomValidationResultData& result) const;
     std::vector<uint8_t> buildParticipantLeftPacket(ParticipantId participantId, uint32_t disconnectReason = 0) const;
     std::vector<uint8_t> buildLeaveRoomPacket(ParticipantId participantId) const;
+    std::vector<uint8_t> buildChatMessagePacket(const ChatMessageData& data) const;
     std::vector<uint8_t> buildResyncBeginPacket(const ResyncBeginData& data) const;
     std::vector<uint8_t> buildResyncChunkPacket(const ResyncChunkData& data, std::span<const uint8_t> payloadChunk) const;
     std::vector<uint8_t> buildResyncCompletePacket(const ResyncCompleteData& data) const;
@@ -268,6 +282,7 @@ private:
     bool handleRomValidationResult(NetTransport::PeerHandle peer, PacketReader& reader);
     bool handleParticipantLeft(PacketReader& reader);
     bool handleLeaveRoom(NetTransport::PeerHandle peer, PacketReader& reader);
+    bool handleChatMessage(NetTransport::PeerHandle peer, PacketReader& reader);
     bool handleResyncBegin(PacketReader& reader);
     bool handleResyncChunk(PacketReader& reader);
     bool handleResyncComplete(PacketReader& reader);
@@ -329,6 +344,11 @@ private:
     void resetRuntimeTimelineStateForSessionStart();
     void discardTimelineStateAfter(FrameNumber frame);
     void seedNeutralInputBaseline(ParticipantId participantId, PlayerSlot slot, FrameNumber frame);
+    void appendChatMessageRecord(ParticipantId participantId,
+                                 const std::string& displayName,
+                                 uint16_t nameColorHue,
+                                 const std::string& text,
+                                 bool local);
     void scheduleResyncRetry(FrameNumber targetFrame, const std::string& reason);
     bool ejectParticipantForResyncFailure(ParticipantId participantId, const std::string& reason);
     static const char* recoveryInputModeLabel(RecoveryInputMode mode);
@@ -402,9 +422,11 @@ public:
     const std::string& lastError() const;
     const NetSession& session() const;
     const std::vector<std::string>& eventLog() const;
+    const std::vector<ChatMessageRecord>& chatHistory() const;
     PerformanceDiagnostics performanceDiagnostics() const;
     void clearEventLog();
     void appendNetplayLog(const std::string& message);
+    bool sendChatMessage(const std::string& text);
     const NetplayRecoveryStats& recoveryStats() const;
     void recordPlaybackStop(FrameNumber frame);
     void recordLocalAuthoritativeFrameStart(FrameNumber frame);
