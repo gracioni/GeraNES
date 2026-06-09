@@ -251,15 +251,21 @@ bool drawNetplayChatDrawer(NetplayAppRuntime& runtime)
         drawer.openAmount = targetOpenAmount;
     }
 
-    const float tabWidth = 40.0f;
-    const float expandedWidth = 360.0f;
+    float uiScale = 1.0f;
+#ifdef __ANDROID__
+    uiScale = EffectiveUiScale();
+#endif
+    const auto S = [uiScale](float value) { return value * uiScale; };
+
+    const float tabWidth = S(40.0f);
+    const float expandedWidth = S(360.0f);
     const float preferredDrawerWidth = tabWidth + expandedWidth * drawer.openAmount;
     const float maxDrawerWidth = std::max(tabWidth, viewport->WorkSize.x);
     const float drawerWidth = std::min(preferredDrawerWidth, maxDrawerWidth);
-    const float minDrawerHeight = std::min(240.0f, viewport->WorkSize.y);
-    const float preferredDrawerHeight = std::clamp(viewport->WorkSize.y * 0.56f, minDrawerHeight, 420.0f);
+    const float minDrawerHeight = std::min(S(240.0f), viewport->WorkSize.y);
+    const float preferredDrawerHeight = std::clamp(viewport->WorkSize.y * 0.56f, minDrawerHeight, S(420.0f));
     const float drawerHeight = std::min(preferredDrawerHeight, viewport->WorkSize.y);
-    const float preferredTopOffset = std::max(12.0f, viewport->WorkSize.y * 0.2f);
+    const float preferredTopOffset = std::max(S(12.0f), viewport->WorkSize.y * 0.2f);
     const float maxTopOffset = std::max(0.0f, viewport->WorkSize.y - drawerHeight);
     const float topOffset = std::min(preferredTopOffset, maxTopOffset);
     const float posX = std::clamp(
@@ -297,8 +303,8 @@ bool drawNetplayChatDrawer(NetplayAppRuntime& runtime)
         const ImVec2 tabMin(origin.x, origin.y);
         const ImVec2 tabMax(origin.x + tabWidth, origin.y + size.y);
         const ImU32 tabColor = drawer.expanded ? IM_COL32(52, 63, 82, 240) : IM_COL32(34, 41, 54, 232);
-        drawList->AddRectFilled(tabMin, tabMax, tabColor, 12.0f, ImDrawFlags_RoundCornersLeft);
-        drawList->AddRect(tabMin, tabMax, IM_COL32(255, 255, 255, 28), 12.0f, ImDrawFlags_RoundCornersLeft);
+        drawList->AddRectFilled(tabMin, tabMax, tabColor, S(12.0f), ImDrawFlags_RoundCornersLeft);
+        drawList->AddRect(tabMin, tabMax, IM_COL32(255, 255, 255, 28), S(12.0f), ImDrawFlags_RoundCornersLeft);
 
         ImGui::SetCursorScreenPos(tabMin);
         ImGui::InvisibleButton("##NetplayChatDrawerToggle", ImVec2(tabWidth, size.y));
@@ -322,8 +328,8 @@ bool drawNetplayChatDrawer(NetplayAppRuntime& runtime)
         );
         if(hasUnread) {
             drawList->AddCircleFilled(
-                ImVec2(tabMax.x - 10.0f, tabMin.y + 12.0f),
-                5.0f,
+                ImVec2(tabMax.x - S(10.0f), tabMin.y + S(12.0f)),
+                S(5.0f),
                 IM_COL32(220, 48, 48, 255)
             );
         }
@@ -338,13 +344,13 @@ bool drawNetplayChatDrawer(NetplayAppRuntime& runtime)
 
             const ImVec2 bodyMin = ImGui::GetWindowPos();
             const ImVec2 bodyMax(bodyMin.x + ImGui::GetWindowSize().x, bodyMin.y + ImGui::GetWindowSize().y);
-            drawList->AddRectFilled(bodyMin, bodyMax, IM_COL32(0, 0, 0, 191), 12.0f, ImDrawFlags_RoundCornersNone);
+            drawList->AddRectFilled(bodyMin, bodyMax, IM_COL32(0, 0, 0, 191), S(12.0f), ImDrawFlags_RoundCornersNone);
 
-            constexpr float contentPadX = 12.0f;
-            constexpr float contentPadTop = 10.0f;
-            constexpr float composerGap = 6.0f;
-            constexpr float buttonWidth = 76.0f;
-            constexpr float composerPadX = 10.0f;
+            const float contentPadX = S(12.0f);
+            const float contentPadTop = S(10.0f);
+            const float composerGap = S(6.0f);
+            const float buttonWidth = S(76.0f);
+            const float composerPadX = S(10.0f);
 
             ImGui::SetCursorPos(ImVec2(contentPadX, contentPadTop));
             ImGui::PushStyleColor(ImGuiCol_Text, IM_COL32(236, 240, 246, 255));
@@ -354,9 +360,9 @@ bool drawNetplayChatDrawer(NetplayAppRuntime& runtime)
             ImGui::TextColored(ImVec4(0.78f, 0.82f, 0.88f, 1.0f), "(%s)", sessionStateLabel(snapshot.room.state));
             ImGui::Separator();
 
-            const float composerHeight = ImGui::GetFrameHeight();
+            const float composerHeight = std::max(ImGui::GetFrameHeight(), S(30.0f));
             const float historyHeight =
-                std::max(24.0f, ImGui::GetContentRegionAvail().y - composerHeight - composerGap);
+                std::max(S(24.0f), ImGui::GetContentRegionAvail().y - composerHeight - composerGap);
             if(ImGui::BeginChild("##NetplayChatHistory",
                                  ImVec2(0.0f, historyHeight),
                                  false,
@@ -386,7 +392,7 @@ bool drawNetplayChatDrawer(NetplayAppRuntime& runtime)
             }
             const bool canSend = snapshot.connected && chatTextHasVisibleContent(trimmedDraft);
 
-            ImGui::SetCursorPosY(ImGui::GetWindowSize().y - composerHeight - 1.0f);
+            ImGui::SetCursorPosY(ImGui::GetWindowSize().y - composerHeight - S(1.0f));
             if(drawer.focusInput) {
                 ImGui::SetKeyboardFocusHere();
                 drawer.focusInput = false;
