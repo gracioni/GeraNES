@@ -43,15 +43,15 @@ inline void GeraNESApp::drawCustomWindowChrome()
         drawList->AddRectFilled(winPos, ImVec2(winPos.x + winSize.x, winPos.y + winSize.y), IM_COL32(208, 208, 202, 255));
         const ImVec2 ledMin(winPos.x + controlsLeft, winPos.y + controlsTop + 7.0f);
         const ImVec2 ledMax(ledMin.x + ledSize, ledMin.y + ledSize);
-        drawList->AddRectFilled(ledMin, ledMax, IM_COL32(78, 220, 255, 255), 2.0f);
-        drawList->AddRect(ledMin, ledMax, IM_COL32(170, 245, 255, 220), 2.0f);
+        drawList->AddRectFilled(ledMin, ledMax, IM_COL32(130, 24, 24, 255), 2.0f);
+        drawList->AddRect(ledMin, ledMax, IM_COL32(255, 170, 170, 220), 2.0f);
         drawList->AddRectFilledMultiColor(
             ImVec2(ledMin.x + 2.0f, ledMin.y + 2.0f),
             ImVec2(ledMax.x - 2.0f, ledMax.y - 2.0f),
-            IM_COL32(220, 250, 255, 255),
-            IM_COL32(92, 215, 255, 255),
-            IM_COL32(40, 150, 235, 255),
-            IM_COL32(145, 235, 255, 255)
+            IM_COL32(255, 220, 220, 255),
+            IM_COL32(255, 120, 120, 255),
+            IM_COL32(205, 40, 40, 255),
+            IM_COL32(255, 150, 150, 255)
         );
 
         auto drawChromeControlButton = [&](const ImVec2& min, const char* id, const char* label, bool enabled) -> bool {

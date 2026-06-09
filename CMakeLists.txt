@@ -616,6 +616,7 @@ list(APPEND GERANES_APP_LIBRARY_SOURCES
     "${CMAKE_CURRENT_SOURCE_DIR}/src/GeraNESNetplay/GeraNESNetplayRuntimeDriver.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/GeraNESNetplay/GeraNESNetplayMenuHelpers.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/GeraNESNetplay/GeraNESNetplayAssignmentHelpers.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/GeraNESNetplay/NetplayChatDrawerUI.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/GeraNESNetplay/NetplayWindowUI.cpp"
 )
 
