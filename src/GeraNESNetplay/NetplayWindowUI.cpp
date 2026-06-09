@@ -253,13 +253,26 @@ bool drawNetplayChatDrawer(NetplayAppRuntime& runtime)
 
     const float tabWidth = 40.0f;
     const float expandedWidth = 360.0f;
-    const float drawerWidth = tabWidth + expandedWidth * drawer.openAmount;
-    const float drawerHeight = std::clamp(viewport->WorkSize.y * 0.56f, 240.0f, 420.0f);
-    const float topOffset = std::max(12.0f, viewport->WorkSize.y * 0.2f);
-    const ImVec2 windowPos(
+    const float preferredDrawerWidth = tabWidth + expandedWidth * drawer.openAmount;
+    const float maxDrawerWidth = std::max(tabWidth, viewport->WorkSize.x);
+    const float drawerWidth = std::min(preferredDrawerWidth, maxDrawerWidth);
+    const float minDrawerHeight = std::min(240.0f, viewport->WorkSize.y);
+    const float preferredDrawerHeight = std::clamp(viewport->WorkSize.y * 0.56f, minDrawerHeight, 420.0f);
+    const float drawerHeight = std::min(preferredDrawerHeight, viewport->WorkSize.y);
+    const float preferredTopOffset = std::max(12.0f, viewport->WorkSize.y * 0.2f);
+    const float maxTopOffset = std::max(0.0f, viewport->WorkSize.y - drawerHeight);
+    const float topOffset = std::min(preferredTopOffset, maxTopOffset);
+    const float posX = std::clamp(
         viewport->WorkPos.x + viewport->WorkSize.x - drawerWidth,
-        viewport->WorkPos.y + topOffset
+        viewport->WorkPos.x,
+        viewport->WorkPos.x + viewport->WorkSize.x - drawerWidth
     );
+    const float posY = std::clamp(
+        viewport->WorkPos.y + topOffset,
+        viewport->WorkPos.y,
+        viewport->WorkPos.y + viewport->WorkSize.y - drawerHeight
+    );
+    const ImVec2 windowPos(posX, posY);
 
     ImGui::SetNextWindowPos(windowPos, ImGuiCond_Always);
     ImGui::SetNextWindowSize(ImVec2(drawerWidth, drawerHeight), ImGuiCond_Always);
@@ -325,7 +338,7 @@ bool drawNetplayChatDrawer(NetplayAppRuntime& runtime)
 
             const ImVec2 bodyMin = ImGui::GetWindowPos();
             const ImVec2 bodyMax(bodyMin.x + ImGui::GetWindowSize().x, bodyMin.y + ImGui::GetWindowSize().y);
-            drawList->AddRectFilled(bodyMin, bodyMax, IM_COL32(0, 0, 0, 191), 12.0f, ImDrawFlags_RoundCornersLeft);
+            drawList->AddRectFilled(bodyMin, bodyMax, IM_COL32(0, 0, 0, 191), 12.0f, ImDrawFlags_RoundCornersNone);
 
             constexpr float contentPadX = 12.0f;
             constexpr float contentPadTop = 10.0f;
