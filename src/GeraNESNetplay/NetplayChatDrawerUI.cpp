@@ -64,85 +64,19 @@ const char* chatSessionStateLabel(SessionState state)
     }
 }
 
-ImU32 participantColorFromHue(uint16_t hueDegrees, int alpha = 255)
+ImU32 participantChatNameColorFromHue(uint16_t hueDegrees)
 {
-    const float h = std::fmod(static_cast<float>(hueDegrees % 360u) / 60.0f, 6.0f);
-    const float c = 0.82f;
-    const float x = c * (1.0f - std::fabs(std::fmod(h, 2.0f) - 1.0f));
+    const float hue = static_cast<float>(hueDegrees % 360u) / 360.0f;
     float r = 0.0f;
     float g = 0.0f;
     float b = 0.0f;
-    if(h < 1.0f) {
-        r = c; g = x;
-    } else if(h < 2.0f) {
-        r = x; g = c;
-    } else if(h < 3.0f) {
-        g = c; b = x;
-    } else if(h < 4.0f) {
-        g = x; b = c;
-    } else if(h < 5.0f) {
-        r = x; b = c;
-    } else {
-        r = c; b = x;
-    }
-    const float m = 0.30f;
+    ImGui::ColorConvertHSVtoRGB(hue, 0.52f, 0.98f, r, g, b);
     return IM_COL32(
-        static_cast<int>((r + m) * 255.0f),
-        static_cast<int>((g + m) * 255.0f),
-        static_cast<int>((b + m) * 255.0f),
-        alpha
+        static_cast<int>(std::round(r * 255.0f)),
+        static_cast<int>(std::round(g * 255.0f)),
+        static_cast<int>(std::round(b * 255.0f)),
+        255
     );
-}
-
-float colorChannelToLinear(float channel)
-{
-    if(channel <= 0.04045f) {
-        return channel / 12.92f;
-    }
-    return std::pow((channel + 0.055f) / 1.055f, 2.4f);
-}
-
-float colorRelativeLuminance(ImU32 color)
-{
-    const float r = colorChannelToLinear(static_cast<float>((color >> IM_COL32_R_SHIFT) & 0xFF) / 255.0f);
-    const float g = colorChannelToLinear(static_cast<float>((color >> IM_COL32_G_SHIFT) & 0xFF) / 255.0f);
-    const float b = colorChannelToLinear(static_cast<float>((color >> IM_COL32_B_SHIFT) & 0xFF) / 255.0f);
-    return 0.2126f * r + 0.7152f * g + 0.0722f * b;
-}
-
-ImU32 blendTowardColor(ImU32 from, ImU32 to, float factor)
-{
-    factor = std::clamp(factor, 0.0f, 1.0f);
-    const auto blendChannel = [factor](ImU32 fromColor, ImU32 toColor, int shift) -> int {
-        const int fromChannel = static_cast<int>((fromColor >> shift) & 0xFF);
-        const int toChannel = static_cast<int>((toColor >> shift) & 0xFF);
-        return static_cast<int>(std::round(fromChannel + (toChannel - fromChannel) * factor));
-    };
-
-    return IM_COL32(
-        blendChannel(from, to, IM_COL32_R_SHIFT),
-        blendChannel(from, to, IM_COL32_G_SHIFT),
-        blendChannel(from, to, IM_COL32_B_SHIFT),
-        blendChannel(from, to, IM_COL32_A_SHIFT)
-    );
-}
-
-ImU32 participantChatNameColorFromHue(uint16_t hueDegrees)
-{
-    ImU32 color = participantColorFromHue(hueDegrees);
-    const float luminance = colorRelativeLuminance(color);
-    if(luminance < 0.28f) {
-        const float boost = std::clamp((0.28f - luminance) / 0.28f, 0.0f, 1.0f);
-        color = blendTowardColor(color, IM_COL32(255, 255, 255, 255), 0.55f * boost);
-    }
-    return color;
-}
-
-ImU32 participantChatNameOutlineColor(ImU32 color)
-{
-    return colorRelativeLuminance(color) < 0.42f
-        ? IM_COL32(255, 255, 255, 235)
-        : IM_COL32(0, 0, 0, 220);
 }
 
 bool chatTextHasVisibleContent(const std::string& text)
@@ -323,15 +257,7 @@ bool drawNetplayChatDrawer(NetplayAppRuntime& runtime)
                     const ImVec2 namePos = ImGui::GetCursorScreenPos();
                     const ImVec2 nameSize = ImGui::CalcTextSize(nameLabel.c_str());
                     const ImU32 nameColor = participantChatNameColorFromHue(message.nameColorHue);
-                    DrawTextOutlined(
-                        ImGui::GetWindowDrawList(),
-                        ImGui::GetFont(),
-                        ImGui::GetFontSize(),
-                        namePos,
-                        nameColor,
-                        participantChatNameOutlineColor(nameColor),
-                        nameLabel.c_str()
-                    );
+                    drawList->AddText(namePos, nameColor, nameLabel.c_str());
                     ImGui::Dummy(nameSize);
                     ImGui::SameLine();
                     ImGui::PushStyleColor(ImGuiCol_Text, IM_COL32(232, 236, 242, 255));

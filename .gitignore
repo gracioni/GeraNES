@@ -11,5 +11,6 @@ docs/user-guide/site/
 android/build-config.jsonc
 android/*.jks
 android/*.keystore
+!
 
 __pycache__/
