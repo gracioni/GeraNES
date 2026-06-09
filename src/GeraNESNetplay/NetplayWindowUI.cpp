@@ -219,18 +219,18 @@ std::string trimChatText(std::string text)
     return std::string(first, last);
 }
 
-void drawNetplayChatDrawer(NetplayAppRuntime& runtime)
+bool drawNetplayChatDrawer(NetplayAppRuntime& runtime)
 {
     NetplayChatDrawerUiState& drawer = netplayChatDrawerUiState();
     const NetplayAppRuntime::UiSnapshot snapshot = runtime.uiSnapshot();
     if(!snapshot.active && !snapshot.reconnecting) {
         drawer.reset();
-        return;
+        return false;
     }
 
     const ImGuiViewport* viewport = ImGui::GetMainViewport();
     if(viewport == nullptr) {
-        return;
+        return false;
     }
 
     const uint64_t latestSerial =
@@ -266,9 +266,10 @@ void drawNetplayChatDrawer(NetplayAppRuntime& runtime)
     ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 0.0f);
     ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0.0f);
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f));
-    ImGui::PushStyleColor(ImGuiCol_WindowBg, IM_COL32(18, 20, 26, 192));
-    ImGui::PushStyleColor(ImGuiCol_Border, IM_COL32(255, 255, 255, 38));
+    ImGui::PushStyleColor(ImGuiCol_WindowBg, IM_COL32(0, 0, 0, 0));
+    ImGui::PushStyleColor(ImGuiCol_Border, IM_COL32(0, 0, 0, 0));
     ImGui::PushStyleColor(ImGuiCol_ChildBg, IM_COL32(0, 0, 0, 0));
+    bool captureInput = false;
 
     if(ImGui::Begin("##NetplayChatDrawer",
                     nullptr,
@@ -276,6 +277,7 @@ void drawNetplayChatDrawer(NetplayAppRuntime& runtime)
                         ImGuiWindowFlags_NoMove |
                         ImGuiWindowFlags_NoSavedSettings |
                         ImGuiWindowFlags_NoNavFocus)) {
+        captureInput = ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows);
         ImDrawList* drawList = ImGui::GetWindowDrawList();
         const ImVec2 origin = ImGui::GetWindowPos();
         const ImVec2 size = ImGui::GetWindowSize();
@@ -314,7 +316,7 @@ void drawNetplayChatDrawer(NetplayAppRuntime& runtime)
         }
 
         if(drawer.openAmount > 0.02f) {
-            constexpr float bodyGap = 6.0f;
+            constexpr float bodyGap = 0.0f;
             ImGui::SetCursorScreenPos(ImVec2(origin.x + tabWidth + bodyGap, origin.y));
             ImGui::BeginChild("##NetplayChatDrawerBody",
                               ImVec2(std::max(1.0f, size.x - tabWidth - bodyGap), size.y),
@@ -323,11 +325,13 @@ void drawNetplayChatDrawer(NetplayAppRuntime& runtime)
 
             const ImVec2 bodyMin = ImGui::GetWindowPos();
             const ImVec2 bodyMax(bodyMin.x + ImGui::GetWindowSize().x, bodyMin.y + ImGui::GetWindowSize().y);
+            drawList->AddRectFilled(bodyMin, bodyMax, IM_COL32(0, 0, 0, 191), 12.0f, ImDrawFlags_RoundCornersLeft);
 
             constexpr float contentPadX = 12.0f;
             constexpr float contentPadTop = 10.0f;
             constexpr float composerGap = 6.0f;
             constexpr float buttonWidth = 76.0f;
+            constexpr float composerPadX = 10.0f;
 
             ImGui::SetCursorPos(ImVec2(contentPadX, contentPadTop));
             ImGui::PushStyleColor(ImGuiCol_Text, IM_COL32(236, 240, 246, 255));
@@ -374,8 +378,8 @@ void drawNetplayChatDrawer(NetplayAppRuntime& runtime)
                 drawer.focusInput = false;
             }
 
-
-            ImGui::SetNextItemWidth(-(buttonWidth + 16.0f));
+            ImGui::SetCursorPosX(composerPadX);
+            ImGui::SetNextItemWidth(-(buttonWidth + composerPadX*2));
             const bool pressedEnter = ImGui::InputTextWithHint(
                 "##NetplayChatMessage",
                 snapshot.connected ? "Type a message..." : "Connect to send chat...",
@@ -399,6 +403,7 @@ void drawNetplayChatDrawer(NetplayAppRuntime& runtime)
     ImGui::End();
     ImGui::PopStyleColor(3);
     ImGui::PopStyleVar(3);
+    return captureInput;
 }
 
 void drawNetplayWindow(bool& showWindow,

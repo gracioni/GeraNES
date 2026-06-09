@@ -11,6 +11,6 @@ namespace GeraNESNetplay {
 void drawNetplayWindow(bool& showWindow,
                        ConsoleNetplay::NetplayAppRuntime& runtime,
                        const ImVec2& viewportCenter);
-void drawNetplayChatDrawer(ConsoleNetplay::NetplayAppRuntime& runtime);
+bool drawNetplayChatDrawer(ConsoleNetplay::NetplayAppRuntime& runtime);
 
 } // namespace GeraNESNetplay
