@@ -125,6 +125,8 @@ inline void GeraNESApp::menuBar() {
                         recentFileLabelWidth
                     );
                     if(ImGui::MenuItem(menuLabel.c_str())) {
+                        openFile(recentFiles[i].c_str());
+                    }
 #elif defined(__ANDROID__)
                     std::string androidRecentUri;
                     std::string androidRecentDisplayName;
