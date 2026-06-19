@@ -13,7 +13,7 @@ public:
         BaseMapper::HookCap_OnPpuRead |
         BaseMapper::HookCap_OnCpuWrite;
 
-private:
+protected:
     enum class IrqSource : uint8_t
     {
         CPU_CLOCK = 0,
@@ -69,6 +69,55 @@ private:
     uint8_t m_prgPage[4] = {0, 0, 0, 0}; // 8K pages at $8000-$FFFF
     uint16_t m_chrPage[8] = {0, 0, 0, 0, 0, 0, 0, 0}; // 1K pages at $0000-$1FFF
     uint16_t m_prg6000Page = 0; // 8K page mapped at $6000-$7FFF when enabled
+
+    GERANES_INLINE virtual bool jySupportsAdvancedNametables() const
+    {
+        return false;
+    }
+
+    GERANES_INLINE virtual bool jyForceExtendedMirroring() const
+    {
+        return false;
+    }
+
+    GERANES_INLINE virtual bool jyForceRomNametables() const
+    {
+        return false;
+    }
+
+    GERANES_INLINE bool jyExtendedMirroringEnabled() const
+    {
+        return ((m_mirroringReg & 0x08) != 0) || jyForceExtendedMirroring();
+    }
+
+    GERANES_INLINE bool jyRomNametablesEnabled() const
+    {
+        return m_advancedNtControl || jyForceRomNametables();
+    }
+
+    GERANES_INLINE bool jyRomNametablesGlobal() const
+    {
+        return m_disableNtRam;
+    }
+
+    GERANES_INLINE bool jyUseRomNametable(uint8_t index) const
+    {
+        if(!jySupportsAdvancedNametables() || !jyRomNametablesEnabled()) {
+            return false;
+        }
+
+        if(jyRomNametablesGlobal()) {
+            return true;
+        }
+
+        return ((m_ntLowReg[index & 0x03] ^ m_ntRamSelectBit) & 0x80) != 0;
+    }
+
+    GERANES_INLINE uint16_t jyNametableChrBank(uint8_t index) const
+    {
+        index &= 0x03;
+        return static_cast<uint16_t>(m_ntLowReg[index]) | (static_cast<uint16_t>(m_ntHighReg[index]) << 8);
+    }
 
     static uint16_t calculateMask16(int nBanks)
     {
@@ -475,6 +524,10 @@ public:
 
     GERANES_HOT MirroringType mirroringType() override
     {
+        if(jySupportsAdvancedNametables() && (jyExtendedMirroringEnabled() || jyRomNametablesEnabled())) {
+            return MirroringType::CUSTOM;
+        }
+
         if(cd().useFourScreenMirroring()) return MirroringType::FOUR_SCREEN;
 
         switch(m_mirroringReg & 0x03) {
@@ -485,6 +538,33 @@ public:
         }
 
         return MirroringType::VERTICAL;
+    }
+
+    GERANES_HOT uint8_t customMirroring(uint8_t blockIndex) override
+    {
+        if(jySupportsAdvancedNametables() && (jyExtendedMirroringEnabled() || jyRomNametablesEnabled())) {
+            return static_cast<uint8_t>(m_ntLowReg[blockIndex & 0x03] & 0x01);
+        }
+        return BaseMapper::customMirroring(blockIndex);
+    }
+
+    GERANES_HOT bool useCustomNameTable(uint8_t index) override
+    {
+        return jyUseRomNametable(index);
+    }
+
+    GERANES_HOT uint8_t readCustomNameTable(uint8_t index, uint16_t addr) override
+    {
+        const uint16_t bank = mapChrBank(jyNametableChrBank(index));
+        if(hasChrRam()) return readChrRam<BankSize::B1K>(bank, addr);
+        return cd().readChr<BankSize::B1K>(bank, addr);
+    }
+
+    GERANES_HOT void writeCustomNameTable(uint8_t index, uint16_t addr, uint8_t data) override
+    {
+        if(!hasChrRam()) return;
+        const uint16_t bank = mapChrBank(jyNametableChrBank(index));
+        writeChrRam<BankSize::B1K>(bank, addr, data);
     }
 
     void reset() override
