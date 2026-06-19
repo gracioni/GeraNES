@@ -1038,6 +1038,9 @@ inline void GeraNESApp::menuBar() {
             ImGui::EndMenu();
         }
 
+        ImGui::EndMenu();
+    }
+
         if (beginTopMenu(withMenuIcon(FontAwesomeIcons::kWrench, "Tools").c_str()))
         {
             if (ImGui::MenuItem(withMenuIcon(FontAwesomeIcons::kClipboard, "Log").c_str()))
