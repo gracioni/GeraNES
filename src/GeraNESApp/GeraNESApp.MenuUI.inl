@@ -1033,9 +1033,6 @@ inline void GeraNESApp::menuBar() {
                 ImGui::EndMenu();
             }
 
-                ImGui::EndMenu();
-            }
-
             ImGui::EndMenu();
         }
 
