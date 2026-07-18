@@ -330,6 +330,7 @@ private:
 
     uint16_t m_busAddress;
     uint8_t m_busAddressLowLatch;
+    uint8_t m_busData;
     int m_updateA12Delay;
     bool m_isSpritePatternFetch;
     bool m_currentReadAffectsBus;
@@ -444,31 +445,40 @@ private:
         const uint16_t latchedAddr = static_cast<uint16_t>((m_busAddress & 0x3F00) | m_busAddressLowLatch);
         const uint8_t value = readWritePpuMemory<false, true, false>(latchedAddr);
 
-        // AD0-AD7 are multiplexed between the low address byte and PPU data.  Once
-        // RD is asserted, the value returned by memory is what remains on those
-        // pins (and therefore at the input of the external octal latch).  Usually
-        // the next ALE replaces it immediately, but a simultaneous CPU $2007 read
-        // can keep this value and form a hybrid address on the following fetch.
-        m_busAddressLowLatch = value;
-        m_busAddress = static_cast<uint16_t>((m_busAddress & 0x3F00) | value);
+        // AD0-AD7 are multiplexed between the low address byte and PPU data.  RD
+        // puts this value on the pins, but it does not clock the external octal
+        // address latch by itself.  A later simultaneous ALE+RD can capture it.
+        m_busData = value;
         return value;
     }
 
     GERANES_INLINE void setupPpuReadAddress(uint16_t addr)
     {
-        if(m_deferredPpuIo.deferredDataLatchStart) {
+        const bool cpuReadAleFeedback =
+            m_deferredPpuIo.deferredDataLatchStart &&
+            m_visibleLine &&
+            m_cycle >= 1 && m_cycle <= 256 &&
+            (m_cycle & 0x07) == 5 &&
+            m_busData == 0xFF;
+
+        if(cpuReadAleFeedback) {
             // ALE from the rendering cadence and RD from a CPU $2007 access are
-            // active together.  Hardware preserves the octal latch's previous
-            // (data-bus) value instead of loading the new PAR low byte.
+            // active together.  Hardware clocks the preceding RD value into the
+            // octal latch instead of loading the new PAR low byte.  AccuracyCoin's
+            // stable feedback case is the visible background low-pattern setup.
+            m_busAddressLowLatch = m_busData;
             setBusAddress(static_cast<uint16_t>((addr & 0x3F00) | m_busAddressLowLatch));
-            m_deferredPpuIo.deferredDataLatchStart = false;
-            m_deferredPpuIo.pendingDataLatchUpdate = true;
-            m_deferredPpuIo.pendingDataLatchDelay = 1;
-            m_deferredPpuIo.pendingDataLatchAddr = static_cast<uint16_t>(m_busAddress & 0x3FFF);
         }
         else {
             m_busAddressLowLatch = static_cast<uint8_t>(addr & 0x00FF);
             setBusAddress(addr);
+        }
+
+        if(m_deferredPpuIo.deferredDataLatchStart) {
+            m_deferredPpuIo.deferredDataLatchStart = false;
+            m_deferredPpuIo.pendingDataLatchUpdate = true;
+            m_deferredPpuIo.pendingDataLatchDelay = 1;
+            m_deferredPpuIo.pendingDataLatchAddr = static_cast<uint16_t>(m_busAddress & 0x3FFF);
         }
     }
 
@@ -896,6 +906,7 @@ public:
 
         m_busAddress = 0;
         m_busAddressLowLatch = 0;
+        m_busData = 0;
         m_updateA12Delay = 0;
         m_isSpritePatternFetch = false;
         m_currentReadAffectsBus = true;
@@ -3244,6 +3255,7 @@ yyy NNYY YYYX XXXX
 
         SERIALIZEDATA(s, m_busAddress);
         SERIALIZEDATA(s, m_busAddressLowLatch);
+        SERIALIZEDATA(s, m_busData);
         SERIALIZEDATA(s, m_updateA12Delay);
         SERIALIZEDATA(s, m_isSpritePatternFetch);
         SERIALIZEDATA(s, m_currentReadAffectsBus);
