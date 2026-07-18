@@ -78,7 +78,11 @@ inline void GeraNESApp::showGui()
 
     const bool shouldEnableModPixelInspectorPpuCapture =
         m_emu.valid() && (m_showModPixelInspectorWindow || m_modManager.active());
-    if(shouldEnableModPixelInspectorPpuCapture != m_modPixelInspectorPpuCaptureEnabled) {
+    // Reset and clean-boot state restoration reinitialize the PPU, which clears
+    // its non-serialized debug capture state.  Reassert an active request every
+    // UI frame instead of relying only on this UI-side transition cache.
+    if(shouldEnableModPixelInspectorPpuCapture ||
+       shouldEnableModPixelInspectorPpuCapture != m_modPixelInspectorPpuCaptureEnabled) {
         m_emu.withExclusiveAccess([shouldEnableModPixelInspectorPpuCapture](auto& emu) {
             emu.getConsole().ppu().debugSetModRenderCaptureEnabled(shouldEnableModPixelInspectorPpuCapture);
         });
