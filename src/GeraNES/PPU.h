@@ -442,18 +442,33 @@ private:
     GERANES_INLINE uint8_t completePpuRead(uint16_t /*addr*/)
     {
         const uint16_t latchedAddr = static_cast<uint16_t>((m_busAddress & 0x3F00) | m_busAddressLowLatch);
-        return readWritePpuMemory<false, true, false>(latchedAddr);
+        const uint8_t value = readWritePpuMemory<false, true, false>(latchedAddr);
+
+        // AD0-AD7 are multiplexed between the low address byte and PPU data.  Once
+        // RD is asserted, the value returned by memory is what remains on those
+        // pins (and therefore at the input of the external octal latch).  Usually
+        // the next ALE replaces it immediately, but a simultaneous CPU $2007 read
+        // can keep this value and form a hybrid address on the following fetch.
+        m_busAddressLowLatch = value;
+        m_busAddress = static_cast<uint16_t>((m_busAddress & 0x3F00) | value);
+        return value;
     }
 
     GERANES_INLINE void setupPpuReadAddress(uint16_t addr)
     {
-        m_busAddressLowLatch = static_cast<uint8_t>(addr & 0x00FF);
-        setBusAddress(addr);
         if(m_deferredPpuIo.deferredDataLatchStart) {
+            // ALE from the rendering cadence and RD from a CPU $2007 access are
+            // active together.  Hardware preserves the octal latch's previous
+            // (data-bus) value instead of loading the new PAR low byte.
+            setBusAddress(static_cast<uint16_t>((addr & 0x3F00) | m_busAddressLowLatch));
             m_deferredPpuIo.deferredDataLatchStart = false;
             m_deferredPpuIo.pendingDataLatchUpdate = true;
             m_deferredPpuIo.pendingDataLatchDelay = 1;
-            m_deferredPpuIo.pendingDataLatchAddr = static_cast<uint16_t>(addr & 0x3FFF);
+            m_deferredPpuIo.pendingDataLatchAddr = static_cast<uint16_t>(m_busAddress & 0x3FFF);
+        }
+        else {
+            m_busAddressLowLatch = static_cast<uint8_t>(addr & 0x00FF);
+            setBusAddress(addr);
         }
     }
 
@@ -616,8 +631,15 @@ private:
 
         m_reg_v = m_update_reg_v_value;
 
-        if(!isActivelyRendering()) {
-            // Only update the bus address when not rendering; needed for MMC3 IRQ timing.
+        if(isActivelyRendering()) {
+            // A $2006 second write changes the PAR high byte while the low byte is
+            // still supplied by the external octal latch.  If it lands between a
+            // rendering fetch's ALE and RD phases, the pending read consequently
+            // uses a hybrid of the new v high byte and the old fetch low byte.
+            setBusAddress(static_cast<uint16_t>((m_reg_v & 0x3F00) | m_busAddressLowLatch));
+        }
+        else {
+            // Outside rendering the complete v address drives the PPU bus.
             setBusAddress(m_reg_v & 0x3FFF);
         }
     }
