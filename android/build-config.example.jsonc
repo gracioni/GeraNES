@@ -15,13 +15,13 @@
   "gradleBin": "",
 
   // Optional Gradle version for the auto-downloaded distribution when gradleBin is not set.
-  "gradleVersion": "8.0.2",
+  "gradleVersion": "9.3.1",
 
   // Package output format: "apk" for direct install/testing, "aab" for Google Play publishing.
   "packageFormat": "apk",
 
   // One ABI string or an array of ABIs. The build script converts arrays to the Gradle CSV format.
-  "abis": ["arm64-v8a"],
+  "abis": ["arm64-v8a", "armeabi-v7a"],
 
   // Android min SDK / native API level.
   "api": 24,
@@ -57,10 +57,10 @@
   "versionName": "1.0",
 
   // Android compile SDK version for the Gradle project.
-  "compileSdk": 34,
+  "compileSdk": 37,
 
   // Android target SDK version declared in the manifest/package.
-  "targetSdk": 34,
+  "targetSdk": 37,
 
   // Release signing settings. Leave keystorePath empty for unsigned local builds.
   "signing": {

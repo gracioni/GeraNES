@@ -23,6 +23,18 @@ def splitCsv = { String value ->
     return value.split(',').collect { it.trim() }.findAll { !it.isEmpty() }
 }
 
+def geranesNdkPath = geranesRequiredProp('GERANES_ANDROID_NDK_PATH')
+def geranesNdkPropertiesFile = file("${geranesNdkPath}/source.properties")
+if (!geranesNdkPropertiesFile.isFile()) {
+    throw new GradleException("Missing NDK source.properties under: ${geranesNdkPath}")
+}
+def geranesNdkProperties = new Properties()
+geranesNdkPropertiesFile.withInputStream { geranesNdkProperties.load(it) }
+def geranesNdkVersion = geranesNdkProperties.getProperty('Pkg.Revision', '').trim()
+if (geranesNdkVersion.isEmpty()) {
+    throw new GradleException("Missing Pkg.Revision in: ${geranesNdkPropertiesFile}")
+}
+
 def hasReleaseSigning = !geranesProp('GERANES_ANDROID_KEYSTORE_PATH', '').trim().isEmpty()
 if (hasReleaseSigning) {
     ['GERANES_ANDROID_KEYSTORE_PASSWORD', 'GERANES_ANDROID_KEY_ALIAS', 'GERANES_ANDROID_KEY_PASSWORD'].each { key ->
@@ -34,13 +46,14 @@ if (hasReleaseSigning) {
 
 android {
     namespace geranesProp('GERANES_ANDROID_NAMESPACE', 'com.racionisoft.geranes')
-    compileSdk Integer.parseInt(geranesProp('GERANES_ANDROID_COMPILE_SDK', '34'))
-    ndkPath geranesRequiredProp('GERANES_ANDROID_NDK_PATH')
+    compileSdk Integer.parseInt(geranesProp('GERANES_ANDROID_COMPILE_SDK', '37'))
+    ndkPath geranesNdkPath
+    ndkVersion geranesNdkVersion
 
     defaultConfig {
         applicationId geranesProp('GERANES_ANDROID_APPLICATION_ID', 'com.racionisoft.geranes')
         minSdk Integer.parseInt(geranesProp('GERANES_ANDROID_API', '24'))
-        targetSdk Integer.parseInt(geranesProp('GERANES_ANDROID_TARGET_SDK', '34'))
+        targetSdk Integer.parseInt(geranesProp('GERANES_ANDROID_TARGET_SDK', '37'))
         versionCode Integer.parseInt(geranesProp('GERANES_ANDROID_VERSION_CODE', '1'))
         versionName geranesProp('GERANES_ANDROID_VERSION_NAME', '1.0')
         manifestPlaceholders = [

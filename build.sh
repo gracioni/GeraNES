@@ -239,6 +239,22 @@ PY
 )"
 }
 
+generate_android_docs() {
+    python_bin=$(find_python_command || true)
+    if [ -z "${python_bin:-}" ]; then
+        printf 'Missing required command: python3 or python (needed to generate Android documentation assets)\n' >&2
+        exit 1
+    fi
+    if ! "$python_bin" -c "import mkdocs" >/dev/null 2>&1; then
+        printf 'Missing Python package: mkdocs. Install Android documentation dependencies with:\n' >&2
+        printf '  %s -m pip install -r docs/user-guide/requirements.txt\n' "$python_bin" >&2
+        exit 1
+    fi
+
+    "$python_bin" -m mkdocs build --clean \
+        --config-file "$ROOT_DIR/docs/user-guide/mkdocs.yml"
+}
+
 resolve_android_ndk_root() {
     if [ -n "${GERANES_ANDROID_NDK_ROOT:-}" ]; then
         printf '%s\n' "$GERANES_ANDROID_NDK_ROOT"
@@ -333,7 +349,7 @@ ensure_gradle() {
         return 0
     fi
 
-    gradle_version="${GERANES_ANDROID_GRADLE_VERSION:-8.0.2}"
+    gradle_version="${GERANES_ANDROID_GRADLE_VERSION:-9.3.1}"
     gradle_cache_dir="$BUILD_DIR/.gradle-dist"
     gradle_home_dir="$gradle_cache_dir/gradle-$gradle_version"
     gradle_bin="$gradle_home_dir/bin/gradle"
@@ -499,8 +515,8 @@ prepare_android_project() {
         "GERANES_ANDROID_APPLICATION_ID=${GERANES_ANDROID_APPLICATION_ID:-com.racionisoft.geranes}" \
         "GERANES_ANDROID_APP_NAME=${GERANES_ANDROID_APP_NAME:-GeraNES}" \
         "GERANES_ANDROID_APP_ICON=$app_icon_resource" \
-        "GERANES_ANDROID_COMPILE_SDK=${GERANES_ANDROID_COMPILE_SDK:-34}" \
-        "GERANES_ANDROID_TARGET_SDK=${GERANES_ANDROID_TARGET_SDK:-34}" \
+        "GERANES_ANDROID_COMPILE_SDK=${GERANES_ANDROID_COMPILE_SDK:-37}" \
+        "GERANES_ANDROID_TARGET_SDK=${GERANES_ANDROID_TARGET_SDK:-37}" \
         "GERANES_ANDROID_API=$ANDROID_API" \
         "GERANES_ANDROID_ABIS=$ANDROID_ABIS" \
         "GERANES_ANDROID_STL=$ANDROID_STL" \
@@ -668,6 +684,9 @@ rm -rf "$DEPLOY_DIR"
 mkdir -p "$BUILD_DIR"
 
 cd "$ROOT_DIR"
+if [ "$PLATFORM" = "android" ]; then
+    generate_android_docs
+fi
 eval "$CONFIGURE_CMD -S . -B \"$BUILD_DIR\" $GENERATOR_ARGS -DCMAKE_BUILD_TYPE=\"$BUILD_TYPE\" $EXTRA_CMAKE_ARGS"
 if [ "$PLATFORM" = "android" ]; then
     cmake --build "$BUILD_DIR" --target copy_runtime_data -j "$JOBS"
