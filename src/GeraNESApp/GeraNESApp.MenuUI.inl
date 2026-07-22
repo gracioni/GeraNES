@@ -100,23 +100,10 @@ inline void GeraNESApp::menuBar() {
             #endif
 
             auto recentFiles = AppSettings::instance().data.getRecentFiles();
+            const float recentFileLabelWidth = FLT_MAX;
             if (ImGui::BeginMenu(withMenuIcon(FontAwesomeIcons::kClockRotateLeft, "Recent Files").c_str(), recentFiles.size() > 0 && !netplayRomChangeRestricted && !replayInteractionLocked))
             {
                 for(size_t i = 0; i < recentFiles.size(); ++i) {
-                    float recentFileLabelWidth = std::max(
-                        80.0f,
-                        ImGui::GetContentRegionAvail().x - ImGui::GetStyle().FramePadding.x * 2.0f
-                    );
-#if !defined(__ANDROID__) && !defined(__EMSCRIPTEN__)
-                    if(const ImGuiViewport* viewport = ImGui::GetMainViewport(); viewport != nullptr) {
-                        recentFileLabelWidth = std::max(
-                            recentFileLabelWidth,
-                            std::min(640.0f, viewport->WorkSize.x * 0.45f)
-                        );
-                    } else {
-                        recentFileLabelWidth = std::max(recentFileLabelWidth, 480.0f);
-                    }
-#endif
 #ifdef __EMSCRIPTEN__
                     const std::string displayName = fs::path(recentFiles[i]).filename().string();
                     const std::string menuLabel = BuildEllipsizedMenuLabel(
