@@ -25,7 +25,8 @@ public:
     Mapper001(ICartridgeData& cd) : BaseMapper(cd)
     { 
         m_PRGMask = calculateMask(cd.numberOfPRGBanks<BankSize::B16K>());
-        m_CHRMask = calculateMask(cd.numberOfCHRBanks<BankSize::B4K>());
+        const int chrSize = cd.chrSize() > 0 ? cd.chrSize() : cd.chrRamSize();
+        m_CHRMask = calculateMask(chrSize / static_cast<int>(BankSize::B4K));
     }
 
     GERANES_HOT void writePrg(int addr, uint8_t data) override
@@ -33,6 +34,7 @@ public:
         if(data&0x80)
         {
             m_shiftCounter = 0;
+            m_shiftRegister = 0;
             m_control |= 0x0C;
         }
         else
@@ -75,8 +77,8 @@ public:
         {
         case 0: //switch 32 KB at $8000, ignoring low bit of bank number
         case 1:
-            if(addr < 0x4000) return cd().readPrg<BankSize::B16K>(m_prgBank>>1,addr);
-            return cd().readPrg<BankSize::B16K>((m_prgBank>>1)+1,addr);
+            if(addr < 0x4000) return cd().readPrg<BankSize::B16K>(m_prgBank & 0x0E,addr);
+            return cd().readPrg<BankSize::B16K>((m_prgBank & 0x0E) + 1,addr);
             break;
 
         case 2:  //fix first bank at $8000 and switch 16 KB bank at $C000
@@ -96,27 +98,44 @@ public:
 
     GERANES_HOT uint8_t readChr(int addr) override
     {
-        if(hasChrRam()) return BaseMapper::readChr(addr);
-        else
+        if(!(m_control & 0x10)) //switch 8 KB at a time - low bit ignored in 8 KB mode
         {
-            if( !(m_control&0x10) ) //switch 8 KB at a time - low bit ignored in 8 KB mode
-            {
-                return cd().readChr<BankSize::B8K>(m_chrBank0>>1,addr);
-            }
-            else //switch two separate 4 KB banks
-            {
-                if(addr < 0x1000)
-                {
-                    return cd().readChr<BankSize::B4K>(m_chrBank0,addr);
-                }
-                else
-                {
-                    return cd().readChr<BankSize::B4K>(m_chrBank1,addr);
-                }
-            }
+            if(hasChrRam()) return readChrRam<BankSize::B8K>(m_chrBank0 >> 1, addr);
+            return cd().readChr<BankSize::B8K>(m_chrBank0 >> 1, addr);
         }
 
-        return 0;
+        // In 4 KB mode CHR-RAM uses the MMC1 address lines just like CHR-ROM.
+        // SGROM games such as 720 Degrees rely on being able to map either 4 KB
+        // half of their 8 KB RAM into either PPU pattern-table slot.
+        if(addr < 0x1000)
+        {
+            if(hasChrRam()) return readChrRam<BankSize::B4K>(m_chrBank0, addr);
+            return cd().readChr<BankSize::B4K>(m_chrBank0, addr);
+        }
+
+        if(hasChrRam()) return readChrRam<BankSize::B4K>(m_chrBank1, addr);
+        return cd().readChr<BankSize::B4K>(m_chrBank1, addr);
+    }
+
+    GERANES_HOT void writeChr(int addr, uint8_t data) override
+    {
+        if(!hasChrRam()) return;
+
+        if(!(m_control & 0x10))
+        {
+            writeChrRam<BankSize::B8K>(m_chrBank0 >> 1, addr, data);
+        }
+        else
+        {
+            if(addr < 0x1000)
+            {
+                writeChrRam<BankSize::B4K>(m_chrBank0, addr, data);
+            }
+            else
+            {
+                writeChrRam<BankSize::B4K>(m_chrBank1, addr, data);
+            }
+        }
     }
 
     GERANES_HOT MirroringType mirroringType() override
@@ -169,7 +188,6 @@ public:
         SERIALIZEDATA(s, m_chrBank0);
         SERIALIZEDATA(s, m_chrBank1);
         SERIALIZEDATA(s, m_prgBank);
-
         SERIALIZEDATA(s, m_PRGMask);
         SERIALIZEDATA(s, m_CHRMask);
     }
