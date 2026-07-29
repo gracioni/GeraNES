@@ -56,6 +56,8 @@ inline void GeraNESApp::drawCustomWindowChrome()
 
         auto drawChromeControlButton = [&](const ImVec2& min, const char* id, const char* label, bool enabled) -> bool {
             const ImVec2 max(min.x + controlButtonWidth, min.y + controlButtonHeight);
+            const ImVec2 innerMin(min.x + 2.0f, min.y + 2.0f);
+            const ImVec2 innerMax(max.x - 2.0f, max.y - 2.0f);
             const ImU32 outerColor = enabled ? IM_COL32(138, 138, 132, 255) : IM_COL32(154, 154, 150, 255);
             const ImU32 innerColor = enabled ? IM_COL32(112, 112, 108, 255) : IM_COL32(132, 132, 128, 255);
             const ImU32 highlightColor = enabled ? IM_COL32(182, 182, 176, 255) : IM_COL32(194, 194, 190, 220);
@@ -63,7 +65,7 @@ inline void GeraNESApp::drawCustomWindowChrome()
             const ImU32 textColor = enabled ? IM_COL32(165, 28, 28, 255) : IM_COL32(126, 126, 124, 255);
 
             drawList->AddRectFilled(min, max, outerColor, 2.0f);
-            drawList->AddRectFilled(ImVec2(min.x + 2.0f, min.y + 2.0f), ImVec2(max.x - 2.0f, max.y - 2.0f), innerColor, 2.0f);
+            drawList->AddRectFilled(innerMin, innerMax, innerColor, 2.0f);
             drawList->AddLine(ImVec2(min.x + 3.0f, min.y + 3.0f), ImVec2(max.x - 3.0f, min.y + 3.0f), highlightColor, 1.0f);
             drawList->AddLine(ImVec2(min.x + 3.0f, min.y + 3.0f), ImVec2(min.x + 3.0f, max.y - 3.0f), highlightColor, 1.0f);
             drawList->AddLine(ImVec2(min.x + 2.0f, max.y - 3.0f), ImVec2(max.x - 2.0f, max.y - 3.0f), shadowColor, 1.0f);
@@ -87,7 +89,7 @@ inline void GeraNESApp::drawCustomWindowChrome()
             }
             if(hovered || active) {
                 const ImU32 overlay = active ? IM_COL32(0, 0, 0, 26) : IM_COL32(255, 255, 255, 14);
-                drawList->AddRectFilled(ImVec2(min.x + 2.0f, min.y + 2.0f), ImVec2(max.x - 2.0f, max.y - 2.0f), overlay, 2.0f);
+                drawList->AddRectFilled(innerMin, innerMax, overlay, 2.0f);
             }
 
             const ImVec2 textSize = ImGui::CalcTextSize(label);
