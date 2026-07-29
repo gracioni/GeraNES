@@ -195,7 +195,34 @@ inline bool GeraNESApp::paintGL()
 {
     mainLoop();
 
-    glClear(GL_COLOR_BUFFER_BIT);
+    int drawableW = 0;
+    int drawableH = 0;
+    SDL_GL_GetDrawableSize(sdlWindow(), &drawableW, &drawableH);
+
+    auto clearPresentationBackground = [&](int width, int height) {
+        glDisable(GL_SCISSOR_TEST);
+        glClearColor(0.075f, 0.075f, 0.075f, 1.0f);
+        glClear(GL_COLOR_BUFFER_BIT);
+
+        if(width > 0 && height > 0) {
+            constexpr int gridSpacing = 48;
+            glEnable(GL_SCISSOR_TEST);
+            glClearColor(0.115f, 0.115f, 0.115f, 1.0f);
+            for(int x = 0; x < width; x += gridSpacing) {
+                glScissor(x, 0, 4, height);
+                glClear(GL_COLOR_BUFFER_BIT);
+            }
+            for(int y = 0; y < height; y += gridSpacing) {
+                glScissor(0, y, width, 4);
+                glClear(GL_COLOR_BUFFER_BIT);
+            }
+            glDisable(GL_SCISSOR_TEST);
+        }
+
+        glClearColor(0.0f, 0.0f, 0.0f, 0.0f);
+    };
+
+    clearPresentationBackground(drawableW, drawableH);
 
     ImGui_ImplOpenGL3_NewFrame();
     ImGui_ImplSDL2_NewFrame();
@@ -234,10 +261,6 @@ inline bool GeraNESApp::paintGL()
        true
 #endif
     ) {
-        int drawableW = 0;
-        int drawableH = 0;
-        SDL_GL_GetDrawableSize(sdlWindow(), &drawableW, &drawableH);
-
         if(!m_shaderPasses.empty() && drawableW > 0 && drawableH > 0) {
             const size_t passCount = m_shaderPasses.size();
             const bool needsOffscreenTargets = passCount > 1;
@@ -259,7 +282,12 @@ inline bool GeraNESApp::paintGL()
 
                     glBindFramebuffer(GL_FRAMEBUFFER, targetFbo);
                     glViewport(0, 0, drawableW, drawableH);
-                    glClear(GL_COLOR_BUFFER_BIT);
+                    if(finalPass) {
+                        clearPresentationBackground(drawableW, drawableH);
+                    } else {
+                        glClearColor(0.0f, 0.0f, 0.0f, 0.0f);
+                        glClear(GL_COLOR_BUFFER_BIT);
+                    }
 
                     glActiveTexture(GL_TEXTURE0);
                     glBindTexture(GL_TEXTURE_2D, sourceTexture);
