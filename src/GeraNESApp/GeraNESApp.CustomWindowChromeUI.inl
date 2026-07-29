@@ -86,7 +86,7 @@ inline void GeraNESApp::drawCustomWindowChrome()
                 ImGui::EndDisabled();
             }
             if(hovered || active) {
-                const ImU32 overlay = active ? IM_COL32(255, 255, 255, 26) : IM_COL32(255, 255, 255, 14);
+                const ImU32 overlay = active ? IM_COL32(0, 0, 0, 26) : IM_COL32(255, 255, 255, 14);
                 drawList->AddRectFilled(ImVec2(min.x + 2.0f, min.y + 2.0f), ImVec2(max.x - 2.0f, max.y - 2.0f), overlay, 2.0f);
             }
 
