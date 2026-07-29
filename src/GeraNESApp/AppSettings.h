@@ -312,8 +312,9 @@ public:
         bool cpuDebuggerEnabled = false;
         bool showCpuDebugger = false;
         bool showCpuBreakpoints = false;
+        bool showCpuProfiler = false;
 
-        NLOHMANN_DEFINE_TYPE_INTRUSIVE_WITH_DEFAULT(Debug, showFps, cpuDebuggerEnabled, showCpuDebugger, showCpuBreakpoints)
+        NLOHMANN_DEFINE_TYPE_INTRUSIVE_WITH_DEFAULT(Debug, showFps, cpuDebuggerEnabled, showCpuDebugger, showCpuBreakpoints, showCpuProfiler)
     };
 
     struct Modding {

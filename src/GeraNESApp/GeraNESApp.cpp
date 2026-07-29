@@ -3099,8 +3099,10 @@ void GeraNESApp::syncSettings()
     AppSettings::instance().data.debug.cpuDebuggerEnabled = false;
     m_showCpuDebuggerWindow = false;
     m_showCpuBreakpointsWindow = false;
+    m_showCpuProfilerWindow = false;
     AppSettings::instance().data.debug.showCpuDebugger = false;
     AppSettings::instance().data.debug.showCpuBreakpoints = false;
+    AppSettings::instance().data.debug.showCpuProfiler = false;
 }
 
 void GeraNESApp::syncCpuDebugRuntimeState()

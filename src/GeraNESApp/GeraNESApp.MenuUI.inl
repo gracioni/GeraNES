@@ -1108,6 +1108,11 @@ inline void GeraNESApp::menuBar() {
                 requestEnableCpuDebugger();
             }
 
+            if(ImGui::MenuItem(withMenuIcon(FontAwesomeIcons::kMicrochip, "CPU Profiler").c_str(), nullptr, false, hasLoadedRom && !replayInteractionLocked)) {
+                m_showCpuProfilerWindow = true;
+                AppSettings::instance().data.debug.showCpuProfiler = true;
+            }
+
             ImGui::Separator();
 
             if (ImGui::BeginMenu(withMenuIcon(FontAwesomeIcons::kGear, "Advanced").c_str()))

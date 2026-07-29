@@ -45,7 +45,9 @@
 #include <memory>
 #include <optional>
 #include <string>
+#include <unordered_map>
 #include <utility>
+#include <vector>
 
 namespace GeraNES {
 
@@ -96,6 +98,24 @@ public:
         int ppuScanline = 0;
         int ppuCycle = 0;
         uint64_t sequence = 0;
+    };
+
+    struct CpuProfileEntry
+    {
+        uint16_t address = 0;
+        uint64_t callCount = 0;
+        uint64_t inclusiveCycles = 0;
+        uint64_t exclusiveCycles = 0;
+        uint64_t minCycles = UINT64_MAX;
+        uint64_t maxCycles = 0;
+    };
+
+    struct CpuProfileSnapshot
+    {
+        std::vector<CpuProfileEntry> entries;
+        uint64_t totalCycles = 0;
+        uint32_t startFrame = 0;
+        uint32_t currentFrame = 0;
     };
 
     struct PpuRegisterAccessEvent
@@ -179,12 +199,61 @@ private:
     DebugBreakpointConfig m_debugBreakpointConfig;
     DebugBreakpointHit m_debugBreakpointHit;
     bool m_debugBreakpointsArmed = false;
+    struct CpuProfileStackFrame
+    {
+        uint16_t address = 0;
+        uint64_t inclusiveCycles = 0;
+    };
+    bool m_cpuProfilerEnabled = false;
+    uint32_t m_cpuProfilerStartFrame = 0;
+    uint64_t m_cpuProfilerTotalCycles = 0;
+    std::unordered_map<uint16_t, CpuProfileEntry> m_cpuProfileEntries;
+    std::vector<CpuProfileStackFrame> m_cpuProfileStack;
     bool m_ppuEventTraceEnabled = false;
     bool m_busInstrumentationEnabled = false;
     std::vector<PpuRegisterAccessEvent> m_ppuRegisterAccessEvents;
     static constexpr size_t MAX_PPU_REGISTER_ACCESS_EVENTS = 4096;
     std::function<bool(uint16_t, uint8_t)> m_externalCpuWriteHandler;
     std::function<std::optional<uint8_t>(uint16_t)> m_externalCpuReadHandler;
+
+    GERANES_INLINE void profileCpuInstruction(uint16_t pc, uint8_t opcode, uint32_t cycles)
+    {
+        if(!m_cpuProfilerEnabled) return;
+
+        if(m_cpuProfileStack.empty()) {
+            m_cpuProfileStack.push_back(CpuProfileStackFrame{pc, 0});
+            CpuProfileEntry& root = m_cpuProfileEntries[pc];
+            root.address = pc;
+            ++root.callCount;
+        }
+
+        m_cpuProfilerTotalCycles += cycles;
+        for(CpuProfileStackFrame& frame : m_cpuProfileStack) {
+            frame.inclusiveCycles += cycles;
+            m_cpuProfileEntries[frame.address].inclusiveCycles += cycles;
+        }
+        m_cpuProfileEntries[m_cpuProfileStack.back().address].exclusiveCycles += cycles;
+
+        if(opcode == 0x20) { // JSR absolute
+            const uint16_t target = static_cast<uint16_t>(
+                debugPeekCpuMemory(static_cast<uint16_t>(pc + 1u)) |
+                (static_cast<uint16_t>(debugPeekCpuMemory(static_cast<uint16_t>(pc + 2u))) << 8u)
+            );
+            CpuProfileEntry& callee = m_cpuProfileEntries[target];
+            callee.address = target;
+            ++callee.callCount;
+            if(m_cpuProfileStack.size() >= 100u) {
+                m_cpuProfileStack.erase(m_cpuProfileStack.begin());
+            }
+            m_cpuProfileStack.push_back(CpuProfileStackFrame{target, 0});
+        } else if(opcode == 0x60 && m_cpuProfileStack.size() > 1u) { // RTS
+            const CpuProfileStackFrame completed = m_cpuProfileStack.back();
+            CpuProfileEntry& entry = m_cpuProfileEntries[completed.address];
+            entry.minCycles = std::min(entry.minCycles, completed.inclusiveCycles);
+            entry.maxCycles = std::max(entry.maxCycles, completed.inclusiveCycles);
+            m_cpuProfileStack.pop_back();
+        }
+    }
 
     //do not serialize bellow atributtes
     bool m_ppuViewerScanlineTraceEnabled = false;
@@ -1400,7 +1469,14 @@ private:
         ++m_emulationTickCounter;
 
         if(--m_cpuCyclesAcc == 0) {
-            m_cpuCyclesAcc = m_cpu.run();
+            if(m_cpuProfilerEnabled) {
+                const uint16_t profilePc = m_cpu.debugState().pc;
+                const uint8_t profileOpcode = debugPeekCpuMemory(profilePc);
+                m_cpuCyclesAcc = m_cpu.run();
+                profileCpuInstruction(profilePc, profileOpcode, static_cast<uint32_t>(m_cpuCyclesAcc));
+            } else {
+                m_cpuCyclesAcc = m_cpu.run();
+            }
 
             if constexpr(!consumeUpdateBudget) {
                 m_audioRenderCyclesAcc += m_cpuCyclesAcc * 1000;
@@ -2229,6 +2305,44 @@ public:
         if(!armed) {
             clearDebugBreakpointHit();
         }
+    }
+
+    void setCpuProfilerEnabled(bool enabled)
+    {
+        if(m_cpuProfilerEnabled == enabled) return;
+        m_cpuProfilerEnabled = enabled;
+        m_cpuProfileStack.clear();
+        if(enabled && m_cpuProfileEntries.empty()) {
+            m_cpuProfilerStartFrame = m_frameCounter;
+            m_cpuProfilerTotalCycles = 0;
+        }
+    }
+
+    bool cpuProfilerEnabled() const
+    {
+        return m_cpuProfilerEnabled;
+    }
+
+    void clearCpuProfileData()
+    {
+        m_cpuProfileEntries.clear();
+        m_cpuProfileStack.clear();
+        m_cpuProfilerTotalCycles = 0;
+        m_cpuProfilerStartFrame = m_frameCounter;
+    }
+
+    CpuProfileSnapshot cpuProfileSnapshot() const
+    {
+        CpuProfileSnapshot snapshot;
+        snapshot.entries.reserve(m_cpuProfileEntries.size());
+        for(const auto& [address, entry] : m_cpuProfileEntries) {
+            (void)address;
+            snapshot.entries.push_back(entry);
+        }
+        snapshot.totalCycles = m_cpuProfilerTotalCycles;
+        snapshot.startFrame = m_cpuProfilerStartFrame;
+        snapshot.currentFrame = m_frameCounter;
+        return snapshot;
     }
 
     void setDebugBreakpointConfig(const DebugBreakpointConfig& config)

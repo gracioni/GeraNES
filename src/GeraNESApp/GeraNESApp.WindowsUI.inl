@@ -20,6 +20,7 @@
 #include "GeraNESApp/GeraNESApp.MemoryCompareWindowUI.inl"
 #include "GeraNESApp/GeraNESApp.CpuDebuggerWindowUI.inl"
 #include "GeraNESApp/GeraNESApp.CpuBreakpointsWindowUI.inl"
+#include "GeraNESApp/GeraNESApp.CpuProfilerWindowUI.inl"
 #include "GeraNESApp/GeraNESApp.InputMiniaturesOverlayUI.inl"
 
 inline void GeraNESApp::showGui()
@@ -116,6 +117,12 @@ inline void GeraNESApp::showGui()
         drawCpuBreakpointsWindow();
     } else {
         m_cpuBreakpointsFocused = false;
+    }
+
+    if(m_showCpuProfilerWindow) {
+        drawCpuProfilerWindow();
+    } else {
+        m_cpuProfilerFocused = false;
     }
 
     if(m_showAboutWindow) {

@@ -236,6 +236,7 @@ private:
     bool m_showReplayWindow = false;
     bool m_showCpuDebuggerWindow = false;
     bool m_showCpuBreakpointsWindow = false;
+    bool m_showCpuProfilerWindow = false;
     bool m_showMemoryViewerWindow = false;
     bool m_showMemoryCompareWindow = false;
     bool m_showPpuViewerWindow = false;
@@ -287,6 +288,7 @@ private:
     bool m_cpuDebuggerFocused = false;
     bool m_cpuBreakpointsFocused = false;
     bool m_cpuBreakpointsRequestFocus = false;
+    bool m_cpuProfilerFocused = false;
     uint16_t m_cpuDebuggerSelectedAddress = 0;
     uint16_t m_cpuDebuggerSelectionAnchor = 0;
     bool m_cpuDebuggerHasSelection = false;
@@ -569,6 +571,7 @@ private:
     void exportCurrentPpuChrPng();
     void drawCpuDebuggerWindow();
     void drawCpuBreakpointsWindow();
+    void drawCpuProfilerWindow();
     void drawMemoryViewerWindow();
     void drawMemoryViewerEditPopup(uint32_t regionBaseAddress, int regionSource);
     void drawMemoryCompareWindow();
