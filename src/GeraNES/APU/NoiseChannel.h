@@ -1,6 +1,7 @@
 #pragma once
 
 #include "GeraNES/Serialization.h"
+#include "GeraNES/Settings.h"
 #include "APUCommon.h"
 
 namespace GeraNES {
@@ -93,10 +94,12 @@ public:
         {
             m_mode = data&0x80;
 
-            if(m_settings.region() == Settings::Region::NTSC)
-                m_period = NTSC_NOISE_PERIOD_TABLE[data&0x0F];
-            else
+            // Dendy clone CPUs use the 2A03/NTSC APU period tables. Only the
+            // licensed PAL 2A07 uses the PAL noise periods.
+            if(m_settings.region() == Settings::Region::PAL)
                 m_period = PAL_NOISE_PERIOD_TABLE[data&0x0F];
+            else
+                m_period = NTSC_NOISE_PERIOD_TABLE[data&0x0F];
 
             break;
         }

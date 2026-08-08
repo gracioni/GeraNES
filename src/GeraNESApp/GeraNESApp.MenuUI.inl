@@ -222,6 +222,10 @@ inline void GeraNESApp::menuBar() {
                     m_emu.setRegion(Settings::Region::PAL);
                 }
 
+                if(ImGui::MenuItem("Dendy", nullptr, m_emu.region() == Settings::Region::DENDY)) {
+                    m_emu.setRegion(Settings::Region::DENDY);
+                }
+
                 ImGui::EndMenu();
             }
 

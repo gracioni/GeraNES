@@ -1281,7 +1281,7 @@ RETRO_API unsigned retro_get_region(void)
 {
     if(!g_gameLoaded) return RETRO_REGION_NTSC;
 
-    return g_emu.region() == Settings::Region::PAL ? RETRO_REGION_PAL : RETRO_REGION_NTSC;
+    return g_emu.region() == Settings::Region::NTSC ? RETRO_REGION_NTSC : RETRO_REGION_PAL;
 }
 
 RETRO_API void* retro_get_memory_data(unsigned id)

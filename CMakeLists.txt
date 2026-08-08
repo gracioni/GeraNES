@@ -816,6 +816,24 @@ if(NOT ANDROID)
             RUN_SERIAL TRUE
     )
 
+    add_executable(GeraNESDendyTimingTests
+        tests/DendyTimingTests.cpp
+    )
+    target_compile_features(GeraNESDendyTimingTests PUBLIC cxx_std_20)
+    target_include_directories(GeraNESDendyTimingTests PRIVATE
+        "${CMAKE_CURRENT_SOURCE_DIR}/src"
+    )
+    if(MINGW)
+        target_compile_options(GeraNESDendyTimingTests PRIVATE -Wa,-mbig-obj)
+    endif()
+    target_link_libraries(GeraNESDendyTimingTests PRIVATE GeraNESLib Catch2::Catch2WithMain)
+    target_link_libraries(GeraNESDendyTimingTests PRIVATE geranes_warnings)
+
+    catch_discover_tests(GeraNESDendyTimingTests
+        PROPERTIES
+            RUN_SERIAL TRUE
+    )
+
     add_executable(GeraNESStateReplayTests
         tests/StateReplayTests.cpp
     )

@@ -976,9 +976,12 @@ public:
                 break;
 
             case Settings::Region::DENDY:
-                FRAME_VBLANK_START_LINE = 241;
+                // UA6538/Dendy keeps the NTSC-length vblank and moves it to
+                // the end of a 312-line frame. Lines 240-290 are post-render,
+                // vblank is 291-310, and 311 is the pre-render line.
+                FRAME_VBLANK_START_LINE = 291;
                 FRAME_VBLANK_END_LINE = FRAME_VBLANK_START_LINE+20;
-                FRAME_NUMBER_OF_LINES = FRAME_VBLANK_END_LINE+51;
+                FRAME_NUMBER_OF_LINES = FRAME_VBLANK_END_LINE+1;
                 break;
         }
     }

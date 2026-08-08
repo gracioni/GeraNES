@@ -216,6 +216,23 @@ public:
 
     GameDatabase::System sistem() override {
 
+        if(isNes20()) {
+            // NES 2.0 byte 12 bits 0-1 identify the CPU/PPU timing mode.
+            switch(m_romFile.data(12) & 0x03) {
+                case 0x01:
+                    return GameDatabase::System::NesPal;
+                case 0x03:
+                    return GameDatabase::System::Dendy;
+                case 0x00:
+                    return GameDatabase::System::NesNtsc;
+                case 0x02:
+                default:
+                    // Multiple-region ROMs retain the legacy filename hint,
+                    // then default to NTSC when no hint is available.
+                    break;
+            }
+        }
+
         if(m_romFile.fileName().find("(E)") != std::string::npos)
             return GameDatabase::System::NesPal;
 
