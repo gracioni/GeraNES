@@ -36,11 +36,13 @@ namespace
             << "  GeraNES\n"
             << "  GeraNES --help\n"
             << "  GeraNES --version\n"
+            << "  GeraNES --run <rom_path>\n"
             << "  GeraNES --test <rom_path>\n"
             << "  GeraNES --healthcheck <rom_path> <out_dir> [--seed <n>] [--sim-seconds <n>] [--shot-interval <n>]\n\n"
             << "Commands:\n"
             << "  --help         Show this help text.\n"
             << "  --version      Print emulator version.\n"
+            << "  --run          Start the emulator and immediately load a ROM.\n"
             << "  --test         Run the existing headless test mode for one ROM.\n"
             << "  --healthcheck  Run deterministic headless health-check mode and export artifacts.\n\n"
             << "Healthcheck options:\n"
@@ -48,6 +50,14 @@ namespace
             << "  --seed <n>           Deterministic input seed. Default: 12648430\n"
             << "  --sim-seconds <n>    Emulated duration in seconds. Default: 120\n"
             << "  --shot-interval <n>  Screenshot interval in emulated seconds. Default: 10\n";
+    }
+
+    void printRunUsage()
+    {
+        std::cerr
+            << "Usage:\n"
+            << "  GeraNES --run <rom_path>\n"
+            << "  Quote the ROM path if it contains spaces.\n";
     }
 
     void printHealthCheckUsage()
@@ -75,13 +85,17 @@ namespace
 int main(int argc, char* argv[])
 {
     const std::filesystem::path originalCwd = std::filesystem::current_path();
+    std::filesystem::path runRomPath;
     std::filesystem::path testRomPath;
     std::filesystem::path healthcheckRomPath;
     std::filesystem::path healthcheckOutDir;
 
     if(argc >= 2) {
         const std::string command = argv[1];
-        if(command == "--test" && argc >= 3) {
+        if(command == "--run" && argc >= 3) {
+            runRomPath = resolveInputPath(originalCwd, argv[2]);
+        }
+        else if(command == "--test" && argc >= 3) {
             testRomPath = resolveInputPath(originalCwd, argv[2]);
         }
         else if(command == "--healthcheck" && argc >= 4) {
@@ -114,6 +128,23 @@ int main(int argc, char* argv[])
     if(argc >= 2 && std::string(argv[1]) == "--version") {
         std::cout << GERANES_VERSION << std::endl;
         return EXIT_SUCCESS;
+    }
+
+    if(argc >= 2 && std::string(argv[1]) == "--run") {
+        if(argc != 3 || runRomPath.empty()) {
+            printRunUsage();
+            return EXIT_FAILURE;
+        }
+
+        std::error_code pathError;
+        if(!std::filesystem::is_regular_file(runRomPath, pathError)) {
+            std::cerr << "ROM path does not exist or is not a file: " << runRomPath.string();
+            if(pathError) {
+                std::cerr << " (" << pathError.message() << ")";
+            }
+            std::cerr << "\n";
+            return EXIT_FAILURE;
+        }
     }
 
     if(argc >= 3 && std::string(argv[1]) == "--test") {
@@ -173,8 +204,9 @@ int main(int argc, char* argv[])
     }
 
     GeraNESApp app;
+    bool appCreated = false;
 #ifdef __ANDROID__
-    app.create(
+    appCreated = app.create(
         GERANES_NAME,
         SDL_WINDOWPOS_UNDEFINED,
         SDL_WINDOWPOS_UNDEFINED,
@@ -183,8 +215,16 @@ int main(int argc, char* argv[])
         SDL_WINDOW_FULLSCREEN_DESKTOP | SDL_WINDOW_RESIZABLE
     );
 #else
-    app.create(GERANES_NAME, SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, 800, 600, SDL_WINDOW_RESIZABLE);
+    appCreated = app.create(GERANES_NAME, SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, 800, 600, SDL_WINDOW_RESIZABLE);
 #endif
+    if(!appCreated) {
+        return EXIT_FAILURE;
+    }
+
+    if(!runRomPath.empty() && !app.openRomPath(runRomPath)) {
+        return EXIT_FAILURE;
+    }
+
     app.run();
     return EXIT_SUCCESS;
 }
