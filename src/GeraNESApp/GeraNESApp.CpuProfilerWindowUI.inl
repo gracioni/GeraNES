@@ -31,6 +31,7 @@ inline void GeraNESApp::drawCpuProfilerWindow()
         snapshot = emu.cpuProfileSnapshot();
     });
 
+    bool copyTableAsCsv = false;
     if(ImGui::BeginMenuBar()) {
         if(ImGui::BeginMenu("File")) {
             if(ImGui::MenuItem("Load Symbols")) {
@@ -43,6 +44,10 @@ inline void GeraNESApp::drawCpuProfilerWindow()
                 m_cpuDebugSymbolsStatus = "CPU symbols cleared.";
             }
             ImGui::EndDisabled();
+            ImGui::Separator();
+            if(ImGui::MenuItem("Copy Table as CSV")) {
+                copyTableAsCsv = true;
+            }
             ImGui::Separator();
             if(ImGui::MenuItem("Clear Profile Data")) {
                 m_emu.withExclusiveAccess([](auto& emu) { emu.clearCpuProfileData(); });
@@ -76,6 +81,55 @@ inline void GeraNESApp::drawCpuProfilerWindow()
     };
 
     std::vector<GeraNESEmu::CpuProfileEntry> rows = snapshot.entries;
+    auto copyRowsAsCsv = [&]() {
+        auto escapeCsvField = [](const std::string& value) {
+            if(value.find_first_of(",\"\r\n") == std::string::npos) return value;
+
+            std::string escaped;
+            escaped.reserve(value.size() + 2);
+            escaped.push_back('"');
+            for(const char character : value) {
+                if(character == '"') escaped.push_back('"');
+                escaped.push_back(character);
+            }
+            escaped.push_back('"');
+            return escaped;
+        };
+
+        std::ostringstream csv;
+        csv << "Function,Calls,Inclusive,Inclusive %,Exclusive,Exclusive %,Avg,Min / Max,Frames\r\n";
+        for(const auto& row : rows) {
+            const double inclusivePercent = snapshot.totalCycles == 0
+                ? 0.0
+                : 100.0 * static_cast<double>(row.inclusiveCycles) / snapshot.totalCycles;
+            const double exclusivePercent = snapshot.totalCycles == 0
+                ? 0.0
+                : 100.0 * static_cast<double>(row.exclusiveCycles) / snapshot.totalCycles;
+            const double frameEquivalent = snapshot.totalCycles == 0
+                ? 0.0
+                : static_cast<double>(capturedFrames) * row.exclusiveCycles / snapshot.totalCycles;
+
+            csv << escapeCsvField(functionName(row.address)) << ','
+                << row.callCount << ','
+                << row.inclusiveCycles << ','
+                << std::fixed << std::setprecision(2) << inclusivePercent << ','
+                << row.exclusiveCycles << ','
+                << std::fixed << std::setprecision(2) << exclusivePercent << ','
+                << (row.callCount == 0 ? 0 : row.inclusiveCycles / row.callCount) << ',';
+            if(row.minCycles == UINT64_MAX) csv << "n/a";
+            else csv << row.minCycles << " / " << row.maxCycles;
+            csv << ',' << std::fixed << std::setprecision(3) << frameEquivalent << "\r\n";
+        }
+
+        const std::string csvText = csv.str();
+#ifdef __EMSCRIPTEN__
+        emcriptenCopyTextToClipboardExact(csvText.c_str());
+#else
+        ImGui::SetClipboardText(csvText.c_str());
+#endif
+        m_userToast.show("CPU profile table copied as CSV.");
+    };
+
     if(ImGui::BeginTable("##CpuProfilerTable", 9,
         ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg | ImGuiTableFlags_Resizable |
         ImGuiTableFlags_ScrollY | ImGuiTableFlags_Sortable | ImGuiTableFlags_SizingFixedFit)) {
@@ -115,6 +169,10 @@ inline void GeraNESApp::drawCpuProfilerWindow()
                 return sort.SortDirection == ImGuiSortDirection_Ascending ? value(left) < value(right) : value(left) > value(right);
             });
             specs->SpecsDirty = false;
+        }
+
+        if(copyTableAsCsv) {
+            copyRowsAsCsv();
         }
 
         for(const auto& row : rows) {
