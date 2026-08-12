@@ -2855,6 +2855,21 @@ bool GeraNESApp::finishOpenRomPath(const fs::path& requestedPath, const std::str
         if(const auto mixer = m_audioOutput.getExternalAudioMixer()) {
             mixer->resetRuntime();
         }
+        resetEmulationSpeedPacing();
+        m_mainLoopLastCounter = currentMainLoopCounter();
+        m_mainLoopCounterFrequency = currentMainLoopCounterFrequency();
+        m_mainLoopCounterRemainder = 0;
+        m_fpsTimer = 0;
+        m_generatedFrameCounter = 0;
+        m_displayLoopCounter = 0;
+        m_emulatorFps = 0;
+        m_displayFps = 0;
+        m_hasLastObservedEmulationFrame = false;
+        if(m_runtimeVsyncSuppressed) {
+            this->setVSync(0);
+        } else {
+            updateVSyncConfig();
+        }
         const auto netplayMenu = GeraNESNetplay::menuSnapshot(m_netplayRuntime);
         const bool deferObserverResume =
             netplayMenu.inputManaged &&
@@ -5548,6 +5563,13 @@ void GeraNESApp::mainLoop()
             vsyncEnabled &&
             displayFrameRate > 0 &&
             std::abs(displayFrameRate - static_cast<int>(emuFps)) <= 1;
+        const double expectedFrameDurationMs = 1000.0 / static_cast<double>(emuFps);
+        // The one-frame-per-swap path is only valid while measured presentation
+        // cadence agrees with the display mode. Driver or window-manager
+        // throttling must use elapsed-time catch-up instead.
+        const bool measuredCadenceMatchesEmu =
+            dt > 0 && static_cast<double>(dt) <= expectedFrameDurationMs * 1.15;
+        monitorCadenceMatchesEmu &= measuredCadenceMatchesEmu;
 #ifdef __EMSCRIPTEN__
         // On mobile web, refresh rate can jump (e.g. 60 <-> 120) during touch.
         // Keep pacing time-driven to avoid cadence-path oscillation jitter.

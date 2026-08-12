@@ -467,6 +467,35 @@ TEST_CASE("Replay file snapshots restore and continue with matching replay CRCs"
     }
 }
 
+TEST_CASE("Threaded presenter preserves burst frame requests", "[state-replay][threaded-pacing]")
+{
+    const fs::path romPath = fs::path(GERANES_SOURCE_DIR) /
+        "tests" / "roms" / "vbl_nmi_timing" / "1.frame_basics.nes";
+    REQUIRE(fs::exists(romPath));
+
+    ThreadedEmulationHost host(DummyAudioOutput::instance());
+    host.setSimulationSuspended(true);
+    REQUIRE(host.open(romPath.string(), false));
+    REQUIRE(host.valid());
+    host.setAllowPresenterTimeoutAdvance(false);
+    host.setPresenterLockActive(true);
+
+    const uint32_t startingFrame = host.lastFrameReadyFrame();
+    constexpr uint32_t requestedFrames = 4u;
+    host.withExclusiveAccess([&](GeraNESEmu&) {
+        for(uint32_t frame = 0; frame < requestedFrames; ++frame) {
+            host.updateUntilFrame(16u);
+        }
+    });
+
+    REQUIRE(waitForHostFrame(
+        host,
+        startingFrame + requestedFrames,
+        std::chrono::milliseconds(1500)));
+    REQUIRE(host.lastFrameReadyFrame() == startingFrame + requestedFrames);
+    host.shutdown();
+}
+
 TEST_CASE("Threaded replay seek and resume matches baseline replay CRCs", "[state-replay][replay-file][threaded-seek]")
 {
     SKIP("Threaded replay seek timing is unstable on this host with the current replay pipeline.");

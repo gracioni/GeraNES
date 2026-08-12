@@ -628,21 +628,23 @@ void ThreadedEmulationHost::workerLoop(std::stop_token stopToken)
                 const bool wakeOnly = m_workerWakeRequested.exchange(false, std::memory_order_acq_rel);
                 const uint32_t ticksToConsume = m_pendingPresenterTicks.exchange(0, std::memory_order_acq_rel);
 
-                runPreAdvanceHookLocked();
-
                 if(m_emu.valid() && ticksToConsume > 0) {
-                    const uint32_t frameBefore = m_emu.frameCount();
-                    prepareCurrentFrameInputLocked();
-                    m_emu.updateUntilFrame(dtMs);
-                    const uint32_t frameAfter = m_emu.frameCount();
-                    if(frameAfter != frameBefore) {
-                        onFrameReadyLocked();
+                    for(uint32_t tick = 0; tick < ticksToConsume && m_emu.valid(); ++tick) {
+                        runPreAdvanceHookLocked();
+                        const uint32_t frameBefore = m_emu.frameCount();
+                        prepareCurrentFrameInputLocked();
+                        m_emu.updateUntilFrame(dtMs);
+                        const uint32_t frameAfter = m_emu.frameCount();
+                        if(frameAfter != frameBefore) {
+                            onFrameReadyLocked();
+                        }
                     }
                 }
                 else if(m_emu.valid() &&
                         timedOutWaitingPresenter &&
                         !wakeOnly &&
                         m_allowPresenterTimeoutAdvance.load(std::memory_order_acquire)) {
+                    runPreAdvanceHookLocked();
                     const uint32_t frameBefore = m_emu.frameCount();
                     prepareCurrentFrameInputLocked();
                     m_emu.updateUntilFrame(dtMs);
@@ -955,7 +957,15 @@ void ThreadedEmulationHost::updateUntilFrame(uint32_t dt)
 {
     m_presenterTickDtMs.store(std::max<uint32_t>(1, dt), std::memory_order_release);
     m_framePacingMode.store(FramePacingMode::PresenterLocked, std::memory_order_release);
-    m_pendingPresenterTicks.store(1, std::memory_order_release);
+    constexpr uint32_t maxPendingPresenterTicks = 120u;
+    uint32_t pendingTicks = m_pendingPresenterTicks.load(std::memory_order_acquire);
+    while(pendingTicks < maxPendingPresenterTicks &&
+          !m_pendingPresenterTicks.compare_exchange_weak(
+              pendingTicks,
+              pendingTicks + 1u,
+              std::memory_order_acq_rel,
+              std::memory_order_acquire)) {
+    }
     m_presenterCv.notify_one();
 }
 
