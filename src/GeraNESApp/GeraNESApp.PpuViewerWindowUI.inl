@@ -134,6 +134,30 @@ inline void GeraNESApp::drawPpuViewerWindow()
     const auto colorForPaletteEntry = [&](uint8_t paletteEntry) -> uint32_t {
         return rgbPalette[paletteEntry & 0x3F];
     };
+    const auto drawPaletteSwatch = [&](ImDrawList* drawList,
+                                       const ImVec2& swatchMin,
+                                       const ImVec2& swatchMax,
+                                       uint8_t paletteEntry,
+                                       float rounding) {
+        const ImU32 swatchColor = colorForPaletteEntry(paletteEntry);
+        const ImU32 inverseColor = (swatchColor & 0xFF000000u) | ((~swatchColor) & 0x00FFFFFFu);
+        static constexpr char kHexDigits[] = "0123456789ABCDEF";
+        const char indexText[3] = {
+            kHexDigits[(paletteEntry >> 4) & 0x0F],
+            kHexDigits[paletteEntry & 0x0F],
+            '\0'
+        };
+
+        drawList->AddRectFilled(swatchMin, swatchMax, swatchColor, rounding);
+        drawList->AddRect(swatchMin, swatchMax, ImGuiTheme::toU32(ImGuiTheme::textDisabled()), rounding);
+
+        const ImVec2 textSize = ImGui::CalcTextSize(indexText);
+        const ImVec2 textPosition(
+            swatchMin.x + ((swatchMax.x - swatchMin.x) - textSize.x) * 0.5f,
+            swatchMin.y + ((swatchMax.y - swatchMin.y) - textSize.y) * 0.5f
+        );
+        drawList->AddText(textPosition, inverseColor, indexText);
+    };
     const auto chrPixelColorForMode = [&](uint8_t colorIndex, const std::array<uint8_t, 32>& activePaletteData) -> uint32_t {
         if(m_ppuViewerChrPaletteMode == 0) {
             return kChrGrayscaleColors[static_cast<size_t>(colorIndex & 0x03)];
@@ -509,8 +533,7 @@ inline void GeraNESApp::drawPpuViewerWindow()
             const uint8_t paletteEntry = static_cast<uint8_t>(paletteData[static_cast<size_t>(paletteBaseIndex + i)] & 0x3F);
             const ImVec2 swatchMin(start.x + i * (kPaletteSwatchSize + kPaletteSwatchSpacing), start.y);
             const ImVec2 swatchMax(swatchMin.x + kPaletteSwatchSize, swatchMin.y + kPaletteSwatchSize);
-            drawList->AddRectFilled(swatchMin, swatchMax, colorForPaletteEntry(paletteEntry), 3.0f);
-            drawList->AddRect(swatchMin, swatchMax, ImGuiTheme::toU32(ImGuiTheme::textDisabled()), 3.0f);
+            drawPaletteSwatch(drawList, swatchMin, swatchMax, paletteEntry, 3.0f);
         }
 
         ImGui::Dummy(ImVec2((kPaletteSwatchSize * 4.0f) + (kPaletteSwatchSpacing * 3.0f), kPaletteSwatchSize));
@@ -678,8 +701,7 @@ inline void GeraNESApp::drawPpuViewerWindow()
                 const ImVec2 swatchMin = ImGui::GetCursorScreenPos();
                 const ImVec2 swatchMax(swatchMin.x + 16.0f, swatchMin.y + 16.0f);
                 ImGui::Dummy(ImVec2(16.0f, 16.0f));
-                ImGui::GetWindowDrawList()->AddRectFilled(swatchMin, swatchMax, colorForPaletteEntry(paletteEntry), 2.0f);
-                ImGui::GetWindowDrawList()->AddRect(swatchMin, swatchMax, ImGuiTheme::toU32(ImGuiTheme::textDisabled()), 2.0f);
+                drawPaletteSwatch(ImGui::GetWindowDrawList(), swatchMin, swatchMax, paletteEntry, 2.0f);
             }
             ImGui::EndTooltip();
         }
