@@ -216,17 +216,24 @@ void OpenALAudioOutput::render(uint32_t dt)
     const size_t prebufferChunkSamples =
         static_cast<size_t>(sampleRate() * BUFFER_TIME / N_BUFFERS) * static_cast<size_t>(std::max(1, m_outputChannels));
 
-    if(m_buffersAvailable > 0 && (m_bufferData.size() >= prebufferChunkSamples)) {
+    while(m_buffersAvailable > 0 && m_bufferData.size() >= prebufferChunkSamples) {
         alBufferData(m_buffer[m_currentBufferIndex],
                      m_outputChannels > 1 ? AL_FORMAT_STEREO16 : AL_FORMAT_MONO16,
                      m_bufferData.data(),
-                     static_cast<ALsizei>(m_bufferData.size() * sizeof(ALshort)),
+                     static_cast<ALsizei>(prebufferChunkSamples * sizeof(ALshort)),
                      sampleRate());
         alSourceQueueBuffers(m_source, 1, &m_buffer[m_currentBufferIndex]);
         m_currentBufferIndex = (m_currentBufferIndex + 1) % N_BUFFERS;
 
         m_buffersAvailable--;
-        m_bufferData.clear();
+        m_bufferData.erase(m_bufferData.begin(), m_bufferData.begin() + prebufferChunkSamples);
+    }
+
+    // When all device buffers are occupied, retain at most one pending chunk.
+    // Without this bound a small producer/device clock mismatch accumulates in
+    // m_bufferData even though the OpenAL queue itself has a fixed buffer count.
+    if(m_buffersAvailable == 0 && m_bufferData.size() > prebufferChunkSamples) {
+        m_bufferData.resize(prebufferChunkSamples);
     }
 
     ALint state;
