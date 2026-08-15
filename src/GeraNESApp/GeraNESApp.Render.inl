@@ -195,6 +195,15 @@ inline bool GeraNESApp::paintGL()
 {
     mainLoop();
 
+#ifndef __EMSCRIPTEN__
+    if(isMinimized()) {
+        // There is nothing to present, and minimized swaps have driver-specific
+        // throttling behavior. Avoid both the unreliable swap and a busy loop.
+        SDL_Delay(1);
+        return false;
+    }
+#endif
+
     int drawableW = 0;
     int drawableH = 0;
     SDL_GL_GetDrawableSize(sdlWindow(), &drawableW, &drawableH);

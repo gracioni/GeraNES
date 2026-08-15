@@ -5518,6 +5518,23 @@ void GeraNESApp::mainLoop()
     }
     const uint32_t pacingDtMs = static_cast<uint32_t>(std::min<Uint64>(dt, UINT32_MAX));
     const bool minimized = isMinimized();
+    if(minimized != m_minimizedVsyncSuppressed) {
+        m_minimizedVsyncSuppressed = minimized;
+        if(minimized) {
+            // A minimized window has no reliable presentation cadence. Some
+            // drivers stop blocking swaps while others throttle them in bursts.
+            // Let the emulation host's steady clock pace local simulation.
+            this->setVSync(0);
+            m_emu.setPresenterLockActive(false);
+        } else if(m_runtimeVsyncSuppressed) {
+            this->setVSync(0);
+        } else {
+            updateVSyncConfig();
+        }
+        resetEmulationSpeedPacing();
+        m_mainLoopLastCounter = counterNow;
+        m_mainLoopCounterRemainder = 0;
+    }
     const bool allowPresenterPacing =
         !minimized &&
         !isWindowsTitleBarInteractionActive();
@@ -5563,20 +5580,35 @@ void GeraNESApp::mainLoop()
     };
     if(!allowPresenterPacing) {
         m_presenterFrameAccumScaled = 0;
-        if(!netplayPacingOverrideActive && !keepReplaySuspended) {
+        const bool useFreeRunningMinimizedPacing =
+            minimized && !netplayPacingOverrideActive && !keepReplaySuspended;
+        if(useFreeRunningMinimizedPacing) {
             m_emu.setSimulationSuspended(false);
-        }
-        const uint32_t emuFps = std::max<uint32_t>(1u, m_emu.getRegionFPS());
-        const uint32_t framesToAdvance = advanceFrames(emuFps);
-        m_netplayRuntime.recordFramePacing(
-            pacingDtMs,
-            framesToAdvance,
-            framesToAdvance > 1u ? framesToAdvance : 0u,
-            netplayPacingOverrideActive,
-            false
-        );
-        if(framesToAdvance > 0u) {
-            render();
+            m_emu.update(pacingDtMs);
+            m_emulationSpeedFrameAccumulator = 0.0;
+            m_netplayRuntime.recordFramePacing(
+                pacingDtMs,
+                0u,
+                0u,
+                false,
+                false
+            );
+        } else {
+            if(!netplayPacingOverrideActive && !keepReplaySuspended) {
+                m_emu.setSimulationSuspended(false);
+            }
+            const uint32_t emuFps = std::max<uint32_t>(1u, m_emu.getRegionFPS());
+            const uint32_t framesToAdvance = advanceFrames(emuFps);
+            m_netplayRuntime.recordFramePacing(
+                pacingDtMs,
+                framesToAdvance,
+                framesToAdvance > 1u ? framesToAdvance : 0u,
+                netplayPacingOverrideActive,
+                false
+            );
+            if(framesToAdvance > 0u) {
+                render();
+            }
         }
     } else {
         const uint32_t emuFps = std::max<uint32_t>(1u, m_emu.getRegionFPS());

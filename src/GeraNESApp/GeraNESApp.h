@@ -213,6 +213,7 @@ private:
 
     enum VSyncMode {OFF, SYNCRONIZED, ADAPTATIVE};
     VSyncMode m_vsyncMode = OFF;
+    bool m_minimizedVsyncSuppressed = false;
 
     enum FilterMode {NEAREST, BILINEAR};
     FilterMode m_filterMode = NEAREST;
