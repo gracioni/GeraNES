@@ -284,6 +284,14 @@ bool SDLOpenGLWindow::create(const std::string& title, int x, int y, int w, int 
 {
     Logger::instance().log("Initializing SDL window...", Logger::Type::INFO);
 
+    SDL_GL_SetAttribute(SDL_GL_DOUBLEBUFFER, 1);
+    SDL_GL_SetAttribute(SDL_GL_RETAINED_BACKING, 0);
+#ifdef _WIN32
+    // Avoid falling back to Microsoft's software OpenGL implementation when
+    // a hardware-accelerated pixel format is available.
+    SDL_GL_SetAttribute(SDL_GL_ACCELERATED_VISUAL, 1);
+#endif
+
 #ifdef __ANDROID__
     SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_ES);
     SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 3);
