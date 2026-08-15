@@ -12,6 +12,7 @@ void SDLAudioOutput::clearBuffers()
 {
     m_buffer.clear();
     sampleAcc = 0;
+    m_outputRateScale = 1.0;
 
     AudioOutputBase::clearBuffers();
 }
@@ -249,12 +250,31 @@ void SDLAudioOutput::render(uint32_t dt)
         return;
     }
 
-    sampleAcc += static_cast<double>(dt) * static_cast<double>(sampleRate()) / playbackSpeed();
-
     const int bitsPerSample = sampleSize();
     const int bytesPerSample = bitsPerSample / 8;
     const int outputChannels = std::max(1, static_cast<int>(spec.channels));
     const int bytesPerFrame = bytesPerSample * outputChannels;
+    const size_t queuedBytes = static_cast<size_t>(SDL_GetQueuedAudioSize(m_device));
+    const size_t prebufferBytes =
+        static_cast<size_t>(sampleRate() * bytesPerFrame * BUFFER_TIME);
+
+    if(queuedBytes != 0 && prebufferBytes != 0) {
+        const double queueError =
+            (static_cast<double>(queuedBytes) - static_cast<double>(prebufferBytes)) /
+            static_cast<double>(prebufferBytes);
+        // Correct hardware/emulation clock mismatch gradually. A 0.5% limit is
+        // enough to prevent long-term drift without an audible pitch step, and
+        // the low-pass update keeps ordinary frame-time jitter out of the audio.
+        const double targetRateScale = std::clamp(1.0 - queueError * 0.02, 0.995, 1.005);
+        m_outputRateScale += (targetRateScale - m_outputRateScale) * 0.02;
+    } else {
+        // Do not bias the initial prebuffer fill.
+        m_outputRateScale += (1.0 - m_outputRateScale) * 0.02;
+    }
+
+    sampleAcc += static_cast<double>(dt) * static_cast<double>(sampleRate()) *
+        m_outputRateScale / playbackSpeed();
+
     float vol = std::pow(m_volume, 2.0f);
     while(sampleAcc >= 1000.0)
     {
@@ -304,25 +324,6 @@ void SDLAudioOutput::render(uint32_t dt)
         }
 
         sampleAcc -= 1000.0;
-    }
-
-    const size_t queuedBytes = static_cast<size_t>(SDL_GetQueuedAudioSize(m_device));
-    const size_t prebufferBytes =
-        static_cast<size_t>(sampleRate() * bytesPerFrame * BUFFER_TIME);
-    // SDL's queue has no built-in upper bound. Even a tiny difference between
-    // the emulation and hardware clocks otherwise grows into audible latency.
-    // Keep at most one small margin beyond the startup prebuffer, dropping only
-    // newly generated frames while the already queued audio drains.
-    const size_t maxQueuedBytes = prebufferBytes +
-        static_cast<size_t>(sampleRate() * bytesPerFrame * 0.02);
-    if(queuedBytes != 0 && queuedBytes + m_buffer.size() > maxQueuedBytes) {
-        const size_t availableBytes = queuedBytes < maxQueuedBytes
-            ? maxQueuedBytes - queuedBytes
-            : 0;
-        const size_t alignedAvailableBytes = availableBytes - (availableBytes % static_cast<size_t>(bytesPerFrame));
-        if(m_buffer.size() > alignedAvailableBytes) {
-            m_buffer.resize(alignedAvailableBytes);
-        }
     }
 
     const bool playFlag = queuedBytes != 0;
