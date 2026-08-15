@@ -586,6 +586,12 @@ bool SDLOpenGLWindow::isMaximized() const
     return (SDL_GetWindowFlags(m_window) & SDL_WINDOW_MAXIMIZED) != 0;
 }
 
+bool SDLOpenGLWindow::hasInputFocus() const
+{
+    if(m_window == NULL) return false;
+    return (SDL_GetWindowFlags(m_window) & SDL_WINDOW_INPUT_FOCUS) != 0;
+}
+
 int SDLOpenGLWindow::getVSync() const
 {
     return m_context != nullptr ? SDL_GL_GetSwapInterval() : 0;

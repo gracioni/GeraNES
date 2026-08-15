@@ -197,8 +197,9 @@ inline bool GeraNESApp::paintGL()
 
 #ifndef __EMSCRIPTEN__
     if(isMinimized()) {
-        // There is nothing to present, and minimized swaps have driver-specific
-        // throttling behavior. Avoid both the unreliable swap and a busy loop.
+        // Minimized swaps have driver/compositor-specific throttling behavior.
+        // Keep simulation on its steady clock and avoid both the unreliable
+        // swap and a busy loop. Presentation resumes with the latest frame.
         SDL_Delay(1);
         return false;
     }

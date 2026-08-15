@@ -5518,25 +5518,24 @@ void GeraNESApp::mainLoop()
     }
     const uint32_t pacingDtMs = static_cast<uint32_t>(std::min<Uint64>(dt, UINT32_MAX));
     const bool minimized = isMinimized();
-    if(minimized != m_minimizedVsyncSuppressed) {
-        m_minimizedVsyncSuppressed = minimized;
-        if(minimized) {
-            // A minimized window has no reliable presentation cadence. Some
-            // drivers stop blocking swaps while others throttle them in bursts.
+    const bool backgroundPacing = minimized || !hasInputFocus();
+    if(backgroundPacing != m_backgroundPacingActive) {
+        m_backgroundPacingActive = backgroundPacing;
+        if(backgroundPacing) {
+            // A minimized or unfocused window has no reliable presentation
+            // cadence. Some drivers stop blocking swaps while others throttle
+            // them in bursts.
             // Let the emulation host's steady clock pace local simulation.
-            this->setVSync(0);
             m_emu.setPresenterLockActive(false);
-        } else if(m_runtimeVsyncSuppressed) {
-            this->setVSync(0);
-        } else {
-            updateVSyncConfig();
         }
-        resetEmulationSpeedPacing();
-        m_mainLoopLastCounter = counterNow;
-        m_mainLoopCounterRemainder = 0;
+        // Preserve the VSync configuration and audio/frame-time remainder
+        // across the handoff. Changing the swap interval here causes a visible
+        // and audible discontinuity on several window compositors.
+        m_emulationSpeedFrameAccumulator = 0.0;
+        m_presenterFrameAccumScaled = 0;
     }
     const bool allowPresenterPacing =
-        !minimized &&
+        !backgroundPacing &&
         !isWindowsTitleBarInteractionActive();
     const auto hostReplayStatus = m_emu.replayPlaybackStatus();
     const bool keepReplaySuspended =
@@ -5580,9 +5579,9 @@ void GeraNESApp::mainLoop()
     };
     if(!allowPresenterPacing) {
         m_presenterFrameAccumScaled = 0;
-        const bool useFreeRunningMinimizedPacing =
-            minimized && !netplayPacingOverrideActive && !keepReplaySuspended;
-        if(useFreeRunningMinimizedPacing) {
+        const bool useFreeRunningBackgroundPacing =
+            backgroundPacing && !netplayPacingOverrideActive && !keepReplaySuspended;
+        if(useFreeRunningBackgroundPacing) {
             m_emu.setSimulationSuspended(false);
             m_emu.update(pacingDtMs);
             m_emulationSpeedFrameAccumulator = 0.0;
@@ -5623,7 +5622,9 @@ void GeraNESApp::mainLoop()
         // cadence agrees with the display mode. Driver or window-manager
         // throttling must use elapsed-time catch-up instead.
         const bool measuredCadenceMatchesEmu =
-            dt > 0 && static_cast<double>(dt) <= expectedFrameDurationMs * 1.15;
+            dt > 0 &&
+            static_cast<double>(dt) >= expectedFrameDurationMs * 0.95 &&
+            static_cast<double>(dt) <= expectedFrameDurationMs * 1.15;
         monitorCadenceMatchesEmu &= measuredCadenceMatchesEmu;
 #ifdef __EMSCRIPTEN__
         // On mobile web, refresh rate can jump (e.g. 60 <-> 120) during touch.

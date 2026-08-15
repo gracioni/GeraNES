@@ -114,6 +114,7 @@ public:
 
     bool isMinimized() const;
     bool isMaximized() const;
+    bool hasInputFocus() const;
 
     int getVSync() const;
     void setVSync(int vsync) const;
