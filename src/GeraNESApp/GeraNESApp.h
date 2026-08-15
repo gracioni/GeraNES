@@ -379,6 +379,8 @@ private:
     Uint64 m_mainLoopLastCounter = 0;
     Uint64 m_mainLoopCounterFrequency = 0;
     Uint64 m_mainLoopCounterRemainder = 0;
+    bool m_mainLoopEntered = false;
+    bool m_resumeSimulationOnNextMainLoop = false;
 
     Rect m_nesScreenRect = {{0,0}, {1,1}};
     bool m_customWindowChromeEnabled = true;

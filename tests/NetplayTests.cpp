@@ -7503,6 +7503,28 @@ TEST_CASE("Netplay hitch recovery flushes audio backlog", "[netplay][audio][hitc
     REQUIRE(audio.clearAudioBuffersCalls > 0);
 }
 
+TEST_CASE("Vsync drift compensation bounds excess queued audio", "[audio][drift]")
+{
+    GeraNESTestSupport::requireRomFixture();
+
+    RecordingAudioOutput audio;
+    GeraNESEmu emu(audio);
+    REQUIRE(emu.openRom(GeraNESTestSupport::romPath().string()));
+    REQUIRE(emu.valid());
+
+    constexpr uint32_t frameDtMs = 16u;
+    constexpr uint32_t frameCount = 600u;
+    for(uint32_t frame = 0; frame < frameCount; ++frame) {
+        InputFrame input = emu.createInputFrame(frame);
+        applyInputFrameAndAdvance(emu, input, frameDtMs);
+    }
+
+    const uint32_t wallTimeMs = frameCount * frameDtMs;
+    INFO("rendered audio ms=" << audio.audibleRenderCalls << " wall time ms=" << wallTimeMs);
+    REQUIRE(audio.audibleRenderCalls <= wallTimeMs + 10u);
+    REQUIRE(audio.audibleRenderCalls + 10u >= wallTimeMs);
+}
+
 TEST_CASE("Netplay resync resets audio frame tracking for future playback", "[netplay][audio][resync]")
 {
     GeraNESTestSupport::requireRomFixture();

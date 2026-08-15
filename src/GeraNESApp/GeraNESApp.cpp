@@ -2879,7 +2879,15 @@ bool GeraNESApp::finishOpenRomPath(const fs::path& requestedPath, const std::str
             m_replaySession.isPlayback() &&
             m_replaySession.hasLoadedReplay();
         if(!m_webVisibilitySuspended && !deferObserverResume && !keepSuspendedForReplayLoad) {
-            m_emu.setSimulationSuspended(false);
+            if(m_mainLoopEntered) {
+                m_emu.setSimulationSuspended(false);
+            } else {
+                // A command-line ROM is loaded before SDLOpenGLWindow::run() enters
+                // its presentation loop. Keep the worker stopped until that loop is
+                // ready, otherwise startup work can leave already-generated audio in
+                // front of the first displayed frame.
+                m_resumeSimulationOnNextMainLoop = true;
+            }
         }
         return true;
     }
@@ -5440,8 +5448,23 @@ void GeraNESApp::onWindowDisplayChanged(int displayIndex)
 
 void GeraNESApp::mainLoop()
 {
+    m_mainLoopEntered = true;
     updateCursor();
     updatePendingRomLoad();
+
+    if(m_resumeSimulationOnNextMainLoop) {
+        m_resumeSimulationOnNextMainLoop = false;
+        // Flush at the presentation boundary while the emulation worker is still
+        // suspended. The first updateUntilFrame() below will resume it in
+        // presenter-locked mode, keeping initial video and audio on one timeline.
+        m_emu.withExclusiveAccess([this](auto&) {
+            m_audioOutput.discardQueuedAudio();
+            m_audioOutput.clearAudioBuffers();
+            if(const auto mixer = m_audioOutput.getExternalAudioMixer()) {
+                mixer->resetRuntime();
+            }
+        });
+    }
 
     const Uint64 counterNow = currentMainLoopCounter();
     Uint64 counterFreq = currentMainLoopCounterFrequency();

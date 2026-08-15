@@ -1587,8 +1587,10 @@ private:
         }
 
         // Symmetric path, but conservative: only build skip-debt after sustained negative drift.
-        // This avoids harming the common NES-NTSC-on-60Hz case where positive compensation is critical.
-        constexpr double NEGATIVE_DRIFT_DEADBAND_MS = 60.0;
+        // Keep the threshold inside the accumulator's [-10 ms, 10 ms] clamp;
+        // otherwise this branch is unreachable and audio produced slightly faster
+        // than wall time accumulates indefinitely in the device queue.
+        constexpr double NEGATIVE_DRIFT_DEADBAND_MS = 6.0;
         constexpr int MAX_SKIP_DEBT_MS = 3;
         while(m_vsyncAudioCompMsAcc <= -NEGATIVE_DRIFT_DEADBAND_MS && m_vsyncAudioSkipMsDebt < MAX_SKIP_DEBT_MS) {
             ++m_vsyncAudioSkipMsDebt;
