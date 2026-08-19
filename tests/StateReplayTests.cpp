@@ -92,6 +92,29 @@ namespace
         return emu.setPlaybackInputFrame(frame);
     }
 
+    template<size_t CadenceSize>
+    void verifyCoreAudioTracksPresenter(const std::array<uint32_t, CadenceSize>& presenterCadence)
+    {
+        GeraNESTestSupport::requireRomFixture();
+
+        RecordingCoreAudioOutput audio;
+        GeraNESEmu emu(audio);
+        REQUIRE(emu.openRom(GeraNESTestSupport::romPath().string()));
+
+        constexpr uint32_t frameCount = 600u;
+        uint32_t presenterTimeMs = 0;
+        for(uint32_t frame = 0; frame < frameCount; ++frame) {
+            REQUIRE(queueInputMaskForCurrentFrame(emu, 0u));
+            const uint32_t dt = presenterCadence[frame % CadenceSize];
+            presenterTimeMs += dt;
+            REQUIRE(emu.updateUntilFrame(dt));
+        }
+
+        INFO("rendered audio ms=" << audio.renderedMs << " presenter ms=" << presenterTimeMs);
+        REQUIRE(audio.renderedMs <= presenterTimeMs + 10u);
+        REQUIRE(audio.renderedMs + 10u >= presenterTimeMs);
+    }
+
     bool advanceExactlyOneFrame(GeraNESEmu& emu, uint64_t inputMask)
     {
         if(!queueInputMaskForCurrentFrame(emu, inputMask)) {
@@ -167,50 +190,14 @@ namespace
 
 TEST_CASE("Core audio drift follows a faster jittered presenter", "[audio][drift][core]")
 {
-    GeraNESTestSupport::requireRomFixture();
-
-    RecordingCoreAudioOutput audio;
-    GeraNESEmu emu(audio);
-    REQUIRE(emu.openRom(GeraNESTestSupport::romPath().string()));
-
-    constexpr uint32_t frameCount = 600u;
-    constexpr std::array<uint32_t, 4> presenterDt = {16u, 17u, 17u, 16u};
-    uint32_t presenterTimeMs = 0;
-    for(uint32_t frame = 0; frame < frameCount; ++frame) {
-        REQUIRE(queueInputMaskForCurrentFrame(emu, 0u));
-        const uint32_t dt = presenterDt[frame % presenterDt.size()];
-        presenterTimeMs += dt;
-        REQUIRE(emu.updateUntilFrame(dt));
-    }
-
-    INFO("rendered audio ms=" << audio.renderedMs << " presenter ms=" << presenterTimeMs);
-    REQUIRE(audio.renderedMs <= presenterTimeMs + 10u);
-    REQUIRE(audio.renderedMs + 10u >= presenterTimeMs);
+    verifyCoreAudioTracksPresenter(std::array<uint32_t, 4>{16u, 17u, 17u, 16u});
 }
 
 TEST_CASE("Core audio drift follows a 60 Hz presenter", "[audio][drift][core]")
 {
-    GeraNESTestSupport::requireRomFixture();
-
-    RecordingCoreAudioOutput audio;
-    GeraNESEmu emu(audio);
-    REQUIRE(emu.openRom(GeraNESTestSupport::romPath().string()));
-
     // A 60 Hz presenter is slightly slower than an NTSC NES. Without positive
     // core compensation its audio queue loses a small amount every frame.
-    constexpr uint32_t frameCount = 600u;
-    constexpr std::array<uint32_t, 3> presenterDt = {16u, 17u, 17u};
-    uint32_t presenterTimeMs = 0;
-    for(uint32_t frame = 0; frame < frameCount; ++frame) {
-        REQUIRE(queueInputMaskForCurrentFrame(emu, 0u));
-        const uint32_t dt = presenterDt[frame % presenterDt.size()];
-        presenterTimeMs += dt;
-        REQUIRE(emu.updateUntilFrame(dt));
-    }
-
-    INFO("rendered audio ms=" << audio.renderedMs << " presenter ms=" << presenterTimeMs);
-    REQUIRE(audio.renderedMs <= presenterTimeMs + 10u);
-    REQUIRE(audio.renderedMs + 10u >= presenterTimeMs);
+    verifyCoreAudioTracksPresenter(std::array<uint32_t, 3>{16u, 17u, 17u});
 }
 
 TEST_CASE("Presenter hitch does not flush core audio", "[audio][hitch][core]")
