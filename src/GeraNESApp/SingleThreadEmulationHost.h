@@ -227,6 +227,8 @@ private:
     bool m_allowPresenterTimeoutAdvance = true;
     bool m_freeRunningClockInitialized = false;
     std::chrono::steady_clock::time_point m_freeRunningNextTick{};
+    uint32_t m_freeRunningFps = 0;
+    uint32_t m_freeRunningStepRemainder = 0;
     std::function<void(GeraNESEmu&)> m_preAdvanceHook;
     ModFrameCaptureHook m_modFrameCaptureHook;
     PpuViewerSnapshot m_ppuViewerSnapshot;

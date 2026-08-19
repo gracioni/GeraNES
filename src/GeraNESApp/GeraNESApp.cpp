@@ -1450,6 +1450,9 @@ void GeraNESApp::resetEmulationSpeedPacing()
     m_emulationSpeedFrameAccumulator = 0.0;
     m_presenterFrameAccumScaled = 0;
     m_presenterStepRemainder = 0;
+    m_stableVsyncCadenceFrames = 0;
+    m_unstableVsyncCadenceFrames = 0;
+    m_vsyncPresenterPacingActive = false;
 }
 
 void GeraNESApp::updateRuntimeVSyncSuppression(EmulationSpeed effectiveSpeed)
@@ -5444,6 +5447,9 @@ void GeraNESApp::onWindowDisplayChanged(int displayIndex)
     m_mainLoopCounterRemainder = 0;
     m_presenterFrameAccumScaled = 0;
     m_presenterStepRemainder = 0;
+    m_stableVsyncCadenceFrames = 0;
+    m_unstableVsyncCadenceFrames = 0;
+    m_vsyncPresenterPacingActive = false;
 }
 
 void GeraNESApp::mainLoop()
@@ -5533,6 +5539,9 @@ void GeraNESApp::mainLoop()
         // and audible discontinuity on several window compositors.
         m_emulationSpeedFrameAccumulator = 0.0;
         m_presenterFrameAccumScaled = 0;
+        m_stableVsyncCadenceFrames = 0;
+        m_unstableVsyncCadenceFrames = 0;
+        m_vsyncPresenterPacingActive = false;
     }
     const bool allowPresenterPacing =
         !backgroundPacing &&
@@ -5632,19 +5641,50 @@ void GeraNESApp::mainLoop()
         monitorCadenceMatchesEmu = false;
 #endif
 
-        if(monitorCadenceMatchesEmu && !maxSpeedActive && std::abs(speedMultiplier - 1.0) < 0.001) {
+        constexpr uint32_t STABLE_VSYNC_FRAMES_REQUIRED = 8u;
+        constexpr uint32_t UNSTABLE_VSYNC_FRAMES_REQUIRED = 3u;
+        if(monitorCadenceMatchesEmu) {
+            m_stableVsyncCadenceFrames = std::min<uint32_t>(
+                STABLE_VSYNC_FRAMES_REQUIRED,
+                m_stableVsyncCadenceFrames + 1u);
+            m_unstableVsyncCadenceFrames = 0;
+        } else {
+            m_stableVsyncCadenceFrames = 0;
+            m_unstableVsyncCadenceFrames = std::min<uint32_t>(
+                UNSTABLE_VSYNC_FRAMES_REQUIRED,
+                m_unstableVsyncCadenceFrames + 1u);
+        }
+        // Once presenter pacing is established, tolerate isolated compositor
+        // spikes. Switching to the free-running clock and back for one bad swap
+        // is more disruptive than letting the existing audio prebuffer absorb
+        // it. Netplay keeps its prior immediate cadence decision.
+        const bool stableMonitorCadence = netplayPacingOverrideActive
+            ? monitorCadenceMatchesEmu
+            : (m_vsyncPresenterPacingActive && vsyncEnabled
+                ? m_unstableVsyncCadenceFrames < UNSTABLE_VSYNC_FRAMES_REQUIRED
+                : m_stableVsyncCadenceFrames >= STABLE_VSYNC_FRAMES_REQUIRED);
+
+        if(stableMonitorCadence && !maxSpeedActive && std::abs(speedMultiplier - 1.0) < 0.001) {
             m_emulationSpeedFrameAccumulator = 0.0;
             m_presenterFrameAccumScaled = 0;
-            const uint32_t stepNumerator = m_presenterStepRemainder + 1000u;
-            uint32_t stepDtMs = stepNumerator / emuFps;
-            m_presenterStepRemainder = stepNumerator % emuFps;
-            stepDtMs = std::max<uint32_t>(1u, stepDtMs);
-            m_presenterFrameAccumScaled = 0;
-            m_emu.updateUntilFrame(stepDtMs);
+            bool requestedPresenterFrame = false;
+            if(!m_vsyncPresenterPacingActive) {
+                // Hand off without also requesting a frame on this swap; the
+                // free-running worker may have just completed one.
+                m_emu.setPresenterLockActive(true);
+                m_vsyncPresenterPacingActive = true;
+            } else {
+                const uint32_t stepNumerator = m_presenterStepRemainder + 1000u;
+                uint32_t stepDtMs = stepNumerator / emuFps;
+                m_presenterStepRemainder = stepNumerator % emuFps;
+                stepDtMs = std::max<uint32_t>(1u, stepDtMs);
+                m_emu.updateUntilFrame(stepDtMs);
+                requestedPresenterFrame = true;
+            }
             render();
             m_netplayRuntime.recordFramePacing(
                 pacingDtMs,
-                1u,
+                requestedPresenterFrame ? 1u : 0u,
                 0u,
                 netplayPacingOverrideActive,
                 true
@@ -5655,16 +5695,40 @@ void GeraNESApp::mainLoop()
             }
         } else {
             m_presenterFrameAccumScaled = 0;
-            const uint32_t framesToAdvance = advanceFrames(emuFps);
-            m_netplayRuntime.recordFramePacing(
-                pacingDtMs,
-                framesToAdvance,
-                framesToAdvance > 1u ? framesToAdvance : 0u,
-                netplayPacingOverrideActive,
-                false
-            );
-            if(framesToAdvance > 0u) {
+            const bool useFreeRunningVsyncFallback =
+                vsyncEnabled &&
+                !maxSpeedActive &&
+                std::abs(speedMultiplier - 1.0) < 0.001 &&
+                !netplayPacingOverrideActive &&
+                !keepReplaySuspended;
+            if(useFreeRunningVsyncFallback) {
+                if(m_vsyncPresenterPacingActive) {
+                    m_emu.setPresenterLockActive(false);
+                    m_vsyncPresenterPacingActive = false;
+                }
+                m_emu.update(pacingDtMs);
+                m_emulationSpeedFrameAccumulator = 0.0;
                 render();
+                m_netplayRuntime.recordFramePacing(
+                    pacingDtMs,
+                    0u,
+                    0u,
+                    false,
+                    false
+                );
+            } else {
+                m_vsyncPresenterPacingActive = false;
+                const uint32_t framesToAdvance = advanceFrames(emuFps);
+                m_netplayRuntime.recordFramePacing(
+                    pacingDtMs,
+                    framesToAdvance,
+                    framesToAdvance > 1u ? framesToAdvance : 0u,
+                    netplayPacingOverrideActive,
+                    false
+                );
+                if(framesToAdvance > 0u) {
+                    render();
+                }
             }
         }
     }

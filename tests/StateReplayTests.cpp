@@ -26,6 +26,18 @@ namespace
         uint8_t actual = 0;
     };
 
+    class RecordingCoreAudioOutput : public IAudioOutput
+    {
+    public:
+        uint32_t renderedMs = 0;
+        uint32_t clearCalls = 0;
+        uint32_t discardCalls = 0;
+
+        void render(uint32_t dt) override { renderedMs += dt; }
+        void clearAudioBuffers() override { ++clearCalls; }
+        void discardQueuedAudio() override { ++discardCalls; }
+    };
+
     uint32_t stateCrc32(const std::vector<uint8_t>& data)
     {
         return data.empty() ? 0u : Crc32::calc(reinterpret_cast<const char*>(data.data()), data.size());
@@ -151,6 +163,72 @@ namespace
         }
         return host.lastFrameReadyFrame() >= targetFrame;
     }
+}
+
+TEST_CASE("Core audio drift follows a faster jittered presenter", "[audio][drift][core]")
+{
+    GeraNESTestSupport::requireRomFixture();
+
+    RecordingCoreAudioOutput audio;
+    GeraNESEmu emu(audio);
+    REQUIRE(emu.openRom(GeraNESTestSupport::romPath().string()));
+
+    constexpr uint32_t frameCount = 600u;
+    constexpr std::array<uint32_t, 4> presenterDt = {16u, 17u, 17u, 16u};
+    uint32_t presenterTimeMs = 0;
+    for(uint32_t frame = 0; frame < frameCount; ++frame) {
+        REQUIRE(queueInputMaskForCurrentFrame(emu, 0u));
+        const uint32_t dt = presenterDt[frame % presenterDt.size()];
+        presenterTimeMs += dt;
+        REQUIRE(emu.updateUntilFrame(dt));
+    }
+
+    INFO("rendered audio ms=" << audio.renderedMs << " presenter ms=" << presenterTimeMs);
+    REQUIRE(audio.renderedMs <= presenterTimeMs + 10u);
+    REQUIRE(audio.renderedMs + 10u >= presenterTimeMs);
+}
+
+TEST_CASE("Core audio drift follows a 60 Hz presenter", "[audio][drift][core]")
+{
+    GeraNESTestSupport::requireRomFixture();
+
+    RecordingCoreAudioOutput audio;
+    GeraNESEmu emu(audio);
+    REQUIRE(emu.openRom(GeraNESTestSupport::romPath().string()));
+
+    // A 60 Hz presenter is slightly slower than an NTSC NES. Without positive
+    // core compensation its audio queue loses a small amount every frame.
+    constexpr uint32_t frameCount = 600u;
+    constexpr std::array<uint32_t, 3> presenterDt = {16u, 17u, 17u};
+    uint32_t presenterTimeMs = 0;
+    for(uint32_t frame = 0; frame < frameCount; ++frame) {
+        REQUIRE(queueInputMaskForCurrentFrame(emu, 0u));
+        const uint32_t dt = presenterDt[frame % presenterDt.size()];
+        presenterTimeMs += dt;
+        REQUIRE(emu.updateUntilFrame(dt));
+    }
+
+    INFO("rendered audio ms=" << audio.renderedMs << " presenter ms=" << presenterTimeMs);
+    REQUIRE(audio.renderedMs <= presenterTimeMs + 10u);
+    REQUIRE(audio.renderedMs + 10u >= presenterTimeMs);
+}
+
+TEST_CASE("Presenter hitch does not flush core audio", "[audio][hitch][core]")
+{
+    GeraNESTestSupport::requireRomFixture();
+
+    RecordingCoreAudioOutput audio;
+    GeraNESEmu emu(audio);
+    REQUIRE(emu.openRom(GeraNESTestSupport::romPath().string()));
+    REQUIRE(queueInputMaskForCurrentFrame(emu, 0u));
+    REQUIRE(emu.updateUntilFrame(16u));
+
+    audio.clearCalls = 0;
+    audio.discardCalls = 0;
+    REQUIRE(queueInputMaskForCurrentFrame(emu, 0u));
+    REQUIRE(emu.updateUntilFrame(50u));
+    REQUIRE(audio.clearCalls == 0u);
+    REQUIRE(audio.discardCalls == 0u);
 }
 
 TEST_CASE("PendingInputFrames keeps queued frames addressable by frame number", "[state-replay][pending-input]")
@@ -493,6 +571,30 @@ TEST_CASE("Threaded presenter preserves burst frame requests", "[state-replay][t
         startingFrame + requestedFrames,
         std::chrono::milliseconds(1500)));
     REQUIRE(host.lastFrameReadyFrame() == startingFrame + requestedFrames);
+    host.shutdown();
+}
+
+TEST_CASE("Threaded presenter does not double a watchdog frame with a late tick", "[state-replay][threaded-pacing]")
+{
+    const fs::path romPath = fs::path(GERANES_SOURCE_DIR) /
+        "tests" / "roms" / "vbl_nmi_timing" / "1.frame_basics.nes";
+    REQUIRE(fs::exists(romPath));
+
+    ThreadedEmulationHost host(DummyAudioOutput::instance());
+    host.setSimulationSuspended(true);
+    REQUIRE(host.open(romPath.string(), false));
+    REQUIRE(host.valid());
+    host.setPresenterLockActive(true);
+
+    const uint32_t startingFrame = host.lastFrameReadyFrame();
+    REQUIRE(waitForHostFrame(host, startingFrame + 1u, std::chrono::milliseconds(500)));
+
+    // Stop further watchdog advances, then deliver the VSync notification that
+    // arrived after the watchdog already produced this presentation's frame.
+    host.setAllowPresenterTimeoutAdvance(false);
+    host.updateUntilFrame(16u);
+    std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    REQUIRE(host.lastFrameReadyFrame() == startingFrame + 1u);
     host.shutdown();
 }
 

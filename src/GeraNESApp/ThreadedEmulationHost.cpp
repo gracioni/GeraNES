@@ -582,6 +582,10 @@ void ThreadedEmulationHost::workerLoop(std::stop_token stopToken)
     m_workerReadyCv.notify_all();
 
     auto nextTick = clock::now();
+    uint32_t freeRunningFps = 0;
+    uint32_t stepRemainder = 0;
+    bool resetFreeRunningPacing = true;
+    uint32_t presenterTimeoutAdvanceCredits = 0;
 
     while(!stopToken.stop_requested()) {
         if(m_framePacingMode.load(std::memory_order_acquire) == FramePacingMode::Suspended) {
@@ -602,6 +606,8 @@ void ThreadedEmulationHost::workerLoop(std::stop_token stopToken)
             }
 
             nextTick = clock::now();
+            resetFreeRunningPacing = true;
+            presenterTimeoutAdvanceCredits = 0;
             continue;
         }
 
@@ -629,7 +635,15 @@ void ThreadedEmulationHost::workerLoop(std::stop_token stopToken)
                 const uint32_t ticksToConsume = m_pendingPresenterTicks.exchange(0, std::memory_order_acq_rel);
 
                 if(m_emu.valid() && ticksToConsume > 0) {
-                    for(uint32_t tick = 0; tick < ticksToConsume && m_emu.valid(); ++tick) {
+                    // A watchdog advance may win a close race with the VSync
+                    // notification for the same presentation interval. Consume
+                    // that late notification without advancing a second frame.
+                    const uint32_t creditedTicks = std::min(
+                        ticksToConsume,
+                        presenterTimeoutAdvanceCredits);
+                    presenterTimeoutAdvanceCredits -= creditedTicks;
+                    const uint32_t ticksToAdvance = ticksToConsume - creditedTicks;
+                    for(uint32_t tick = 0; tick < ticksToAdvance && m_emu.valid(); ++tick) {
                         runPreAdvanceHookLocked();
                         const uint32_t frameBefore = m_emu.frameCount();
                         prepareCurrentFrameInputLocked();
@@ -651,6 +665,10 @@ void ThreadedEmulationHost::workerLoop(std::stop_token stopToken)
                     const uint32_t frameAfter = m_emu.frameCount();
                     if(frameAfter != frameBefore) {
                         onFrameReadyLocked();
+                        // Only the immediately following late notification can
+                        // overlap this watchdog interval. Older missing swaps
+                        // must not suppress future valid presenter ticks.
+                        presenterTimeoutAdvanceCredits = 1u;
                     }
                 }
 
@@ -659,21 +677,31 @@ void ThreadedEmulationHost::workerLoop(std::stop_token stopToken)
             }
 
             nextTick = clock::now();
+            resetFreeRunningPacing = true;
             continue;
         }
 
         auto now = clock::now();
+        presenterTimeoutAdvanceCredits = 0;
+        const uint32_t fps = std::max<uint32_t>(1u, m_emu.getRegionFPS());
+        if(resetFreeRunningPacing || freeRunningFps != fps) {
+            nextTick = now;
+            freeRunningFps = fps;
+            stepRemainder = 0;
+            resetFreeRunningPacing = false;
+        }
         if(now < nextTick) {
             std::this_thread::sleep_until(nextTick);
             continue;
         }
 
         uint32_t catchupSteps = 0;
-        const uint32_t fps = std::max<uint32_t>(1u, m_emu.getRegionFPS());
-        const uint32_t frameDtMs = std::max<uint32_t>(1u, 1000u / fps);
         const uint32_t maxCatchupSteps = ((1000u + fps - 1u) / fps) + 1u;
         while(now >= nextTick && catchupSteps < maxCatchupSteps && !stopToken.stop_requested()) {
             ++catchupSteps;
+            const uint32_t stepNumerator = stepRemainder + 1000u;
+            const uint32_t frameDtMs = std::max<uint32_t>(1u, stepNumerator / fps);
+            stepRemainder = stepNumerator % fps;
             nextTick += std::chrono::milliseconds(frameDtMs);
 
             {
@@ -697,6 +725,7 @@ void ThreadedEmulationHost::workerLoop(std::stop_token stopToken)
 
         if(catchupSteps == maxCatchupSteps) {
             nextTick = clock::now();
+            stepRemainder = 0;
         }
     }
 }

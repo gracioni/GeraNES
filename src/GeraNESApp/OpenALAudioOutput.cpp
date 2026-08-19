@@ -229,13 +229,6 @@ void OpenALAudioOutput::render(uint32_t dt)
         m_bufferData.erase(m_bufferData.begin(), m_bufferData.begin() + prebufferChunkSamples);
     }
 
-    // When all device buffers are occupied, retain at most one pending chunk.
-    // Without this bound a small producer/device clock mismatch accumulates in
-    // m_bufferData even though the OpenAL queue itself has a fixed buffer count.
-    if(m_buffersAvailable == 0 && m_bufferData.size() > prebufferChunkSamples) {
-        m_bufferData.resize(prebufferChunkSamples);
-    }
-
     ALint state;
     alGetSourcei(m_source, AL_SOURCE_STATE, &state);
 

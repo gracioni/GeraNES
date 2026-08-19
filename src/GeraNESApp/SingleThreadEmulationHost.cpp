@@ -258,6 +258,8 @@ void SingleThreadEmulationHost::recordFrameReadyNetplayState(GeraNESEmu& emu)
 void SingleThreadEmulationHost::resetFreeRunningPacing()
 {
     m_freeRunningClockInitialized = false;
+    m_freeRunningFps = 0;
+    m_freeRunningStepRemainder = 0;
 }
 
 void SingleThreadEmulationHost::notifyQueuedInputObserver(const InputFrame& frame)
@@ -299,42 +301,45 @@ bool SingleThreadEmulationHost::pumpFreeRunningWorkerSteps()
 {
     using clock = std::chrono::steady_clock;
     const uint32_t fps = std::max<uint32_t>(1u, m_emu.getRegionFPS());
-    const uint32_t frameDtMs = std::max<uint32_t>(1u, 1000u / fps);
     const uint32_t maxCatchupSteps = ((1000u + fps - 1u) / fps) + 1u;
 
     auto now = clock::now();
-    if(!m_freeRunningClockInitialized) {
+    if(!m_freeRunningClockInitialized || m_freeRunningFps != fps) {
         m_freeRunningClockInitialized = true;
+        m_freeRunningFps = fps;
         m_freeRunningNextTick = now;
+        m_freeRunningStepRemainder = 0;
     }
 
     const uint32_t frameBefore = m_emu.frameCount();
-    uint32_t stepsToRun = 0;
-    if(now >= m_freeRunningNextTick) {
-        const auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(now - m_freeRunningNextTick).count();
-        stepsToRun = static_cast<uint32_t>(elapsed / std::max<int64_t>(1, frameDtMs)) + 1u;
-        stepsToRun = std::min<uint32_t>(stepsToRun, maxCatchupSteps);
-        m_freeRunningNextTick += std::chrono::milliseconds(stepsToRun * frameDtMs);
-    }
+    uint32_t stepsRun = 0;
+    while(now >= m_freeRunningNextTick && stepsRun < maxCatchupSteps) {
+        const uint32_t stepNumerator = m_freeRunningStepRemainder + 1000u;
+        const uint32_t frameDtMs = std::max<uint32_t>(1u, stepNumerator / fps);
+        m_freeRunningStepRemainder = stepNumerator % fps;
+        m_freeRunningNextTick += std::chrono::milliseconds(frameDtMs);
 
-    if(stepsToRun == 0u) {
+        ++stepsRun;
         dispatchQueuedCommands();
-    } else {
-        for(uint32_t step = 0; step < stepsToRun; ++step) {
-            dispatchQueuedCommands();
-            if(runPreAdvanceHook()) {
-                return m_emu.frameCount() != frameBefore;
-            }
-            if(m_emu.valid()) {
-                const uint32_t stepFrameBefore = m_emu.frameCount();
-                prepareCurrentFrameInput();
-                m_emu.updateUntilFrame(frameDtMs);
-                const uint32_t stepFrameAfter = m_emu.frameCount();
-                if(stepFrameAfter != stepFrameBefore) {
-                    onFrameReady();
-                }
+        if(runPreAdvanceHook()) {
+            return m_emu.frameCount() != frameBefore;
+        }
+        if(m_emu.valid()) {
+            const uint32_t stepFrameBefore = m_emu.frameCount();
+            prepareCurrentFrameInput();
+            m_emu.updateUntilFrame(frameDtMs);
+            const uint32_t stepFrameAfter = m_emu.frameCount();
+            if(stepFrameAfter != stepFrameBefore) {
+                onFrameReady();
             }
         }
+    }
+
+    if(stepsRun == 0u) {
+        dispatchQueuedCommands();
+    } else if(stepsRun == maxCatchupSteps && now >= m_freeRunningNextTick) {
+        m_freeRunningNextTick = now;
+        m_freeRunningStepRemainder = 0;
     }
 
     return m_emu.frameCount() != frameBefore;

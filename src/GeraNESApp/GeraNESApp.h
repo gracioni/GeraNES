@@ -422,6 +422,9 @@ private:
     uint32_t m_presenterStepRemainder = 0;
     double m_emulationSpeedFrameAccumulator = 0.0;
     bool m_runtimeVsyncSuppressed = false;
+    uint32_t m_stableVsyncCadenceFrames = 0;
+    uint32_t m_unstableVsyncCadenceFrames = 0;
+    bool m_vsyncPresenterPacingActive = false;
     uint32_t m_lastTextureUploadOverscanKey = 0;
     int m_lastTextureUploadModScale = -1;
 

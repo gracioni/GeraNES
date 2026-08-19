@@ -24,7 +24,6 @@ private:
     SDL_AudioSpec spec{};
 
     double sampleAcc = 0.0;
-    double m_outputRateScale = 1.0;
     float m_volume = 1.0f;
 
     void clearBuffers();

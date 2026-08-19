@@ -7482,7 +7482,7 @@ TEST_CASE("Netplay clean-boot state load reopens IPS patch source", "[netplay][s
             patchedSource.getConsole().cartridge().romFile().fileCrc32());
 }
 
-TEST_CASE("Netplay hitch recovery flushes audio backlog", "[netplay][audio][hitch]")
+TEST_CASE("Presenter hitch preserves the audio prebuffer", "[netplay][audio][hitch]")
 {
     GeraNESTestSupport::requireRomFixture();
 
@@ -7499,8 +7499,8 @@ TEST_CASE("Netplay hitch recovery flushes audio backlog", "[netplay][audio][hitc
 
     InputFrame frame1 = emu.createInputFrame(1u);
     applyInputFrameAndAdvance(emu, frame1, 50u);
-    REQUIRE(audio.discardQueuedAudioCalls > 0);
-    REQUIRE(audio.clearAudioBuffersCalls > 0);
+    REQUIRE(audio.discardQueuedAudioCalls == 0);
+    REQUIRE(audio.clearAudioBuffersCalls == 0);
 }
 
 TEST_CASE("Vsync drift compensation bounds excess queued audio", "[audio][drift]")

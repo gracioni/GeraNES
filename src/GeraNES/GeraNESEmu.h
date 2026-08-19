@@ -1554,14 +1554,10 @@ private:
     {
         if(dt == 0) return;
 
-        // Large hitches are treated as timeline discontinuities. Carrying their
-        // audio backlog forward leaves playback permanently behind the video
-        // until the device is manually restarted.
+        // A presentation hitch is not an audio timeline discontinuity. The
+        // backend prebuffer should absorb it when possible; flushing that queue
+        // here turns a transient VSync delay into a guaranteed audible gap.
         if(dt > 34) {
-            m_audioOutput.discardQueuedAudio();
-            m_audioOutput.clearAudioBuffers();
-            m_apu.refreshAudioOutputState();
-            m_lastAudioRenderedMs = 0;
             m_vsyncAudioCompMsAcc = 0.0;
             m_vsyncAudioSkipMsDebt = 0;
             return;
@@ -1579,22 +1575,25 @@ private:
         const bool skipCompensationRender =
             m_forceSkipAudioRender || playbackFrameAlreadyRenderedAudibly;
 
-        while(m_vsyncAudioCompMsAcc >= 1.0) {
+        // Frame-time quantization and VSync jitter normally cancel over several
+        // frames. Keep that error available for cancellation instead of making
+        // an immediate add/skip correction on every noisy presentation sample.
+        constexpr double DRIFT_DEADBAND_MS = 6.0;
+        if(m_vsyncAudioCompMsAcc >= DRIFT_DEADBAND_MS) {
             if(renderAudioMs(1, skipCompensationRender)) {
                 m_currentPlaybackFrameRenderedAudibly = true;
             }
             m_vsyncAudioCompMsAcc -= 1.0;
         }
 
-        // Symmetric path, but conservative: only build skip-debt after sustained negative drift.
-        // Keep the threshold inside the accumulator's [-10 ms, 10 ms] clamp;
-        // otherwise this branch is unreachable and audio produced slightly faster
-        // than wall time accumulates indefinitely in the device queue.
-        constexpr double NEGATIVE_DRIFT_DEADBAND_MS = 6.0;
-        constexpr int MAX_SKIP_DEBT_MS = 3;
-        while(m_vsyncAudioCompMsAcc <= -NEGATIVE_DRIFT_DEADBAND_MS && m_vsyncAudioSkipMsDebt < MAX_SKIP_DEBT_MS) {
-            ++m_vsyncAudioSkipMsDebt;
-            m_vsyncAudioCompMsAcc += 1.0;
+        // Apply at most one millisecond of negative correction per emulated
+        // frame as well. This prevents a short FPS oscillation from scheduling
+        // a multi-millisecond discontinuity in the next audio batch.
+        else if(m_vsyncAudioCompMsAcc <= -DRIFT_DEADBAND_MS && m_vsyncAudioSkipMsDebt == 0) {
+            m_vsyncAudioSkipMsDebt = 1;
+            // Do not adjust the accumulator here. On the next update,
+            // m_lastAudioRenderedMs excludes this deferred millisecond, so the
+            // normal dt-rendered calculation accounts for it exactly once.
         }
     }
 
