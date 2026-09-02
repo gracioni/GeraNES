@@ -226,6 +226,16 @@ public:
         return ((!m_interruptInhibitFlag) && m_frameInterruptFlag) || m_sample.getInterruptFlag();
     }
 
+    GERANES_INLINE_HOT bool frameInterruptFlag() const
+    {
+        return (!m_interruptInhibitFlag) && m_frameInterruptFlag;
+    }
+
+    GERANES_INLINE_HOT bool dmcInterruptFlag()
+    {
+        return m_sample.getInterruptFlag();
+    }
+
     uint8_t getActiveChannelMask()
     {
         uint8_t mask = 0;

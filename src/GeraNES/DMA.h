@@ -176,6 +176,7 @@ public:
             m_dmcInitialLoadPhasePending = false;
             m_dmaNeedDummyRead = false;
             m_dmaNeedHalt = false;
+            m_bus.onDebugEvent(DebugEvent::DmcDmaAbort);
         } else {
             m_dmcAbortPending = true;
         }

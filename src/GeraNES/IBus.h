@@ -1,6 +1,7 @@
 #pragma once
 
 #include "defines.h"
+#include "DebugEvents.h"
 
 namespace GeraNES {
 
@@ -14,6 +15,7 @@ public:
     virtual void setOpenBus(uint8_t data) = 0;
     virtual void onCpuBusAccessEnd(int addr, bool write) = 0;
     virtual void onCpuGetToPutTransition() = 0;
+    virtual void onDebugEvent(DebugEvent event, uint16_t address = 0, uint8_t value = 0) = 0;
     virtual ~Ibus(){}
 };
 

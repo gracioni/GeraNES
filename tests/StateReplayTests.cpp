@@ -188,6 +188,30 @@ namespace
     }
 }
 
+TEST_CASE("Exact PPU position breakpoint reports its precise dot", "[debugger][breakpoint]")
+{
+    GeraNESTestSupport::requireRomFixture();
+
+    GeraNESEmu emu(DummyAudioOutput::instance());
+    REQUIRE(emu.openRom(GeraNESTestSupport::romPath().string()));
+
+    GeraNESEmu::DebugBreakpointConfig config;
+    config.enabled = true;
+    config.breakOnPpuPosition = true;
+    config.ppuPositionScanline = emu.getConsole().ppu().scanline();
+    config.ppuPositionCycle = emu.getConsole().ppu().cycle();
+    emu.setDebugBreakpointConfig(config);
+    emu.setDebugBreakpointsArmed(true);
+
+    emu.getConsole().ppu().ppuCycle();
+
+    const GeraNESEmu::DebugBreakpointHit& hit = emu.debugBreakpointHit();
+    REQUIRE(hit.valid);
+    CHECK(hit.reason == "PPU position");
+    CHECK(hit.ppuScanline == config.ppuPositionScanline);
+    CHECK(hit.ppuCycle == config.ppuPositionCycle);
+}
+
 TEST_CASE("Core audio drift follows a faster jittered presenter", "[audio][drift][core]")
 {
     verifyCoreAudioTracksPresenter(std::array<uint32_t, 4>{16u, 17u, 17u, 16u});

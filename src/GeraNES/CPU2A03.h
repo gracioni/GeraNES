@@ -1277,6 +1277,10 @@ public:
         m_flags.irq = true;   
 
         if(m_interrupt == Interrupt::NMI || m_nmiSignal) {
+            if(m_nmiSignal && m_interrupt != Interrupt::NMI) {
+                m_bus.onDebugEvent(isBrk ? DebugEvent::CpuNmiHijacksBrk
+                                         : DebugEvent::CpuNmiHijacksIrq);
+            }
             // An NMI edge arriving while BRK/IRQ is pushing its state hijacks
             // that sequence's vector fetch.  The edge is consumed by the
             // hijack; leaving it latched would incorrectly trigger a second
@@ -1404,6 +1408,9 @@ public:
         else if(m_interrupt != Interrupt::NONE) {
             m_poolIntsAtCycle = DO_NOT_POOL_INTS;
             m_opcode = 0x00; //BRK
+            m_bus.onDebugEvent(m_interrupt == Interrupt::NMI
+                ? DebugEvent::CpuNmiAccepted
+                : DebugEvent::CpuIrqAccepted);
             dummyRead();            
             emulateInterruptSequence();
             m_interrupt = Interrupt::NONE;

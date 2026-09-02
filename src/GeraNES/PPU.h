@@ -6,6 +6,7 @@
 #include "Cartridge.h"
 
 #include "Serialization.h"
+#include "DebugEvents.h"
 
 #include <array>
 #include <algorithm>
@@ -138,6 +139,9 @@ private:
 
     uint8_t m_secondaryOamAddr;
     bool m_secondaryOamOverflowed;
+    uint32_t m_debugEventMask = 0;
+    int m_debugPositionScanline = 0;
+    int m_debugPositionCycle = 0;
     bool m_spriteInRange;
 
     uint8_t m_oamAddrN; //oam[N][M]
@@ -600,6 +604,13 @@ private:
         const bool wasRenderingEnabled = m_prevCycleRenderingEnabled;
         const bool renderingEnabledNow = m_renderingEnabled;
 
+        const DebugEvent renderingEvent = renderingEnabledNow
+            ? DebugEvent::PpuRenderingEnabled
+            : DebugEvent::PpuRenderingDisabled;
+        if(m_debugEventMask & debugEventBit(renderingEvent)) {
+            signalDebugEvent(renderingEvent);
+        }
+
         m_prevCycleRenderingEnabled = m_renderingEnabled;
 
         if(!wasRenderingEnabled && renderingEnabledNow && m_renderLine) {
@@ -772,6 +783,14 @@ public:
     SigSlot::Signal<> signalFrameStart;
     SigSlot::Signal<> signalFrameReady; //called when the frame buffer is ready to show
     SigSlot::Signal<> signalScanlineStart;
+    SigSlot::Signal<DebugEvent> signalDebugEvent;
+
+    void setDebugEventConfig(uint32_t mask, int positionScanline, int positionCycle)
+    {
+        m_debugEventMask = mask;
+        m_debugPositionScanline = positionScanline;
+        m_debugPositionCycle = positionCycle;
+    }
 
     PPU(Settings& settings, Cartridge& cartridge) : m_settings(settings), m_cartridge(cartridge)
     {
@@ -1609,6 +1628,9 @@ yyy NN YYYYY XXXXX
                             m_secondaryOamAddr++;
                             if(m_secondaryOamAddr == sizeof(m_secondaryOam)) {
                                 m_secondaryOamOverflowed = true;
+                                if(m_debugEventMask & debugEventBit(DebugEvent::PpuOam2OverflowEvaluation)) {
+                                    signalDebugEvent(DebugEvent::PpuOam2OverflowEvaluation);
+                                }
                             }
 
                             if(m_cycle == 66) {
@@ -1657,7 +1679,12 @@ yyy NN YYYYY XXXXX
                         //8 sprites have been found, check next sprite for overflow + emulate PPU bug
 						if(m_spriteInRange) {
 							//Sprite is visible, consider this to be an overflow
-							m_spriteOverflow= true;
+							if(!m_spriteOverflow) {
+                                m_spriteOverflow = true;
+                                if(m_debugEventMask & debugEventBit(DebugEvent::PpuSpriteOverflow)) {
+                                    signalDebugEvent(DebugEvent::PpuSpriteOverflow);
+                                }
+                            }
 							m_oamAddrM = (m_oamAddrM + 1);
 							if(m_oamAddrM == 4) {
 								m_oamAddrN = (m_oamAddrN + 1) & 0x3F;
@@ -2138,6 +2165,10 @@ yyy NN YYYYY XXXXX
             // These reset strobes clear the latch which inhibits secondary-OAM
             // address increments after its five-bit address has wrapped.
             if(cycle == 63u || cycle == 255u || cycle == 339u) {
+                if(m_secondaryOamOverflowed &&
+                   (m_debugEventMask & debugEventBit(DebugEvent::PpuOam2OverflowClear))) {
+                    signalDebugEvent(DebugEvent::PpuOam2OverflowClear);
+                }
                 m_secondaryOamOverflowed = false;
             }
 
@@ -2147,6 +2178,9 @@ yyy NN YYYYY XXXXX
                 // final increment wraps the address and raises the same latch
                 // as filling OAM2 during evaluation.
                 m_secondaryOamOverflowed = true;
+                if(m_debugEventMask & debugEventBit(DebugEvent::PpuOam2OverflowFetch)) {
+                    signalDebugEvent(DebugEvent::PpuOam2OverflowFetch);
+                }
             }
 
             if(visibleCycle) {
@@ -2190,11 +2224,18 @@ yyy NN YYYYY XXXXX
         // well; in particular this makes its sprite fetch prepare scanline 0.
         if(renderingEnabled) {
             if(cycle == 63u || cycle == 255u || cycle == 339u) {
+                if(m_secondaryOamOverflowed &&
+                   (m_debugEventMask & debugEventBit(DebugEvent::PpuOam2OverflowClear))) {
+                    signalDebugEvent(DebugEvent::PpuOam2OverflowClear);
+                }
                 m_secondaryOamOverflowed = false;
             }
             if(cycle == 321u) {
                 m_oamCopyBuffer = m_secondaryOam[0];
                 m_secondaryOamOverflowed = true;
+                if(m_debugEventMask & debugEventBit(DebugEvent::PpuOam2OverflowFetch)) {
+                    signalDebugEvent(DebugEvent::PpuOam2OverflowFetch);
+                }
             }
         }
 
@@ -2228,6 +2269,9 @@ yyy NN YYYYY XXXXX
             }
         }
         else if(m_cycle == VBLANK_CYCLE) {
+            if(m_debugEventMask & debugEventBit(DebugEvent::PpuVBlankEnd)) {
+                signalDebugEvent(DebugEvent::PpuVBlankEnd);
+            }
             m_VBlankHasStarted = false;
         }
         else if(cycle == 339u && m_settings.region() == Settings::Region::NTSC) {
@@ -2243,11 +2287,18 @@ yyy NN YYYYY XXXXX
     {
         if(m_cycle == VBLANK_CYCLE && m_lastPPUSTATUSReadCycle != VBLANK_CYCLE) {
             m_VBlankHasStarted = true;
+            if(m_debugEventMask & debugEventBit(DebugEvent::PpuVBlankStart)) {
+                signalDebugEvent(DebugEvent::PpuVBlankStart);
+            }
         }
     }
 
     GERANES_HOT void ppuCycle()
     {        
+        if((m_debugEventMask & debugEventBit(DebugEvent::PpuPosition)) &&
+           m_scanline == m_debugPositionScanline && m_cycle == m_debugPositionCycle) {
+            signalDebugEvent(DebugEvent::PpuPosition);
+        }
         if(m_cycle == 0) onScanlineStart();
         const bool renderingEnabled = m_renderingEnabled;
         const bool prevCycleRenderingEnabled = m_prevCycleRenderingEnabled;

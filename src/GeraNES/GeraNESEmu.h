@@ -68,6 +68,23 @@ public:
         bool breakOnIrqStart = false;
         bool breakOnIrqEnd = false;
         bool breakOnSpriteZeroHit = false;
+        bool breakOnCpuNmiAccepted = false;
+        bool breakOnCpuIrqAccepted = false;
+        bool breakOnNmiHijacksBrk = false;
+        bool breakOnNmiHijacksIrq = false;
+        bool breakOnVBlankStart = false;
+        bool breakOnVBlankEnd = false;
+        bool breakOnSpriteOverflow = false;
+        bool breakOnOam2OverflowSet = false;
+        bool breakOnOam2OverflowClear = false;
+        bool breakOnRenderingEnabled = false;
+        bool breakOnRenderingDisabled = false;
+        bool breakOnApuFrameIrqStart = false;
+        bool breakOnApuFrameIrqEnd = false;
+        bool breakOnDmcIrqStart = false;
+        bool breakOnDmcIrqEnd = false;
+        bool breakOnMapperIrqStart = false;
+        bool breakOnMapperIrqEnd = false;
         bool breakOnPpuRegisterWrite = false;
         bool breakOnPpuRegisterRead = false;
         bool breakOnApuRegisterWrite = false;
@@ -78,6 +95,12 @@ public:
         bool breakOnMapperRegisterRead = false;
         bool breakOnOamDmaStart = false;
         bool breakOnDmcDmaStart = false;
+        bool breakOnOamDmaEnd = false;
+        bool breakOnDmcDmaEnd = false;
+        bool breakOnDmcDmaAbort = false;
+        bool breakOnPpuPosition = false;
+        int ppuPositionScanline = 0;
+        int ppuPositionCycle = 0;
         bool breakOnExactCpuRead = false;
         bool breakOnExactCpuWrite = false;
         uint16_t exactCpuReadAddress = 0x0000;
@@ -1292,6 +1315,37 @@ private:
                !m_halt;
     }
 
+    uint32_t ppuDebugEventMask() const
+    {
+        if(!debugBreakpointsActive()) return 0;
+        uint32_t mask = 0;
+        const auto add = [&](bool enabled, DebugEvent event) {
+            if(enabled) mask |= debugEventBit(event);
+        };
+        add(m_debugBreakpointConfig.breakOnVBlankStart, DebugEvent::PpuVBlankStart);
+        add(m_debugBreakpointConfig.breakOnVBlankEnd, DebugEvent::PpuVBlankEnd);
+        add(m_debugBreakpointConfig.breakOnSpriteOverflow, DebugEvent::PpuSpriteOverflow);
+        add(m_debugBreakpointConfig.breakOnOam2OverflowSet, DebugEvent::PpuOam2OverflowEvaluation);
+        add(m_debugBreakpointConfig.breakOnOam2OverflowSet, DebugEvent::PpuOam2OverflowFetch);
+        add(m_debugBreakpointConfig.breakOnOam2OverflowClear, DebugEvent::PpuOam2OverflowClear);
+        add(m_debugBreakpointConfig.breakOnRenderingEnabled, DebugEvent::PpuRenderingEnabled);
+        add(m_debugBreakpointConfig.breakOnRenderingDisabled, DebugEvent::PpuRenderingDisabled);
+        add(m_debugBreakpointConfig.breakOnPpuPosition, DebugEvent::PpuPosition);
+        return mask;
+    }
+
+    void refreshComponentDebugInstrumentation()
+    {
+        m_ppu.setDebugEventConfig(ppuDebugEventMask(),
+                                  m_debugBreakpointConfig.ppuPositionScanline,
+                                  m_debugBreakpointConfig.ppuPositionCycle);
+    }
+
+    void onPpuDebugEvent(DebugEvent event)
+    {
+        onDebugEvent(event);
+    }
+
     void triggerDebugBreakpoint(const std::string& reason,
                                 uint16_t address = 0x0000,
                                 uint8_t value = 0x00,
@@ -1299,6 +1353,12 @@ private:
                                 bool hasAddress = false)
     {
         if(!debugBreakpointsActive()) {
+            return;
+        }
+
+        // Several PPU clocks can elapse inside one CPU instruction. Preserve
+        // the first matching event so a later event cannot hide its exact dot.
+        if(m_debugBreakpointHit.valid) {
             return;
         }
 
@@ -1466,6 +1526,16 @@ private:
         const bool nmiBefore = m_ppu.nmiLineActive();
         const bool irqBefore = m_apu.getInterruptFlag() || m_cartridge.getInterruptFlag();
         const bool sprite0Before = m_ppu.sprite0Hit();
+        const bool monitorIrqSources = debugBreakpointsActive() &&
+            (m_debugBreakpointConfig.breakOnApuFrameIrqStart ||
+             m_debugBreakpointConfig.breakOnApuFrameIrqEnd ||
+             m_debugBreakpointConfig.breakOnDmcIrqStart ||
+             m_debugBreakpointConfig.breakOnDmcIrqEnd ||
+             m_debugBreakpointConfig.breakOnMapperIrqStart ||
+             m_debugBreakpointConfig.breakOnMapperIrqEnd);
+        const bool frameIrqBefore = monitorIrqSources && m_apu.frameInterruptFlag();
+        const bool dmcIrqBefore = monitorIrqSources && m_apu.dmcInterruptFlag();
+        const bool mapperIrqBefore = monitorIrqSources && m_cartridge.getInterruptFlag();
         ++m_emulationTickCounter;
 
         if(--m_cpuCyclesAcc == 0) {
@@ -1545,6 +1615,15 @@ private:
 
         if(!sprite0Before && m_ppu.sprite0Hit() && m_debugBreakpointConfig.breakOnSpriteZeroHit) {
             triggerDebugBreakpoint("PPU sprite zero hit");
+        }
+
+        if(monitorIrqSources) {
+            const bool frameIrqAfter = m_apu.frameInterruptFlag();
+            const bool dmcIrqAfter = m_apu.dmcInterruptFlag();
+            const bool mapperIrqAfter = m_cartridge.getInterruptFlag();
+            if(frameIrqBefore != frameIrqAfter) onDebugEvent(frameIrqAfter ? DebugEvent::ApuFrameIrqStart : DebugEvent::ApuFrameIrqEnd);
+            if(dmcIrqBefore != dmcIrqAfter) onDebugEvent(dmcIrqAfter ? DebugEvent::DmcIrqStart : DebugEvent::DmcIrqEnd);
+            if(mapperIrqBefore != mapperIrqAfter) onDebugEvent(mapperIrqAfter ? DebugEvent::MapperIrqStart : DebugEvent::MapperIrqEnd);
         }
 
         return true;
@@ -1662,6 +1741,38 @@ public:
         }
     }
 
+    void onDebugEvent(DebugEvent event, uint16_t address = 0, uint8_t value = 0) override
+    {
+        const char* reason = nullptr;
+        bool enabled = false;
+        switch(event) {
+            case DebugEvent::CpuNmiAccepted: enabled = m_debugBreakpointConfig.breakOnCpuNmiAccepted; reason = "CPU accepted NMI"; break;
+            case DebugEvent::CpuIrqAccepted: enabled = m_debugBreakpointConfig.breakOnCpuIrqAccepted; reason = "CPU accepted IRQ"; break;
+            case DebugEvent::CpuNmiHijacksBrk: enabled = m_debugBreakpointConfig.breakOnNmiHijacksBrk; reason = "NMI hijacked BRK"; break;
+            case DebugEvent::CpuNmiHijacksIrq: enabled = m_debugBreakpointConfig.breakOnNmiHijacksIrq; reason = "NMI hijacked IRQ"; break;
+            case DebugEvent::PpuVBlankStart: enabled = m_debugBreakpointConfig.breakOnVBlankStart; reason = "PPU VBlank start"; break;
+            case DebugEvent::PpuVBlankEnd: enabled = m_debugBreakpointConfig.breakOnVBlankEnd; reason = "PPU VBlank end"; break;
+            case DebugEvent::PpuSpriteOverflow: enabled = m_debugBreakpointConfig.breakOnSpriteOverflow; reason = "PPU sprite overflow"; break;
+            case DebugEvent::PpuOam2OverflowEvaluation: enabled = m_debugBreakpointConfig.breakOnOam2OverflowSet; reason = "OAM2 overflow (evaluation)"; break;
+            case DebugEvent::PpuOam2OverflowFetch: enabled = m_debugBreakpointConfig.breakOnOam2OverflowSet; reason = "OAM2 overflow (sprite fetch)"; break;
+            case DebugEvent::PpuOam2OverflowClear: enabled = m_debugBreakpointConfig.breakOnOam2OverflowClear; reason = "OAM2 overflow latch cleared"; break;
+            case DebugEvent::PpuRenderingEnabled: enabled = m_debugBreakpointConfig.breakOnRenderingEnabled; reason = "PPU rendering enabled"; break;
+            case DebugEvent::PpuRenderingDisabled: enabled = m_debugBreakpointConfig.breakOnRenderingDisabled; reason = "PPU rendering disabled"; break;
+            case DebugEvent::ApuFrameIrqStart: enabled = m_debugBreakpointConfig.breakOnApuFrameIrqStart; reason = "APU frame IRQ start"; break;
+            case DebugEvent::ApuFrameIrqEnd: enabled = m_debugBreakpointConfig.breakOnApuFrameIrqEnd; reason = "APU frame IRQ end"; break;
+            case DebugEvent::DmcIrqStart: enabled = m_debugBreakpointConfig.breakOnDmcIrqStart; reason = "DMC IRQ start"; break;
+            case DebugEvent::DmcIrqEnd: enabled = m_debugBreakpointConfig.breakOnDmcIrqEnd; reason = "DMC IRQ end"; break;
+            case DebugEvent::MapperIrqStart: enabled = m_debugBreakpointConfig.breakOnMapperIrqStart; reason = "Mapper IRQ start"; break;
+            case DebugEvent::MapperIrqEnd: enabled = m_debugBreakpointConfig.breakOnMapperIrqEnd; reason = "Mapper IRQ end"; break;
+            case DebugEvent::OamDmaEnd: enabled = m_debugBreakpointConfig.breakOnOamDmaEnd; reason = "OAM DMA end"; break;
+            case DebugEvent::DmcDmaEnd: enabled = m_debugBreakpointConfig.breakOnDmcDmaEnd; reason = "DMC DMA end"; break;
+            case DebugEvent::DmcDmaAbort: enabled = m_debugBreakpointConfig.breakOnDmcDmaAbort; reason = "DMC DMA abort"; break;
+            case DebugEvent::PpuPosition: enabled = m_debugBreakpointConfig.breakOnPpuPosition; reason = "PPU position"; break;
+        }
+        if(enabled) triggerDebugBreakpoint(reason, address, value, false,
+                                           event == DebugEvent::DmcDmaEnd || event == DebugEvent::OamDmaEnd);
+    }
+
     SigSlot::Signal<const std::string&> signalError;
     SigSlot::Signal<const InputFrame&> signalInputFrameSelected;
     SigSlot::Signal<uint32_t> signalResetExecuted;
@@ -1709,6 +1820,7 @@ public:
         m_ppu.signalFrameStart.bind(&GeraNESEmu::onPPUFrameStart, this);
         m_ppu.signalFrameReady.bind(&GeraNESEmu::onPPUFrameReady, this);
         m_ppu.signalScanlineStart.bind(&GeraNESEmu::onPPUScanlineStart, this);
+        m_ppu.signalDebugEvent.bind(&GeraNESEmu::onPpuDebugEvent, this);
         m_apu.getSampleChannel().dmcRequest.bind(&GeraNESEmu::onDMCRequest, this);
         m_apu.getSampleChannel().dmcCancelRequest.bind(&GeraNESEmu::onDMCCancelRequest, this);
         m_apu.getSampleChannel().dmcImplicitAbortRequest.bind(&GeraNESEmu::onDMCImplicitAbortRequest, this);
@@ -2303,6 +2415,7 @@ public:
         }
         m_debugBreakpointsArmed = armed;
         refreshBusInstrumentationEnabled();
+        refreshComponentDebugInstrumentation();
         if(!armed) {
             clearDebugBreakpointHit();
         }
@@ -2350,6 +2463,7 @@ public:
     {
         m_debugBreakpointConfig = config;
         refreshBusInstrumentationEnabled();
+        refreshComponentDebugInstrumentation();
         if(!m_debugBreakpointConfig.enabled) {
             clearDebugBreakpointHit();
         }

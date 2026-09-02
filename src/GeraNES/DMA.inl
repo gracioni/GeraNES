@@ -23,6 +23,7 @@ inline void DMA::processPending(
         cpu.beginCycle();
         cpu.endCycle<DmaCycle::Yes>();
         m_dmcSingleCycleAbortPending = false;
+        m_bus.onDebugEvent(DebugEvent::DmcDmaAbort);
 
         if(!m_oamDmaTransfer) {
             return;
@@ -56,9 +57,10 @@ inline void DMA::processPending(
     }
     cpu.endCycle<DmaCycle::Yes>();
 
-    if(m_dmcAbortPending) {
+        if(m_dmcAbortPending) {
         m_dmcDmaRunning = false;
-        m_dmcAbortPending = false;
+            m_dmcAbortPending = false;
+            m_bus.onDebugEvent(DebugEvent::DmcDmaAbort);
         if(!m_oamDmaTransfer) {
             m_dmaNeedDummyRead = false;
             m_dmaNeedHalt = false;
@@ -78,6 +80,7 @@ inline void DMA::processPending(
                     cpu.endCycle<DmaCycle::Yes>();
                     m_dmcDmaRunning = false;
                     m_dmcAbortPending = false;
+                    m_bus.onDebugEvent(DebugEvent::DmcDmaAbort);
                     continue;
                 }
                 const uint8_t value = processDmaRead(m_dmcDmaAddr, enableInternalRegReads);
@@ -86,6 +89,7 @@ inline void DMA::processPending(
                 m_dmcAbortPending = false;
                 m_dmcInitialLoadPhasePending = false;
                 m_console.apu().getSampleChannel().reloadShiftRegister(value);
+                m_bus.onDebugEvent(DebugEvent::DmcDmaEnd, m_dmcDmaAddr, value);
             } else if(m_oamDmaTransfer) {
                 startDmaCycle(cpu);
                 const uint16_t sourceAddr = static_cast<uint16_t>((m_oamDmaPage << 8) | m_oamDmaReadAddr);
@@ -108,6 +112,8 @@ inline void DMA::processPending(
                 m_oamDmaCounter++;
                 if(m_oamDmaCounter == 0x200) {
                     m_oamDmaTransfer = false;
+                    m_bus.onDebugEvent(DebugEvent::OamDmaEnd,
+                                       static_cast<uint16_t>(m_oamDmaPage) << 8);
                 }
             } else {
                 startDmaCycle(cpu);
