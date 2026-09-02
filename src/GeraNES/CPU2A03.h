@@ -1277,6 +1277,11 @@ public:
         m_flags.irq = true;   
 
         if(m_interrupt == Interrupt::NMI || m_nmiSignal) {
+            // An NMI edge arriving while BRK/IRQ is pushing its state hijacks
+            // that sequence's vector fetch.  The edge is consumed by the
+            // hijack; leaving it latched would incorrectly trigger a second
+            // NMI as soon as the handler begins executing.
+            m_nmiSignal = false;
             const uint8_t low = readMemory(NMI_VECTOR);
             const uint8_t high = readMemory(NMI_VECTOR+1);
             m_pc = MAKE16(low, high);

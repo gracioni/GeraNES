@@ -137,6 +137,7 @@ private:
     bool m_oamCopyDone;
 
     uint8_t m_secondaryOamAddr;
+    bool m_secondaryOamOverflowed;
     bool m_spriteInRange;
 
     uint8_t m_oamAddrN; //oam[N][M]
@@ -824,6 +825,7 @@ public:
         m_oamCopyBuffer = 0xFF;
         m_oamCopyDone = false;
         m_secondaryOamAddr = 0;
+        m_secondaryOamOverflowed = false;
         m_spriteInRange = false;
         m_oamAddrN = 0;
         m_oamAddrM = 0;
@@ -1605,6 +1607,9 @@ yyy NN YYYYY XXXXX
                             
                             m_oamAddrM++;
                             m_secondaryOamAddr++;
+                            if(m_secondaryOamAddr == sizeof(m_secondaryOam)) {
+                                m_secondaryOamOverflowed = true;
+                            }
 
                             if(m_cycle == 66) {
 							    m_sprite0Added = true;
@@ -2130,8 +2135,18 @@ yyy NN YYYYY XXXXX
         }
 
         if(renderingEnabled) {
+            // These reset strobes clear the latch which inhibits secondary-OAM
+            // address increments after its five-bit address has wrapped.
+            if(cycle == 63u || cycle == 255u || cycle == 339u) {
+                m_secondaryOamOverflowed = false;
+            }
+
             if(cycle == 321u) {
                 m_oamCopyBuffer = m_secondaryOam[0];
+                // Sprite fetch has consumed all 32 bytes by this dot.  Its
+                // final increment wraps the address and raises the same latch
+                // as filling OAM2 during evaluation.
+                m_secondaryOamOverflowed = true;
             }
 
             if(visibleCycle) {
@@ -2170,6 +2185,18 @@ yyy NN YYYYY XXXXX
         const bool visibleCycle = cycle - 1u < 256u;
         const bool spriteFetchCycles = cycle - 257u < 64u;
         const bool bgFetchCycles = visibleCycle || (cycle - 321u < 16u);
+
+        // The secondary-OAM address logic is clocked on the pre-render line as
+        // well; in particular this makes its sprite fetch prepare scanline 0.
+        if(renderingEnabled) {
+            if(cycle == 63u || cycle == 255u || cycle == 339u) {
+                m_secondaryOamOverflowed = false;
+            }
+            if(cycle == 321u) {
+                m_oamCopyBuffer = m_secondaryOam[0];
+                m_secondaryOamOverflowed = true;
+            }
+        }
 
         if(prevCycleRenderingEnabled) {
             if(bgFetchCycles) {
@@ -2348,8 +2375,10 @@ yyy NN YYYYY XXXXX
         if(fetchedSpriteCount > 8) {
             fetchedSpriteCount = 8;
         }
-        const bool spriteSlotValid = spriteIndex < fetchedSpriteCount;
-        const Sprite& sprite = secondaryOamSprite(spriteIndex);
+        const bool spriteSlotValid = m_secondaryOamOverflowed || spriteIndex < fetchedSpriteCount;
+        const uint8_t frozenByte = m_secondaryOam[0];
+        const Sprite frozenSprite{frozenByte, frozenByte, frozenByte, frozenByte};
+        const Sprite& sprite = m_secondaryOamOverflowed ? frozenSprite : secondaryOamSprite(spriteIndex);
         bool hasSpriteData = spriteSlotValid;
         if(hasSpriteData && m_preLine) {
             hasSpriteData = isSpriteInRangeForScanline(sprite, 5);
@@ -3180,6 +3209,7 @@ yyy NNYY YYYX XXXX
         SERIALIZEDATA(s, m_oamCopyBuffer);
         SERIALIZEDATA(s, m_oamCopyDone);
         SERIALIZEDATA(s, m_secondaryOamAddr);
+        SERIALIZEDATA(s, m_secondaryOamOverflowed);
         SERIALIZEDATA(s, m_spriteInRange);
         SERIALIZEDATA(s, m_oamAddrN);
         SERIALIZEDATA(s, m_oamAddrM);
