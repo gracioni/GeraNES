@@ -5594,6 +5594,10 @@ void GeraNESApp::mainLoop()
             m_emu.setSimulationSuspended(false);
             m_emu.update(pacingDtMs);
             m_emulationSpeedFrameAccumulator = 0.0;
+            // Keep presenting the latest frame while minimized or unfocused.
+            // Simulation is paced by the host clock in this mode, so rendering
+            // here does not hand frame pacing back to the window compositor.
+            render();
             m_netplayRuntime.recordFramePacing(
                 pacingDtMs,
                 0u,
