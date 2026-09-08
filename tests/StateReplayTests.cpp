@@ -188,6 +188,100 @@ namespace
     }
 }
 
+TEST_CASE("Inspect external platformer state without advancing emulation", "[.platformer-state]")
+{
+    GeraNESTestSupport::requireRomFixture();
+    const char* statePath = std::getenv("GERANES_INSPECT_STATE");
+    REQUIRE(statePath != nullptr);
+    GeraNESEmu emu(DummyAudioOutput::instance());
+    REQUIRE(emu.openRom(GeraNESTestSupport::romPath().string()));
+    Deserialize state;
+    REQUIRE(state.loadFromFile(statePath));
+    const bool freshBoot = std::getenv("GERANES_INSPECT_FRESH_BOOT") != nullptr;
+    if(!freshBoot) emu.serialization(state);
+    REQUIRE_FALSE(state.error());
+    REQUIRE(emu.valid());
+    nlohmann::json report;
+    report["state"] = statePath;
+    report["rom"] = GeraNESTestSupport::romPath().string();
+    report["cpu_ram"] = nlohmann::json::array();
+    report["nametables"] = nlohmann::json::array();
+    report["palette"] = nlohmann::json::array();
+    for(unsigned address = 0; address < 0x800; ++address)
+        report["cpu_ram"].push_back(emu.debugPeekCpuMemory(static_cast<uint16_t>(address)));
+    for(unsigned address = 0x2000; address < 0x3000; ++address)
+        report["nametables"].push_back(emu.getConsole().ppu().debugPeekPpuMemory(static_cast<uint16_t>(address)));
+    for(unsigned address = 0x3f00; address < 0x3f20; ++address)
+        report["palette"].push_back(emu.getConsole().ppu().debugPeekPpuMemory(static_cast<uint16_t>(address)));
+    std::ofstream output(GeraNESTestSupport::reportPath("platformer_state_inspection.json"));
+    REQUIRE(output.good());
+    output << report.dump(2);
+    if(const char* mapPath = std::getenv("GERANES_INSPECT_MAP")) {
+        auto map = GeraNESTestSupport::loadJson(mapPath);
+        const auto source = map["tileIndices"].get<std::vector<int>>();
+        auto word = [&](unsigned addr) { return emu.debugPeekCpuMemory(addr) | (emu.debugPeekCpuMemory(addr + 1) << 8); };
+        auto check = [&](bool repair) {
+            nlohmann::json bad = nlohmann::json::array();
+            const int cx = word(0x33), cy = word(0x35);
+            for(int y = cy / 8; y <= (cy + 239) / 8 && y < 90; ++y)
+            for(int x = (cx + 8) / 8; x <= (cx + 255) / 8 && x < 128; ++x) {
+                const int px = x % 64, py = y % 60;
+                const uint16_t addr = 0x2000 + (px >= 32 ? 0x400 : 0) + (py >= 30 ? 0x800 : 0) + (py % 30) * 32 + px % 32;
+                const int actual = emu.getConsole().ppu().debugPeekPpuMemory(addr);
+                if(actual != source[y * 128 + x]) {
+                    bad.push_back({x,y,actual,source[y * 128 + x]});
+                    if(repair) emu.getConsole().ppu().debugWritePpuMemory(addr, source[y * 128 + x]);
+                }
+            }
+            return bad;
+        };
+        if(!freshBoot) check(true); // Repair only the in-memory copy to detect NEW corruption.
+        emu.enablePpuEventTrace(true);
+        emu.setCpuProfilerEnabled(true);
+        nlohmann::json frames = nlohmann::json::array();
+        for(unsigned i = 0; i < 900; ++i) {
+            InputFrame input = emu.createInputFrame(emu.frameCount());
+            input.state.setPortButtons(1, {i % 60 < 24, false, false, false, false, false, !freshBoot && (i / 80) % 2 != 0, freshBoot || (i / 80) % 2 == 0});
+            REQUIRE(emu.setPlaybackInputFrame(input));
+            emu.updateUntilFrame(17, false);
+            frames.push_back({{"frame",i},{"camera",{word(0x33),word(0x35)}},
+                {"stream",{word(0x1f),emu.debugPeekCpuMemory(0x21)}},{"bad",check(false)}});
+            unsigned visibleVramWrites = 0;
+            for(const auto& e : emu.ppuRegisterAccessEvents())
+                if(e.isWrite && e.address == 0x2007 && e.scanline < 240) ++visibleVramWrites;
+            frames.back()["visible_vram_writes"] = visibleVramWrites;
+            unsigned visibleScrollWrites = 0;
+            for(const auto& e : emu.ppuRegisterAccessEvents())
+                if(e.isWrite && e.address == 0x2005 && e.scanline < 240) ++visibleScrollWrites;
+            frames.back()["visible_scroll_writes"] = visibleScrollWrites;
+            frames.back()["queued"] = nlohmann::json::array();
+            for(unsigned a = 0; a < emu.debugPeekCpuMemory(0x1c); ++a)
+                frames.back()["queued"].push_back(emu.debugPeekCpuMemory(0x3fa + a));
+            if(freshBoot && i > 50 && word(0x33) != 0) {
+                CAPTURE(i);
+                CHECK(visibleVramWrites == 0);
+                CHECK(visibleScrollWrites == 0);
+            }
+            if(i < 40 || visibleVramWrites != 0 || visibleScrollWrites != 0) {
+                auto& item = frames.back();
+                item["ppu"] = nlohmann::json::array();
+                for(const auto& e : emu.ppuRegisterAccessEvents())
+                    item["ppu"].push_back({e.address,e.value,e.scanline,e.cycle,e.isWrite ? 1 : 0});
+                item["queue"] = nlohmann::json::array();
+                for(unsigned a = 0x3fa; a < 0x43a; ++a) item["queue"].push_back(emu.debugPeekCpuMemory(a));
+                item["queue_index"] = emu.debugPeekCpuMemory(0x1c);
+            }
+        }
+        std::ofstream trace(GeraNESTestSupport::reportPath("platformer_replay_inspection.json"));
+        trace << frames.dump();
+        nlohmann::json profile = nlohmann::json::array();
+        for(const auto& e : emu.cpuProfileSnapshot().entries)
+            profile.push_back({{"address",e.address},{"calls",e.callCount},{"cycles",e.exclusiveCycles}});
+        std::ofstream prof(GeraNESTestSupport::reportPath("platformer_profile.json"));
+        prof << profile.dump();
+    }
+}
+
 TEST_CASE("Exact PPU position breakpoint reports its precise dot", "[debugger][breakpoint]")
 {
     GeraNESTestSupport::requireRomFixture();

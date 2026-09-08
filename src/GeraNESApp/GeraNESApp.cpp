@@ -5470,6 +5470,11 @@ void GeraNESApp::mainLoop()
                 mixer->resetRuntime();
             }
         });
+        // openRomPath() deliberately keeps command-line startup suspended until
+        // the presentation loop is ready. The audio flush above is that handoff
+        // boundary; resume now so both free-running and presenter-paced paths
+        // can execute the ROM immediately.
+        m_emu.setSimulationSuspended(false);
     }
 
     const Uint64 counterNow = currentMainLoopCounter();
