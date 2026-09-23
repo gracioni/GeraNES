@@ -22,7 +22,7 @@ jobs:
       commit: ${{ steps.tag.outputs.commit }}
     steps:
       - name: Check out source commit
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
@@ -60,7 +60,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Check out source
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           ref: ${{ needs.verify-tag.outputs.commit }}
 
@@ -103,7 +103,7 @@ jobs:
           tar -C dist -czf "dist/${package}.tar.gz" "${package}"
 
       - name: Upload Linux artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: release-linux
           path: dist/*.tar.gz
@@ -118,7 +118,7 @@ jobs:
         shell: msys2 {0}
     steps:
       - name: Check out source
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           ref: ${{ needs.verify-tag.outputs.commit }}
 
@@ -168,7 +168,7 @@ jobs:
           (cd dist && cmake -E tar cf "${package}.zip" --format=zip "${package}")
 
       - name: Upload Windows artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: release-windows
           path: dist/*.zip
@@ -183,7 +183,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Download release artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v7
         with:
           pattern: release-*
           path: dist
