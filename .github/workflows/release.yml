@@ -174,12 +174,189 @@ jobs:
           path: dist/*.zip
           if-no-files-found: error
 
+  build-web:
+    name: Build Web (Emscripten)
+    needs: verify-tag
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.verify-tag.outputs.commit }}
+
+      - name: Set up Emscripten
+        uses: emscripten-core/setup-emsdk@v15
+        with:
+          version: 5.0.2
+          actions-cache-folder: emsdk-cache
+
+      - name: Install documentation dependencies
+        shell: bash
+        run: |
+          python3 -m venv .venv
+          .venv/bin/pip install -r docs/user-guide/requirements.txt
+          echo "${PWD}/.venv/bin" >> "${GITHUB_PATH}"
+
+      - name: Configure and build
+        shell: bash
+        run: |
+          emcmake cmake -S . -B build-release -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DGERANES_FETCHCONTENT_UPDATES=OFF \
+            -DPython3_EXECUTABLE="${PWD}/.venv/bin/python"
+          cmake --build build-release --target GeraNES copy_web_docs --parallel 2
+
+      - name: Create Web archive
+        shell: bash
+        env:
+          TAG: ${{ needs.verify-tag.outputs.tag }}
+        run: |
+          set -euo pipefail
+          version="${TAG//\//-}"
+          package="GeraNES-${version}-web"
+          mkdir -p "dist/${package}"
+          cp build-release/GeraNES.html "dist/${package}/"
+          cp build-release/GeraNES.js "dist/${package}/"
+          cp build-release/GeraNES.wasm "dist/${package}/"
+          cp build-release/GeraNES.data "dist/${package}/"
+          cp -a build-release/docs "dist/${package}/"
+          cp LICENSE readme.md "dist/${package}/"
+          (cd dist && cmake -E tar cf "${package}.zip" --format=zip "${package}")
+
+      - name: Upload Web artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: release-web
+          path: dist/*.zip
+          if-no-files-found: error
+
+  build-android:
+    name: Build Android APK
+    needs: verify-tag
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.verify-tag.outputs.commit }}
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v4
+        with:
+          packages: >-
+            platform-tools
+            platforms;android-37
+            build-tools;37.0.0
+            ndk;27.2.12479018
+            cmake;3.22.1
+
+      - name: Install documentation dependencies
+        shell: bash
+        run: |
+          python3 -m venv .venv
+          .venv/bin/pip install -r docs/user-guide/requirements.txt
+          echo "${PWD}/.venv/bin" >> "${GITHUB_PATH}"
+
+      - name: Create CI signing and build configuration
+        shell: bash
+        env:
+          KEYSTORE_BASE64: ${{ secrets.CI_ANDROID_KEYSTORE_BASE64 }}
+          GERANES_CI_KEYSTORE_PASSWORD: ${{ secrets.CI_ANDROID_KEYSTORE_PASSWORD }}
+          GERANES_CI_KEY_ALIAS: ${{ secrets.CI_ANDROID_KEY_ALIAS }}
+          GERANES_CI_KEY_PASSWORD: ${{ secrets.CI_ANDROID_KEY_PASSWORD }}
+          GERANES_CI_VERSION_CODE: ${{ github.run_number }}
+          GERANES_CI_VERSION_NAME: ${{ needs.verify-tag.outputs.tag }}
+        run: |
+          set -euo pipefail
+          if [[ -z "${KEYSTORE_BASE64}" ]]; then
+            echo "Missing CI_ANDROID_KEYSTORE_BASE64 repository secret." >&2
+            exit 1
+          fi
+
+          mkdir -p "${RUNNER_TEMP}/geranes-signing"
+          keystore_path="${RUNNER_TEMP}/geranes-signing/geranes-ci.jks"
+          printf '%s' "${KEYSTORE_BASE64}" | base64 --decode > "${keystore_path}"
+
+          export GERANES_CI_KEYSTORE_PATH="${keystore_path}"
+          export GERANES_CI_NDK_ROOT="${ANDROID_SDK_ROOT}/ndk/27.2.12479018"
+          export GERANES_CI_CMAKE_DIR="${ANDROID_SDK_ROOT}/cmake/3.22.1"
+          jq -n \
+            --arg sdkRoot "${ANDROID_SDK_ROOT}" \
+            --arg ndkRoot "${GERANES_CI_NDK_ROOT}" \
+            --arg javaHome "${JAVA_HOME}" \
+            --arg cmakeDir "${GERANES_CI_CMAKE_DIR}" \
+            --arg versionName "${GERANES_CI_VERSION_NAME}" \
+            --argjson versionCode "${GERANES_CI_VERSION_CODE}" \
+            --arg keystorePath "${GERANES_CI_KEYSTORE_PATH}" \
+            --arg keystorePassword "${GERANES_CI_KEYSTORE_PASSWORD}" \
+            --arg keyAlias "${GERANES_CI_KEY_ALIAS}" \
+            --arg keyPassword "${GERANES_CI_KEY_PASSWORD}" \
+            '{
+              sdkRoot: $sdkRoot,
+              ndkRoot: $ndkRoot,
+              javaHome: $javaHome,
+              cmakeDir: $cmakeDir,
+              gradleBin: "",
+              gradleVersion: "9.3.1",
+              packageFormat: "apk",
+              abis: ["arm64-v8a", "armeabi-v7a"],
+              api: 24,
+              stl: "c++_shared",
+              appName: "GeraNES Sideload",
+              applicationId: "com.racionisoft.geranes.sideload",
+              namespace: "com.racionisoft.geranes",
+              versionCode: $versionCode,
+              versionName: $versionName,
+              compileSdk: 37,
+              targetSdk: 37,
+              signing: {
+                keystorePath: $keystorePath,
+                keystorePassword: $keystorePassword,
+                keyAlias: $keyAlias,
+                keyPassword: $keyPassword
+              }
+            }' > android/build-config.jsonc
+
+      - name: Build signed APK
+        shell: bash
+        run: bash build.sh android Release 2
+
+      - name: Stage Android APK
+        shell: bash
+        env:
+          TAG: ${{ needs.verify-tag.outputs.tag }}
+        run: |
+          set -euo pipefail
+          version="${TAG//\//-}"
+          mkdir -p dist
+          apk="$(find deploy-android -maxdepth 1 -type f -name '*.apk' | head -n 1)"
+          if [[ -z "${apk}" ]]; then
+            echo "Android build did not produce an APK." >&2
+            exit 1
+          fi
+          cp "${apk}" "dist/GeraNES-${version}-android.apk"
+
+      - name: Upload Android artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: release-android
+          path: dist/*.apk
+          if-no-files-found: error
+
   publish:
     name: Publish GitHub release
     needs:
       - verify-tag
       - build-linux
       - build-windows
+      - build-web
+      - build-android
     runs-on: ubuntu-latest
     steps:
       - name: Download release artifacts

@@ -47,6 +47,34 @@ The JSONC file supports:
 
 If you omit them, `build.sh android` can still build release artifacts, but they may be unsigned and not publishable to Google Play.
 
+### GitHub release signing
+
+The GitHub Actions release build uses a separate sideload identity and must
+never use the Google Play upload or app-signing key. Create a dedicated key:
+
+```bash
+keytool -genkeypair -v -keystore geranes-ci.jks -alias geranes-ci \
+  -keyalg RSA -keysize 4096 -validity 10000
+```
+
+Add these repository Actions secrets:
+
+- `CI_ANDROID_KEYSTORE_BASE64`: base64-encoded contents of `geranes-ci.jks`
+- `CI_ANDROID_KEYSTORE_PASSWORD`: CI keystore password
+- `CI_ANDROID_KEY_ALIAS`: alias used above (`geranes-ci`)
+- `CI_ANDROID_KEY_PASSWORD`: CI key password
+
+On Linux or Git Bash, generate the first value without line wrapping:
+
+```bash
+base64 -w 0 geranes-ci.jks
+```
+
+The workflow creates the ignored `android/build-config.jsonc` inside the
+runner and deletes the runner, decoded key, and config after the job. The APK
+uses application ID `com.racionisoft.geranes.sideload`, so it can coexist with
+the Play Store application and cannot be mistaken for a Play-signed update.
+
 ## Package selection
 
 - `"packageFormat": "apk"`
