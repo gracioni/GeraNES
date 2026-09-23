@@ -451,7 +451,6 @@ public:
             if(!emu.valid()) {
                 break;
             }
-
             if((frame >= firstShotFrame && (frame % shotEveryFrames) == 0) || frame == totalFrames) {
                 const uint32_t* framebuffer = emu.getFramebuffer();
                 std::ostringstream fileName;

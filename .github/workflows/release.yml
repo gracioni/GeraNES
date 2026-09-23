@@ -1,0 +1,189 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  verify-tag:
+    name: Verify tag is on master
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.tag.outputs.name }}
+    steps:
+      - name: Check out the tagged commit
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Verify release tag
+        id: tag
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [[ "${GITHUB_REF_TYPE}" != "tag" ]]; then
+            echo "This workflow must be run for a Git tag." >&2
+            exit 1
+          fi
+
+          git fetch --no-tags origin master
+          if ! git merge-base --is-ancestor "${GITHUB_SHA}" origin/master; then
+            echo "Tag ${GITHUB_REF_NAME} does not point to a commit on master." >&2
+            exit 1
+          fi
+
+          echo "name=${GITHUB_REF_NAME}" >> "${GITHUB_OUTPUT}"
+
+  build-linux:
+    name: Build Linux x86_64
+    needs: verify-tag
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Install build dependencies
+        shell: bash
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential cmake ninja-build python3-pip python3-venv \
+            libgl1-mesa-dev libasound2-dev libpulse-dev libudev-dev \
+            libx11-dev libxext-dev libxrandr-dev libxcursor-dev libxi-dev \
+            libxfixes-dev libxss-dev libwayland-dev libxkbcommon-dev
+          python3 -m venv .venv
+          .venv/bin/pip install -r docs/user-guide/requirements.txt
+          echo "${PWD}/.venv/bin" >> "${GITHUB_PATH}"
+
+      - name: Configure and build
+        shell: bash
+        run: |
+          cmake -S . -B build-release -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DGERANES_FETCHCONTENT_UPDATES=OFF
+          cmake --build build-release --target GeraNES geranes_libretro --parallel 2
+
+      - name: Create Linux archive
+        shell: bash
+        env:
+          TAG: ${{ needs.verify-tag.outputs.tag }}
+        run: |
+          set -euo pipefail
+          version="${TAG//\//-}"
+          package="GeraNES-${version}-linux-x86_64"
+          mkdir -p "dist/${package}"
+          cp -a build-release/generated/runtime_data/. "dist/${package}/"
+          cp build-release/GeraNES "dist/${package}/"
+          cp build-release/geranes_libretro.so "dist/${package}/"
+          cp build-release/geranes_libretro.info "dist/${package}/"
+          cp LICENSE readme.md "dist/${package}/"
+          tar -C dist -czf "dist/${package}.tar.gz" "${package}"
+
+      - name: Upload Linux artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-linux
+          path: dist/*.tar.gz
+          if-no-files-found: error
+
+  build-windows:
+    name: Build Windows x86_64 (MinGW)
+    needs: verify-tag
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: msys2 {0}
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up MinGW
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: MINGW64
+          update: true
+          install: >-
+            git
+            make
+            mingw-w64-x86_64-toolchain
+            mingw-w64-x86_64-cmake
+            mingw-w64-x86_64-ninja
+            mingw-w64-x86_64-python
+            mingw-w64-x86_64-python-pip
+
+      - name: Install documentation dependencies
+        run: python -m pip install --break-system-packages -r docs/user-guide/requirements.txt
+
+      - name: Configure and build
+        run: |
+          cmake -S . -B build-release -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DGERANES_FETCHCONTENT_UPDATES=OFF
+          cmake --build build-release --target GeraNES geranes_libretro --parallel 2
+
+      - name: Create Windows archive
+        env:
+          TAG: ${{ needs.verify-tag.outputs.tag }}
+        run: |
+          set -euo pipefail
+          version="${TAG//\//-}"
+          package="GeraNES-${version}-windows-x86_64"
+          mkdir -p "dist/${package}"
+          cp -a build-release/generated/runtime_data/. "dist/${package}/"
+          cp build-release/GeraNES.exe "dist/${package}/"
+          cp build-release/geranes_libretro.dll "dist/${package}/"
+          cp build-release/geranes_libretro.info "dist/${package}/"
+          find build-release -maxdepth 1 -type f -name '*.dll' \
+            ! -name 'geranes_libretro.dll' -exec cp {} "dist/${package}/" \;
+          cp LICENSE readme.md "dist/${package}/"
+          (cd dist && cmake -E tar cf "${package}.zip" --format=zip "${package}")
+
+      - name: Upload Windows artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-windows
+          path: dist/*.zip
+          if-no-files-found: error
+
+  publish:
+    name: Publish GitHub release
+    needs:
+      - verify-tag
+      - build-linux
+      - build-windows
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download release artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: release-*
+          path: dist
+          merge-multiple: true
+
+      - name: Create release and upload files
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.verify-tag.outputs.tag }}
+        run: |
+          set -euo pipefail
+          if ! gh release view "${TAG}" --repo "${GITHUB_REPOSITORY}" >/dev/null 2>&1; then
+            gh release create "${TAG}" \
+              --repo "${GITHUB_REPOSITORY}" \
+              --title "GeraNES ${TAG}" \
+              --generate-notes \
+              --verify-tag
+          fi
+          gh release upload "${TAG}" dist/* \
+            --repo "${GITHUB_REPOSITORY}" \
+            --clobber

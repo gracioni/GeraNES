@@ -1,4 +1,7 @@
 /.*/
+!/.github/
+!/.github/workflows/
+!/.github/workflows/*.yml
 /build*/
 /deploy*/
 /dist*/
