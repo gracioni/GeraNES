@@ -19,6 +19,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       tag: ${{ steps.tag.outputs.name }}
+      commit: ${{ steps.tag.outputs.commit }}
     steps:
       - name: Check out source commit
         uses: actions/checkout@v4
@@ -38,10 +39,20 @@ jobs:
           fi
 
           if [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
-            echo "name=${GITHUB_REF_NAME}" >> "${GITHUB_OUTPUT}"
+            tag="${GITHUB_REF_NAME}"
+            commit="${GITHUB_SHA}"
           else
-            echo "name=manual-${GITHUB_SHA::7}" >> "${GITHUB_OUTPUT}"
+            tag="$(git describe --tags --abbrev=0 origin/master 2>/dev/null || true)"
+            if [[ -z "${tag}" ]]; then
+              echo "No tag reachable from master was found." >&2
+              exit 1
+            fi
+            commit="$(git rev-list -n 1 "${tag}")"
+            echo "Manual run will rebuild tag ${tag} at ${commit}."
           fi
+
+          echo "name=${tag}" >> "${GITHUB_OUTPUT}"
+          echo "commit=${commit}" >> "${GITHUB_OUTPUT}"
 
   build-linux:
     name: Build Linux x86_64
@@ -50,6 +61,8 @@ jobs:
     steps:
       - name: Check out source
         uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.verify-tag.outputs.commit }}
 
       - name: Install build dependencies
         shell: bash
@@ -105,6 +118,8 @@ jobs:
     steps:
       - name: Check out source
         uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.verify-tag.outputs.commit }}
 
       - name: Set up MinGW
         uses: msys2/setup-msys2@v2
@@ -160,7 +175,6 @@ jobs:
 
   publish:
     name: Publish GitHub release
-    if: github.ref_type == 'tag'
     needs:
       - verify-tag
       - build-linux
