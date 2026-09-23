@@ -122,13 +122,17 @@ jobs:
             mingw-w64-x86_64-python-pip
 
       - name: Install documentation dependencies
-        run: python -m pip install --break-system-packages -r docs/user-guide/requirements.txt
+        run: |
+          python -m pip install --break-system-packages -r docs/user-guide/requirements.txt
+          python -m mkdocs --version
 
       - name: Configure and build
         run: |
+          python_executable="$(python -c 'import sys; print(sys.executable)')"
           cmake -S . -B build-release -G Ninja \
             -DCMAKE_BUILD_TYPE=Release \
-            -DGERANES_FETCHCONTENT_UPDATES=OFF
+            -DGERANES_FETCHCONTENT_UPDATES=OFF \
+            -DPython3_EXECUTABLE="${python_executable}"
           cmake --build build-release --target GeraNES geranes_libretro --parallel 2
 
       - name: Create Windows archive
