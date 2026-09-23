@@ -15,34 +15,33 @@ concurrency:
 
 jobs:
   verify-tag:
-    name: Verify tag is on master
+    name: Verify source is on master
     runs-on: ubuntu-latest
     outputs:
       tag: ${{ steps.tag.outputs.name }}
     steps:
-      - name: Check out the tagged commit
+      - name: Check out source commit
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - name: Verify release tag
+      - name: Verify source commit
         id: tag
         shell: bash
         run: |
           set -euo pipefail
 
-          if [[ "${GITHUB_REF_TYPE}" != "tag" ]]; then
-            echo "This workflow must be run for a Git tag." >&2
-            exit 1
-          fi
-
           git fetch --no-tags origin master
           if ! git merge-base --is-ancestor "${GITHUB_SHA}" origin/master; then
-            echo "Tag ${GITHUB_REF_NAME} does not point to a commit on master." >&2
+            echo "Commit ${GITHUB_SHA} is not on master." >&2
             exit 1
           fi
 
-          echo "name=${GITHUB_REF_NAME}" >> "${GITHUB_OUTPUT}"
+          if [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
+            echo "name=${GITHUB_REF_NAME}" >> "${GITHUB_OUTPUT}"
+          else
+            echo "name=manual-${GITHUB_SHA::7}" >> "${GITHUB_OUTPUT}"
+          fi
 
   build-linux:
     name: Build Linux x86_64
@@ -161,6 +160,7 @@ jobs:
 
   publish:
     name: Publish GitHub release
+    if: github.ref_type == 'tag'
     needs:
       - verify-tag
       - build-linux
