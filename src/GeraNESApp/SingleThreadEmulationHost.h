@@ -537,6 +537,9 @@ public:
 
     GameDatabase::System currentCartridgeSystem() const override
     {
+        if(!m_emu.valid()) {
+            return GameDatabase::System::Unknown;
+        }
         return m_emu.getConsole().cartridge().system();
     }
 
