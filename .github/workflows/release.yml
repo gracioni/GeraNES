@@ -251,8 +251,8 @@ jobs:
         with:
           packages: >-
             platform-tools
-            platforms;android-37
-            build-tools;37.0.0
+            platforms;android-36
+            build-tools;36.0.0
             ndk;27.2.12479018
             cmake;3.22.1
 
@@ -313,8 +313,8 @@ jobs:
               namespace: "com.racionisoft.geranes",
               versionCode: $versionCode,
               versionName: $versionName,
-              compileSdk: 37,
-              targetSdk: 37,
+              compileSdk: 36,
+              targetSdk: 36,
               signing: {
                 keystorePath: $keystorePath,
                 keystorePassword: $keystorePassword,
