@@ -3,6 +3,7 @@
 #define _USE_MATH_DEFINES
 #include <algorithm>
 #include <cmath>
+#include <numbers>
 
 #include "GeraNES/defines.h"
 #include "GeraNES/util/CircularBuffer.h"
@@ -15,7 +16,7 @@ static GERANES_INLINE float linearInterpolation(float v0, float v1, float t)
 
 static GERANES_INLINE float cosineInterpolate(float v0,float v1, float t)
 {
-   float t2 = (1-cos(t*M_PI))/2;
+   float t2 = (1-cos(t*std::numbers::pi_v<float>))/2;
    return linearInterpolation(v0, v1, t2);
 }
 
@@ -113,7 +114,7 @@ public:
 
     GERANES_INLINE_HOT float get() override
     {
-        m_value = sin(2 * M_PI * m_frequency *  m_currentPosition);
+        m_value = sin(2 * std::numbers::pi_v<float> * m_frequency *  m_currentPosition);
         m_value *= m_volume;
 
         update();
@@ -656,7 +657,7 @@ public:
 
     virtual void init(int sampleRate, float cutoffFrequency) override{
         Filter::init(sampleRate, cutoffFrequency);
-        float RC = 1.0 / (2 * M_PI * cutoffFrequency);
+        float RC = 1.0 / (2 * std::numbers::pi_v<float> * cutoffFrequency);
         m_alpha = RC / (RC + 1.0 / sampleRate);
     }
 
@@ -689,7 +690,7 @@ public:
 
     virtual void init(int sampleRate, float cutoffFrequency) override{
         Filter::init(sampleRate, cutoffFrequency);
-        float RC = 1.0 / (2 * M_PI * cutoffFrequency);
+        float RC = 1.0 / (2 * std::numbers::pi_v<float> * cutoffFrequency);
         m_alpha = 1.0 / (1.0 + RC * sampleRate);
     }
 

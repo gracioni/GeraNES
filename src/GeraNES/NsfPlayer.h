@@ -3,7 +3,6 @@
 #include <functional>
 
 #ifdef ENABLE_NSF_PLAYER
-
 #include <cstdint>
 #include <string>
 
@@ -11,8 +10,11 @@
 #include "APU/APU.h"
 #include "IAudioOutput.h"
 #include "logger/logger.h"
+#endif
 
 namespace GeraNES {
+
+#ifdef ENABLE_NSF_PLAYER
 
 class NsfPlayer
 {
